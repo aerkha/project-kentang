@@ -1,9 +1,10 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import pb from "./pocketbase";
 
 export interface Broker {
-  id: string;
+  id: string;           // BRK-0001 (customId)
   name: string;
   address: string;
   idNumber: string;
@@ -14,71 +15,82 @@ export interface Broker {
 
 interface BrokersContextType {
   brokers: Broker[];
-  addBroker: (broker: Omit<Broker, "id">) => void;
-  updateBroker: (id: string, updates: Partial<Broker>) => void;
-  deleteBroker: (id: string) => void;
+  addBroker:    (broker: Omit<Broker, "id">) => Promise<void>;
+  updateBroker: (id: string, updates: Partial<Broker>) => Promise<void>;
+  deleteBroker: (id: string) => Promise<void>;
 }
 
 const BrokersContext = createContext<BrokersContextType | undefined>(undefined);
 
-const INITIAL_BROKERS: Broker[] = [
-  {
-    id: "BRK-0001",
-    name: "Ahmad Wijaya",
-    address: "Jl. Gatot Subroto No. 10, Jakarta Selatan",
-    idNumber: "3174020202800002",
-    bankName: "Mandiri",
-    accountNumber: "1122334455",
-    phone: "+62 813-1111-2222",
-  },
-  {
-    id: "BRK-0002",
-    name: "Budi Santoso",
-    address: "Jl. Thamrin No. 5, Jakarta Pusat",
-    idNumber: "3174030303800003",
-    bankName: "BNI",
-    accountNumber: "5566778899",
-    phone: "+62 821-3333-4444",
-  },
-];
+// Map customId → PocketBase record id
+const pbIdMap = new Map<string, string>();
+
+function recordToBroker(r: Record<string, unknown>): Broker {
+  const customId = r.customId as string;
+  pbIdMap.set(customId, r.id as string);
+  return {
+    id:            customId,
+    name:          r.name          as string,
+    address:       r.address       as string,
+    idNumber:      r.idNumber      as string,
+    bankName:      r.bankName      as string,
+    accountNumber: r.accountNumber as string,
+    phone:         r.phone         as string,
+  };
+}
+
+async function generateCustomId(): Promise<string> {
+  try {
+    const res = await pb.collection("brokers").getList(1, 1, {
+      sort: "-customId", fields: "customId",
+    });
+    if (res.items.length === 0) return "BRK-0001";
+    const n = parseInt((res.items[0].customId as string).replace("BRK-", "")) || 0;
+    return `BRK-${String(n + 1).padStart(4, "0")}`;
+  } catch {
+    return "BRK-0001";
+  }
+}
 
 export function BrokersProvider({ children }: { children: ReactNode }) {
   const [brokers, setBrokers] = useState<Broker[]>([]);
 
   useEffect(() => {
-    const stored = localStorage.getItem("minbun_brokers");
-    if (stored) {
-      setBrokers(JSON.parse(stored));
-    } else {
-      setBrokers(INITIAL_BROKERS);
-      localStorage.setItem("minbun_brokers", JSON.stringify(INITIAL_BROKERS));
-    }
+    pb.collection("brokers")
+      .getFullList({ sort: "customId" })
+      .then((records) => setBrokers(records.map(recordToBroker)))
+      .catch(console.error);
   }, []);
 
-  const saveBrokers = (newBrokers: Broker[]) => {
-    setBrokers(newBrokers);
-    localStorage.setItem("minbun_brokers", JSON.stringify(newBrokers));
+  const addBroker = async (broker: Omit<Broker, "id">) => {
+    const customId = await generateCustomId();
+    const record = await pb.collection("brokers").create({
+      customId,
+      name:          broker.name,
+      address:       broker.address,
+      idNumber:      broker.idNumber,
+      bankName:      broker.bankName,
+      accountNumber: broker.accountNumber,
+      phone:         broker.phone,
+    });
+    setBrokers((prev) => [...prev, recordToBroker(record)]);
   };
 
-  const generateId = (current: Broker[]) => {
-    const maxNum = current.reduce((max, b) => {
-      const num = parseInt(b.id.replace("BRK-", "")) || 0;
-      return num > max ? num : max;
-    }, 0);
-    return `BRK-${String(maxNum + 1).padStart(4, "0")}`;
+  const updateBroker = async (id: string, updates: Partial<Broker>) => {
+    const pbId = pbIdMap.get(id);
+    if (!pbId) return;
+    const record = await pb.collection("brokers").update(pbId, updates);
+    setBrokers((prev) =>
+      prev.map((b) => (b.id === id ? recordToBroker(record) : b))
+    );
   };
 
-  const addBroker = (broker: Omit<Broker, "id">) => {
-    const newBroker: Broker = { ...broker, id: generateId(brokers) };
-    saveBrokers([...brokers, newBroker]);
-  };
-
-  const updateBroker = (id: string, updates: Partial<Broker>) => {
-    saveBrokers(brokers.map((b) => (b.id === id ? { ...b, ...updates } : b)));
-  };
-
-  const deleteBroker = (id: string) => {
-    saveBrokers(brokers.filter((b) => b.id !== id));
+  const deleteBroker = async (id: string) => {
+    const pbId = pbIdMap.get(id);
+    if (!pbId) return;
+    await pb.collection("brokers").delete(pbId);
+    pbIdMap.delete(id);
+    setBrokers((prev) => prev.filter((b) => b.id !== id));
   };
 
   return (
@@ -89,9 +101,7 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
 }
 
 export function useBrokers() {
-  const context = useContext(BrokersContext);
-  if (context === undefined) {
-    throw new Error("useBrokers must be used within a BrokersProvider");
-  }
-  return context;
+  const ctx = useContext(BrokersContext);
+  if (!ctx) throw new Error("useBrokers must be used within a BrokersProvider");
+  return ctx;
 }

@@ -4,12 +4,11 @@ import { useState, useMemo } from "react";
 import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
-import { useMou } from "@/lib/mou-context";
+import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -36,8 +35,6 @@ import {
   PackageCheck,
   Truck,
   Receipt,
-  Filter,
-  Briefcase,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -104,16 +101,6 @@ function formatDate(s: string) {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-function pct(n: number) {
-  return `${n.toFixed(2)}%`;
-}
-
 // Read-only preview box
 function Preview({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
@@ -124,57 +111,6 @@ function Preview({ label, value, color }: { label: string; value: string; color?
       </div>
     </div>
   );
-}
-
-// ─────────────────────────────────────────────
-// Profit distribution for recap table
-// (Owner & HASANAH each get 50% of the company's
-//  50% share = 25% of Total Profit each)
-// ─────────────────────────────────────────────
-
-function calcMouDistribution(
-  mouInvestorId: string,
-  mouDate: string,
-  contractPeriod: number,
-  transaksis: Transaksi[],
-) {
-  const mouStart = new Date(mouDate).getTime();
-  const mouEnd   = mouStart + contractPeriod * 86_400_000;
-
-  let totalProfit = 0;
-  let owner = 0, hasanah = 0, investor = 0, trader = 0, minbun = 0, brokerI = 0, brokerII = 0;
-
-  transaksis.forEach((t) => {
-    const tDate = new Date(t.date).getTime();
-    if (tDate < mouStart || tDate > mouEnd) return;
-
-    const entry = t.investorEntries.find((e) => e.investorId === mouInvestorId);
-    if (!entry) return;
-
-    const calc = calcTransaksi(t);
-    if (calc.totalInvestasi === 0) return;
-
-    const ratio  = entry.nilaiInvestasi / calc.totalInvestasi;
-    const profit = calc.profit * ratio;
-
-    totalProfit += profit;
-
-    const hasBroker = !!t.brokerName;
-    const hasBII    = !!t.hasBrokerII;
-
-    // With 0 broker: Investor35 + Trader10 + MinBun5  = 50% → Owner+Hasanah = 50%
-    // With 1 broker: Investor35 + Trader10 + BrokerI5  = 50% → Owner+Hasanah = 50%
-    // With 2 brokers: Investor35 + Trader5 + BrokerI5 + BrokerII5 = 50% → Owner+Hasanah = 50%
-    owner    += profit * 0.25;
-    hasanah  += profit * 0.25;
-    investor += profit * 0.35;
-    trader   += profit * (hasBII ? 0.05 : 0.10);
-    minbun   += profit * (hasBroker ? 0 : 0.05);
-    brokerI  += profit * (hasBroker ? 0.05 : 0);
-    brokerII += profit * (hasBII    ? 0.05 : 0);
-  });
-
-  return { totalProfit, owner, hasanah, investor, trader, minbun, brokerI, brokerII };
 }
 
 // ─────────────────────────────────────────────
@@ -486,18 +422,14 @@ export function TransaksiContent() {
   const { transaksis, addTransaksi, updateTransaksi, deleteTransaksi } = useTransaksi();
   const { investors }  = useInvestors();
   const { brokers }    = useBrokers();
-  const { mous }       = useMou();
+  const { user }       = useAuth();
+  const isAdmin        = user?.role === "admin";
 
   const [isAddOpen, setIsAddOpen]       = useState(false);
   const [isEditOpen, setIsEditOpen]     = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selected, setSelected]         = useState<Transaksi | null>(null);
   const [form, setForm]                 = useState<TrxFormData>(initialForm());
-
-  // Recap table filter state
-  const [showFilter, setShowFilter] = useState(false);
-  const [filterNama, setFilterNama] = useState("");
-  const [filterPks,  setFilterPks]  = useState("");
 
   // ── Summary metrics ──
   const metrics = useMemo(() => {
@@ -516,47 +448,6 @@ export function TransaksiContent() {
     () => [...transaksis].sort((a, b) => b.date.localeCompare(a.date)),
     [transaksis],
   );
-
-  // ── Recap table data (per MoU) ──
-  const rekapData = useMemo(() => {
-    return mous
-      .slice()
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map((mou, idx) => {
-        const dist = calcMouDistribution(mou.investorId, mou.date, mou.contractPeriod, transaksis);
-        const modal = mou.investmentAmount;
-
-        // Usia investasi (bulan sejak tanggal mulai)
-        const usiaHari  = Math.max(0, Math.floor((Date.now() - new Date(mou.date).getTime()) / 86_400_000));
-        const usiaBulan = Math.floor(usiaHari / 30);
-
-        const endDateStr = addDays(mou.date, mou.contractPeriod);
-
-        const roi = (v: number) => (modal > 0 ? (v / modal) * 100 : 0);
-
-        return {
-          no: idx + 1,
-          mou,
-          endDateStr,
-          usiaBulan,
-          ...dist,
-          roiTotal:          roi(dist.totalProfit),
-          roiTraderInvestor: roi(dist.trader + dist.investor),
-          roiInvestor:       roi(dist.investor),
-          roiTrader:         roi(dist.trader),
-          roiMinbun:         roi(dist.minbun),
-        };
-      });
-  }, [mous, transaksis]);
-
-  // ── Apply filters ──
-  const filteredRekap = useMemo(() => {
-    return rekapData.filter((row) => {
-      if (filterNama && !row.mou.investorName.toLowerCase().includes(filterNama.toLowerCase())) return false;
-      if (filterPks  && !row.mou.id.toLowerCase().includes(filterPks.toLowerCase()))             return false;
-      return true;
-    });
-  }, [rekapData, filterNama, filterPks]);
 
   // ── Next ID ──
   const nextId = () => {
@@ -669,9 +560,6 @@ export function TransaksiContent() {
     onUpdateEntry:    handleUpdateEntry,
     onInvestorSelect: handleInvestorSelect,
   };
-
-  // Compact currency for wide table
-  const Rp = formatShort;
 
   return (
     <div className="space-y-6">
@@ -812,6 +700,7 @@ export function TransaksiContent() {
                           {formatRp(c.profit)}
                         </td>
                         <td className="py-3 px-4">
+                          {isAdmin && (
                           <div className="flex items-center justify-center gap-1">
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(t)}>
                               <Pencil className="h-3.5 w-3.5" />
@@ -820,6 +709,7 @@ export function TransaksiContent() {
                               <Trash2 className="h-3.5 w-3.5 text-destructive" />
                             </Button>
                           </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -842,137 +732,6 @@ export function TransaksiContent() {
           </CardContent>
         </Card>
       )}
-
-      <Separator />
-
-      {/* ══════════════════════════════════════
-          REKAP INVESTASI (per MoU)
-      ══════════════════════════════════════ */}
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <CardTitle>Rekap Investasi</CardTitle>
-              <CardDescription>
-                Distribusi profit berdasarkan transaksi yang terjadi dalam periode setiap PKS
-              </CardDescription>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => setShowFilter((v) => !v)}>
-              <Filter className="h-4 w-4 mr-2" />
-              {showFilter ? "Sembunyikan Filter" : "Filter Kolom"}
-            </Button>
-          </div>
-
-          {showFilter && (
-            <div className="mt-3 flex flex-wrap gap-3 items-end">
-              <div className="flex-1 min-w-[180px] space-y-1">
-                <Label className="text-xs">Nama Investor</Label>
-                <Input
-                  placeholder="Cari nama investor..."
-                  value={filterNama}
-                  onChange={(e) => setFilterNama(e.target.value)}
-                  className="h-8 text-sm"
-                />
-              </div>
-              <div className="w-44 space-y-1">
-                <Label className="text-xs">No PKS (MoU)</Label>
-                <Input
-                  placeholder="MOU-0001"
-                  value={filterPks}
-                  onChange={(e) => setFilterPks(e.target.value)}
-                  className="h-8 text-sm"
-                />
-              </div>
-              {(filterNama || filterPks) && (
-                <Button
-                  variant="ghost" size="sm"
-                  onClick={() => { setFilterNama(""); setFilterPks(""); }}
-                >
-                  <X className="h-4 w-4 mr-1" />Reset
-                </Button>
-              )}
-            </div>
-          )}
-        </CardHeader>
-
-        <CardContent className="p-0">
-          {mous.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
-              <Briefcase className="h-10 w-10" />
-              <p className="text-sm">Belum ada MoU — tambahkan di halaman Perjanjian MoU</p>
-            </div>
-          ) : filteredRekap.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
-              <Filter className="h-10 w-10" />
-              <p className="text-sm">Tidak ada data sesuai filter</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border bg-muted/30">
-                    <th className="text-center py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">No</th>
-                    <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Nama Investor</th>
-                    <th className="text-center py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Periode (hari)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Modal</th>
-                    <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Start</th>
-                    <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">End</th>
-                    <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">No PKS</th>
-                    <th className="text-center py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Keterangan</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Total Profit</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Owner (50%)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">HASANAH (50%)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Investor (35%)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Trader (10%)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">MinBun (5%)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Broker I (5%)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Broker II (5%)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI Total</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI Trader+Inv</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI Investor</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI Trader</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI MinBun</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRekap.map((row) => (
-                    <tr key={row.mou.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                      <td className="py-2.5 px-2.5 text-center text-muted-foreground">{row.no}</td>
-                      <td className="py-2.5 px-2.5 font-medium whitespace-nowrap">{row.mou.investorName}</td>
-                      <td className="py-2.5 px-2.5 text-center text-muted-foreground">{row.mou.contractPeriod}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{Rp(row.mou.investmentAmount)}</td>
-                      <td className="py-2.5 px-2.5 whitespace-nowrap text-muted-foreground">{formatDate(row.mou.date)}</td>
-                      <td className="py-2.5 px-2.5 whitespace-nowrap text-muted-foreground">{formatDate(row.endDateStr)}</td>
-                      <td className="py-2.5 px-2.5 font-mono text-muted-foreground whitespace-nowrap">{row.mou.id}</td>
-                      <td className="py-2.5 px-2.5 text-center text-muted-foreground whitespace-nowrap">
-                        {row.usiaBulan} bulan
-                      </td>
-                      <td className={`py-2.5 px-2.5 text-right font-bold whitespace-nowrap ${row.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {Rp(row.totalProfit)}
-                      </td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{Rp(row.owner)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{Rp(row.hasanah)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap text-blue-600 font-medium">{Rp(row.investor)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{Rp(row.trader)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{Rp(row.minbun)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{Rp(row.brokerI)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{Rp(row.brokerII)}</td>
-                      <td className={`py-2.5 px-2.5 text-right whitespace-nowrap font-semibold ${row.roiTotal >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {pct(row.roiTotal)}
-                      </td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{pct(row.roiTraderInvestor)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{pct(row.roiInvestor)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{pct(row.roiTrader)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{pct(row.roiMinbun)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       {/* ── Edit Dialog ── */}
       <Dialog open={isEditOpen} onOpenChange={(open) => { setIsEditOpen(open); if (!open) { setSelected(null); setForm(initialForm()); } }}>

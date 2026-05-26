@@ -1,10 +1,6 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { AuthProvider } from '@/lib/auth-context'
-import { InvestorsProvider } from '@/lib/investors-context'
-import { BrokersProvider } from '@/lib/brokers-context'
-import { MouProvider } from '@/lib/mou-context'
-import { TransaksiProvider } from '@/lib/transaksi-context'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -41,15 +37,7 @@ export default function RootLayout({
     <html lang="en" className="bg-background">
       <body className="font-sans antialiased" suppressHydrationWarning>
         <AuthProvider>
-          <InvestorsProvider>
-            <BrokersProvider>
-              <MouProvider>
-                <TransaksiProvider>
-                  {children}
-                </TransaksiProvider>
-              </MouProvider>
-            </BrokersProvider>
-          </InvestorsProvider>
+          {children}
         </AuthProvider>
       </body>
     </html>

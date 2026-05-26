@@ -3,9 +3,9 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { DashboardContent } from "@/components/dashboard-content";
+import { UsersContent } from "@/components/users-content";
 
-export default function DashboardPage() {
+export default function UsersPage() {
   const { user } = useAuth();
   const router   = useRouter();
 
@@ -16,5 +16,6 @@ export default function DashboardPage() {
   }, [user, router]);
 
   if (!user || user.role !== "admin") return null;
-  return <DashboardContent />;
+
+  return <UsersContent />;
 }

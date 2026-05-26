@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import pb from "./pocketbase";
 
 interface User {
   username: string;
@@ -10,47 +11,66 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (username: string, password: string) => boolean;
+  login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   isAuthenticated: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Demo credentials
-const DEMO_USERS = [
-  { username: "admin", password: "admin123", name: "Administrator", role: "Admin" },
-  { username: "manager", password: "manager123", name: "Investment Manager", role: "Manager" },
-];
+function modelToUser(model: Record<string, string>): User {
+  return {
+    username: model.username || model.email || "",
+    name:     model.name     || model.username || model.email || "",
+    role:     model.role     || "User",
+  };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser]         = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("agri_erp_user");
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-    setIsLoading(false);
+    // Dengarkan perubahan auth (login / logout / token expired)
+    const unsubscribe = pb.authStore.onChange((_token, record) => {
+      setUser(record ? modelToUser(record as Record<string, string>) : null);
+    });
+
+    // Restore session: validasi token ke server supaya tidak pakai token stale
+    const restore = async () => {
+      if (pb.authStore.isValid) {
+        try {
+          // authRefresh memverifikasi token ke PocketBase dan memperbarui record
+          await pb.collection("users").authRefresh();
+          if (pb.authStore.record) {
+            setUser(modelToUser(pb.authStore.record as Record<string, string>));
+          }
+        } catch {
+          // Token expired / invalid / tidak ada collection context → paksa logout
+          pb.authStore.clear();
+        }
+      }
+      setIsLoading(false);
+    };
+
+    restore();
+
+    return () => unsubscribe();
   }, []);
 
-  const login = (username: string, password: string): boolean => {
-    const foundUser = DEMO_USERS.find(
-      (u) => u.username === username && u.password === password
-    );
-    if (foundUser) {
-      const userData = { username: foundUser.username, name: foundUser.name, role: foundUser.role };
-      setUser(userData);
-      localStorage.setItem("agri_erp_user", JSON.stringify(userData));
+  const login = async (username: string, password: string): Promise<boolean> => {
+    try {
+      const auth = await pb.collection("users").authWithPassword(username, password);
+      setUser(modelToUser(auth.record as Record<string, string>));
       return true;
+    } catch {
+      return false;
     }
-    return false;
   };
 
   const logout = () => {
+    pb.authStore.clear();
     setUser(null);
-    localStorage.removeItem("agri_erp_user");
   };
 
   if (isLoading) {

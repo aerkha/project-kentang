@@ -21,12 +21,9 @@ export function LoginForm() {
     setError("");
     setIsLoading(true);
 
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const success = login(username, password);
+    const success = await login(username, password);
     if (!success) {
-      setError("Invalid username or password");
+      setError("Email atau password salah");
     }
     setIsLoading(false);
   };
@@ -59,11 +56,11 @@ export function LoginForm() {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
+                <Label htmlFor="username">Email</Label>
                 <Input
                   id="username"
-                  type="text"
-                  placeholder="Enter your username"
+                  type="email"
+                  placeholder="Enter your email"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
@@ -100,13 +97,6 @@ export function LoginForm() {
               </Button>
             </form>
 
-            <div className="mt-6 p-4 bg-muted rounded-lg">
-              <p className="text-xs font-medium text-muted-foreground mb-2">Demo Credentials:</p>
-              <div className="space-y-1 text-xs text-muted-foreground">
-                <p><span className="font-medium">Admin:</span> admin / admin123</p>
-                <p><span className="font-medium">Manager:</span> manager / manager123</p>
-              </div>
-            </div>
           </CardContent>
         </Card>
       </div>

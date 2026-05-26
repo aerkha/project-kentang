@@ -24,6 +24,7 @@ import {
   TrendingUp, TrendingDown, DollarSign, Wallet,
   PowerOff, RotateCcw,
 } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 
 // ─────────────────────────────────────────────
 // Types
@@ -453,6 +454,8 @@ export function InvestorsContent() {
   const { investors, addInvestor, updateInvestor, deleteInvestor } = useInvestors();
   const { brokers, addBroker, updateBroker, deleteBroker } = useBrokers();
   const { transaksis } = useTransaksi();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -730,8 +733,8 @@ export function InvestorsContent() {
           <p className="text-muted-foreground">Kelola data investor dan investasi</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* ── Tambah Broker ── */}
-          <Dialog open={isAddBrokerOpen} onOpenChange={setIsAddBrokerOpen}>
+          {/* ── Tambah Broker (admin only) ── */}
+          {isAdmin && <Dialog open={isAddBrokerOpen} onOpenChange={setIsAddBrokerOpen}>
             <DialogTrigger asChild>
               <Button variant="outline">
                 <Plus className="w-4 h-4 mr-2" />
@@ -751,7 +754,7 @@ export function InvestorsContent() {
                 previewId={nextBrokerId()}
               />
             </DialogContent>
-          </Dialog>
+          </Dialog>}
 
           {/* ── Tambah Investor ── */}
           <Dialog open={isAddInvestorOpen} onOpenChange={setIsAddInvestorOpen}>
@@ -830,6 +833,7 @@ export function InvestorsContent() {
                     </div>
                     <span className="text-xs font-mono text-muted-foreground">{investor.id}</span>
                   </div>
+                  {isAdmin && (
                   <div className="flex gap-1 shrink-0">
                     <Button
                       variant="ghost"
@@ -861,6 +865,7 @@ export function InvestorsContent() {
                       <span className="sr-only">Hapus</span>
                     </Button>
                   </div>
+                  )}
                 </div>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
@@ -976,6 +981,7 @@ export function InvestorsContent() {
                       </Badge>
                     </div>
                   </div>
+                  {isAdmin && (
                   <div className="flex gap-1 shrink-0">
                     <Button
                       variant="ghost"
@@ -996,6 +1002,7 @@ export function InvestorsContent() {
                       <span className="sr-only">Hapus</span>
                     </Button>
                   </div>
+                  )}
                 </div>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
+import { useAuth } from "@/lib/auth-context";
 import { generateMouHtml } from "@/lib/mou-html";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -368,6 +369,8 @@ type Filter = "semua" | "aktif" | "expired" | "nonaktif";
 export function MouContent() {
   const { mous, addMou, updateMou, deleteMou } = useMou();
   const { investors } = useInvestors();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const [filter, setFilter] = useState<Filter>("semua");
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -399,13 +402,18 @@ export function MouContent() {
     setIsTerminateOpen(false);
   };
 
-  // ── Next ID ──
-  const nextId = () => {
+  // ── Preview ID (MOU-YYYYMM-NNN) ──
+  // Dihitung dari mous yang sudah ada di state (tanpa query tambahan).
+  const nextId = (date: string) => {
+    if (!date) return "MOU-??????-???";
+    const ym     = date.slice(0, 7).replace("-", ""); // "202505"
+    const prefix = `MOU-${ym}-`;
     const max = mous.reduce((m, x) => {
-      const n = parseInt(x.id.replace("MOU-", "")) || 0;
+      if (!x.id.startsWith(prefix)) return m;
+      const n = parseInt(x.id.slice(prefix.length)) || 0;
       return n > m ? n : m;
     }, 0);
-    return `MOU-${String(max + 1).padStart(4, "0")}`;
+    return `${prefix}${String(max + 1).padStart(3, "0")}`;
   };
 
   // ── Investor auto-fill ──
@@ -545,7 +553,7 @@ export function MouContent() {
               setFormData={setForm}
               onSubmit={handleAdd}
               submitLabel="Simpan MoU"
-              previewId={nextId()}
+              previewId={nextId(form.date)}
               investors={investors}
               onInvestorSelect={handleInvestorSelect}
             />
@@ -660,6 +668,8 @@ export function MouContent() {
                             >
                               <Printer className="h-3.5 w-3.5" />
                             </Button>
+                            {isAdmin && (
+                            <>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -691,6 +701,8 @@ export function MouContent() {
                             >
                               <Trash2 className="h-3.5 w-3.5 text-destructive" />
                             </Button>
+                            </>
+                            )}
                           </div>
                         </td>
                       </tr>

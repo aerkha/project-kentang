@@ -1,17 +1,32 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
 import { useMou } from "@/lib/mou-context";
-import { useTransaksi, calcTransaksi } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import {
   DollarSign,
   Users,
   Briefcase,
   TrendingUp,
+  TrendingDown,
+  Filter,
+  X,
+  CalendarDays,
+  Receipt,
 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   BarChart,
   Bar,
@@ -29,7 +44,64 @@ import {
   LabelList,
 } from "recharts";
 
-const COLORS = ["#2d6a4f", "#d4a574", "#c44536", "#4a90a4", "#8b5cf6", "#f59e0b", "#10b981"];
+
+// ─── Rekap helpers ────────────────────────────────────────────────────────────
+
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function pct(n: number) { return `${n.toFixed(2)}%`; }
+
+function formatDate(s: string) {
+  if (!s) return "-";
+  const d = new Date(s);
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function calcMouDistribution(
+  mouInvestorId: string,
+  mouDate: string,
+  contractPeriod: number,
+  transaksis: Transaksi[],
+) {
+  const mouStart = new Date(mouDate).getTime();
+  const mouEnd   = mouStart + contractPeriod * 86_400_000;
+
+  let totalProfit = 0;
+  let owner = 0, hasanah = 0, investor = 0, trader = 0, minbun = 0, brokerI = 0, brokerII = 0;
+
+  transaksis.forEach((t) => {
+    const tDate = new Date(t.date).getTime();
+    if (tDate < mouStart || tDate > mouEnd) return;
+
+    const entry = t.investorEntries.find((e) => e.investorId === mouInvestorId);
+    if (!entry) return;
+
+    const calc = calcTransaksi(t);
+    if (calc.totalInvestasi === 0) return;
+
+    const ratio  = entry.nilaiInvestasi / calc.totalInvestasi;
+    const profit = calc.profit * ratio;
+
+    totalProfit += profit;
+
+    const hasBroker = !!t.brokerName;
+    const hasBII    = !!t.hasBrokerII;
+
+    owner    += profit * 0.25;
+    hasanah  += profit * 0.25;
+    investor += profit * 0.35;
+    trader   += profit * (hasBII ? 0.05 : 0.10);
+    minbun   += profit * (hasBroker ? 0 : 0.05);
+    brokerI  += profit * (hasBroker ? 0.05 : 0);
+    brokerII += profit * (hasBII    ? 0.05 : 0);
+  });
+
+  return { totalProfit, owner, hasanah, investor, trader, minbun, brokerI, brokerII };
+}
 const MONTHS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
 
 function monthLabel(ym: string) {
@@ -70,19 +142,99 @@ export function DashboardContent() {
     return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
   }, [investors]);
 
-  // ── Chart: investasi per pekerjaan ──
-  const occupationData = useMemo(() => {
-    const map = new Map<string, number>();
-    investors.forEach((inv) => {
-      map.set(inv.occupation, (map.get(inv.occupation) ?? 0) + inv.investmentAmount);
-    });
-    return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
+  // ── Chart: kontribusi investasi per investor aktif ──
+  const investorContribData = useMemo(() => {
+    const active        = investors.filter((inv) => inv.isActive !== false && inv.investmentAmount > 0);
+    const withBroker    = active.filter((inv) => !!inv.brokerName?.trim());
+    const withoutBroker = active.filter((inv) => !inv.brokerName?.trim());
+    const total         = active.reduce((s, inv) => s + inv.investmentAmount, 0);
+    const GAP_VAL       = total > 0 ? total * 0.025 : 1;
+
+    const BROKER_COLORS    = ["#2d6a4f", "#40916c", "#52b788", "#74c69d", "#95d5b2", "#b7e4c7"];
+    const NO_BROKER_COLORS = ["#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#ec4899", "#f97316"];
+
+    type Group = "broker" | "noBroker" | "gap";
+    const entries: Array<{ name: string; value: number; group: Group; color: string }> = [
+      ...withBroker.map((inv, i) => ({
+        name: inv.name, value: inv.investmentAmount,
+        group: "broker" as Group, color: BROKER_COLORS[i % BROKER_COLORS.length],
+      })),
+      ...(withBroker.length > 0 && withoutBroker.length > 0
+        ? [{ name: "__gap__", value: GAP_VAL, group: "gap" as Group, color: "transparent" }]
+        : []),
+      ...withoutBroker.map((inv, i) => ({
+        name: inv.name, value: inv.investmentAmount,
+        group: "noBroker" as Group, color: NO_BROKER_COLORS[i % NO_BROKER_COLORS.length],
+      })),
+    ];
+
+    return {
+      entries, total,
+      hasBroker:   withBroker.length > 0,
+      hasNoBroker: withoutBroker.length > 0,
+      activeCount: active.length,
+    };
   }, [investors]);
 
-  // ── Chart: investasi masuk per bulan (dari MoU) ──
+  // ── Period filter state ──
+  const [filterYear,  setFilterYear]  = useState<string>("");
+  const [filterMonth, setFilterMonth] = useState<string>("");
+
+  // ── Available years from data ──
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+    transaksis.forEach((t) => years.add(t.date.slice(0, 4)));
+    mous.forEach((m) => years.add(m.date.slice(0, 4)));
+    return Array.from(years).sort((a, b) => b.localeCompare(a)); // newest first
+  }, [transaksis, mous]);
+
+  // ── Filtered collections by period ──
+  const filteredTransaksis = useMemo(
+    () => transaksis.filter((t) => {
+      if (filterYear  && t.date.slice(0, 4) !== filterYear)  return false;
+      if (filterMonth && t.date.slice(5, 7) !== filterMonth) return false;
+      return true;
+    }),
+    [transaksis, filterYear, filterMonth],
+  );
+
+  const filteredMousByPeriod = useMemo(
+    () => mous.filter((m) => {
+      if (filterYear  && m.date.slice(0, 4) !== filterYear)  return false;
+      if (filterMonth && m.date.slice(5, 7) !== filterMonth) return false;
+      return true;
+    }),
+    [mous, filterYear, filterMonth],
+  );
+
+  // ── Period summary metrics ──
+  const periodMetrics = useMemo(() => {
+    let income = 0, profit = 0;
+    filteredTransaksis.forEach((t) => {
+      const c = calcTransaksi(t);
+      income += c.income;
+      profit += c.profit;
+    });
+    const periodLabel = filterYear
+      ? filterMonth
+        ? `${MONTHS[parseInt(filterMonth) - 1]} ${filterYear}`
+        : `Tahun ${filterYear}`
+      : filterMonth
+        ? MONTHS[parseInt(filterMonth) - 1]
+        : "Semua Periode";
+    return {
+      income, profit,
+      trxCount:   filteredTransaksis.length,
+      mouCount:   filteredMousByPeriod.length,
+      periodLabel,
+      isFiltered: !!(filterYear || filterMonth),
+    };
+  }, [filteredTransaksis, filteredMousByPeriod, filterYear, filterMonth]);
+
+  // ── Chart: investasi masuk per bulan (dari MoU, terfilter) ──
   const monthlyMouData = useMemo(() => {
     const map = new Map<string, { month: string; investment: number; count: number }>();
-    mous.forEach((m) => {
+    filteredMousByPeriod.forEach((m) => {
       const ym    = m.date.slice(0, 7);
       const label = monthLabel(ym);
       if (!map.has(ym)) map.set(ym, { month: label, investment: 0, count: 0 });
@@ -93,12 +245,12 @@ export function DashboardContent() {
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([, v]) => v);
-  }, [mous]);
+  }, [filteredMousByPeriod]);
 
-  // ── Chart: PnL per bulan (dari Transaksi) ──
+  // ── Chart: PnL per bulan (dari Transaksi, terfilter) ──
   const monthlyPnlData = useMemo(() => {
     const map = new Map<string, { month: string; income: number; profit: number }>();
-    transaksis.forEach((t) => {
+    filteredTransaksis.forEach((t) => {
       const c     = calcTransaksi(t);
       const ym    = t.date.slice(0, 7);
       const label = monthLabel(ym);
@@ -110,7 +262,45 @@ export function DashboardContent() {
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([, v]) => v);
-  }, [transaksis]);
+  }, [filteredTransaksis]);
+
+  // ── Rekap filter state ──
+  const [showFilter, setShowFilter] = useState(false);
+  const [filterNama, setFilterNama] = useState("");
+  const [filterPks,  setFilterPks]  = useState("");
+
+  // ── Rekap data (per MoU, difilter periode) ──
+  // filteredMousByPeriod: menentukan MoU mana yang ditampilkan
+  // transaksis (semua): distribusi dihitung dari semua transaksi dalam periode kontrak MoU
+  const rekapData = useMemo(() => {
+    return filteredMousByPeriod
+      .slice()
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((mou, idx) => {
+        const dist       = calcMouDistribution(mou.investorId, mou.date, mou.contractPeriod, transaksis);
+        const modal      = mou.investmentAmount;
+        const usiaHari   = Math.max(0, Math.floor((Date.now() - new Date(mou.date).getTime()) / 86_400_000));
+        const usiaBulan  = Math.floor(usiaHari / 30);
+        const endDateStr = addDays(mou.date, mou.contractPeriod);
+        const roi = (v: number) => (modal > 0 ? (v / modal) * 100 : 0);
+        return {
+          no: idx + 1, mou, endDateStr, usiaBulan, ...dist,
+          roiTotal:          roi(dist.totalProfit),
+          roiTraderInvestor: roi(dist.trader + dist.investor),
+          roiInvestor:       roi(dist.investor),
+          roiTrader:         roi(dist.trader),
+          roiMinbun:         roi(dist.minbun),
+        };
+      });
+  }, [filteredMousByPeriod, transaksis]);
+
+  const filteredRekap = useMemo(() => {
+    return rekapData.filter((row) => {
+      if (filterNama && !row.mou.investorName.toLowerCase().includes(filterNama.toLowerCase())) return false;
+      if (filterPks  && !row.mou.id.toLowerCase().includes(filterPks.toLowerCase()))             return false;
+      return true;
+    });
+  }, [rekapData, filterNama, filterPks]);
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("id-ID", {
@@ -132,6 +322,67 @@ export function DashboardContent() {
       <div>
         <h1 className="text-2xl font-bold text-foreground">Analytical Dashboard</h1>
         <p className="text-muted-foreground">Monitor kinerja investasi dan portofolio</p>
+      </div>
+
+      {/* ── Filter Periode ── */}
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
+        <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground shrink-0">
+          <CalendarDays className="h-4 w-4" />
+          <span>Periode</span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 flex-1">
+          <Select
+            value={filterYear || "__all"}
+            onValueChange={(v) => setFilterYear(v === "__all" ? "" : v)}
+          >
+            <SelectTrigger className="w-[120px] h-8 text-sm">
+              <SelectValue placeholder="Semua Tahun" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">Semua Tahun</SelectItem>
+              {availableYears.length === 0 && (
+                <SelectItem value="__none" disabled>Belum ada data</SelectItem>
+              )}
+              {availableYears.map((y) => (
+                <SelectItem key={y} value={y}>{y}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={filterMonth || "__all"}
+            onValueChange={(v) => setFilterMonth(v === "__all" ? "" : v)}
+          >
+            <SelectTrigger className="w-[136px] h-8 text-sm">
+              <SelectValue placeholder="Semua Bulan" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">Semua Bulan</SelectItem>
+              {MONTHS.map((name, i) => (
+                <SelectItem key={i} value={String(i + 1).padStart(2, "0")}>{name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {periodMetrics.isFiltered && (
+            <button
+              onClick={() => { setFilterYear(""); setFilterMonth(""); }}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md text-muted-foreground hover:bg-muted transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+              Reset
+            </button>
+          )}
+        </div>
+
+        <span className={`ml-auto shrink-0 text-xs px-2.5 py-1 rounded-full font-medium transition-colors ${
+          periodMetrics.isFiltered
+            ? "bg-primary/10 text-primary"
+            : "bg-muted text-muted-foreground"
+        }`}>
+          {periodMetrics.periodLabel}
+        </span>
       </div>
 
       {/* ── Ringkasan Portofolio ── */}
@@ -181,6 +432,63 @@ export function DashboardContent() {
         </Card>
       </div>
 
+      {/* ── Ringkasan Periode ── */}
+      <div>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+          <CalendarDays className="h-3.5 w-3.5" />
+          Kinerja {periodMetrics.periodLabel}
+        </p>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Transaksi</CardTitle>
+              <Receipt className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{periodMetrics.trxCount}</div>
+              <p className="text-xs text-muted-foreground">pengiriman tercatat</p>
+            </CardContent>
+          </Card>
+
+          <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">MoU Baru</CardTitle>
+              <Briefcase className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{periodMetrics.mouCount}</div>
+              <p className="text-xs text-muted-foreground">perjanjian kerjasama</p>
+            </CardContent>
+          </Card>
+
+          <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Income</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatShort(periodMetrics.income)}</div>
+              <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.income)}</p>
+            </CardContent>
+          </Card>
+
+          <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Profit</CardTitle>
+              {periodMetrics.profit >= 0
+                ? <TrendingUp className="h-4 w-4 text-green-500" />
+                : <TrendingDown className="h-4 w-4 text-red-500" />}
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${periodMetrics.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                {formatShort(periodMetrics.profit)}
+              </div>
+              <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.profit)}</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
       {/* ── Chart: Investasi Masuk per Bulan + PnL per Bulan ── */}
       {(monthlyMouData.length > 0 || monthlyPnlData.length > 0) && (
         <div className="grid gap-6 md:grid-cols-2">
@@ -192,6 +500,7 @@ export function DashboardContent() {
                 <CardTitle>Investasi Masuk per Bulan</CardTitle>
                 <CardDescription>
                   Total nilai dan jumlah MoU baru tiap bulan
+                  {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -244,6 +553,7 @@ export function DashboardContent() {
                 <CardTitle>PnL per Bulan</CardTitle>
                 <CardDescription>
                   Penjualan, harga pokok, dan laba bersih tiap bulan
+                  {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -298,7 +608,7 @@ export function DashboardContent() {
         </div>
       )}
 
-      {/* ── Chart: Per broker & per pekerjaan ── */}
+      {/* ── Chart: Per broker & kontribusi per investor ── */}
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -326,35 +636,122 @@ export function DashboardContent() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Investasi per Pekerjaan</CardTitle>
-            <CardDescription>Distribusi investasi berdasarkan pekerjaan investor</CardDescription>
+            <CardTitle>Kontribusi Investasi per Investor</CardTitle>
+            <CardDescription>
+              Proporsi modal dari {investorContribData.activeCount} investor aktif —
+              hijau = via broker, biru = langsung
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <RechartsPieChart>
-                  <Pie
-                    data={occupationData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={2}
-                    dataKey="value"
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    labelLine={false}
-                  >
-                    {occupationData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(value) => [formatCurrency(value as number), "Investasi"]}
-                    contentStyle={tooltipStyle}
-                  />
-                </RechartsPieChart>
-              </ResponsiveContainer>
-            </div>
+            {investorContribData.activeCount === 0 ? (
+              <div className="flex flex-col items-center justify-center h-[260px] text-muted-foreground gap-2">
+                <Users className="h-10 w-10" />
+                <p className="text-sm">Belum ada investor aktif</p>
+              </div>
+            ) : (
+              <>
+                <div className="h-[240px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsPieChart>
+                      <Pie
+                        data={investorContribData.entries}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={52}
+                        outerRadius={96}
+                        paddingAngle={2}
+                        dataKey="value"
+                        strokeWidth={0}
+                      >
+                        {investorContribData.entries.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={entry.color}
+                            stroke={entry.group === "gap" ? "none" : "white"}
+                            strokeWidth={entry.group === "gap" ? 0 : 1}
+                            style={{ outline: "none" }}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.length) return null;
+                          const entry = payload[0]?.payload as (typeof investorContribData.entries)[0];
+                          if (!entry || entry.group === "gap") return null;
+                          const share = investorContribData.total > 0
+                            ? ((entry.value / investorContribData.total) * 100).toFixed(1)
+                            : "0";
+                          return (
+                            <div style={tooltipStyle} className="px-3 py-2 space-y-0.5">
+                              <p className="font-semibold text-sm">{entry.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {entry.group === "broker" ? "Via Broker" : "Langsung"}
+                              </p>
+                              <p className="text-sm font-bold">{formatCurrency(entry.value)}</p>
+                              <p className="text-xs text-muted-foreground">{share}% dari total</p>
+                            </div>
+                          );
+                        }}
+                      />
+                    </RechartsPieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Custom legend */}
+                <div className="mt-3 space-y-2.5 border-t pt-3">
+                  {investorContribData.hasBroker && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                        Via Broker
+                      </p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                        {investorContribData.entries
+                          .filter((e) => e.group === "broker")
+                          .map((e) => (
+                            <div key={e.name} className="flex items-center gap-1.5 text-xs">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                style={{ backgroundColor: e.color }}
+                              />
+                              <span className="truncate max-w-[110px]">{e.name}</span>
+                              <span className="text-muted-foreground tabular-nums">
+                                {investorContribData.total > 0
+                                  ? `${((e.value / investorContribData.total) * 100).toFixed(0)}%`
+                                  : "—"}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                  {investorContribData.hasNoBroker && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                        Langsung (Tanpa Broker)
+                      </p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                        {investorContribData.entries
+                          .filter((e) => e.group === "noBroker")
+                          .map((e) => (
+                            <div key={e.name} className="flex items-center gap-1.5 text-xs">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                style={{ backgroundColor: e.color }}
+                              />
+                              <span className="truncate max-w-[110px]">{e.name}</span>
+                              <span className="text-muted-foreground tabular-nums">
+                                {investorContribData.total > 0
+                                  ? `${((e.value / investorContribData.total) * 100).toFixed(0)}%`
+                                  : "—"}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -397,6 +794,136 @@ export function DashboardContent() {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+
+      <Separator />
+
+      {/* ══ Rekap Investasi per MoU ══ */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <CardTitle>Rekap Investasi per MoU</CardTitle>
+              <CardDescription>
+                Distribusi profit berdasarkan transaksi dalam periode setiap MoU
+                {periodMetrics.isFiltered && ` · MoU mulai ${periodMetrics.periodLabel}`}
+              </CardDescription>
+            </div>
+            <button
+              onClick={() => setShowFilter((v) => !v)}
+              className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-accent transition-colors"
+            >
+              <Filter className="h-4 w-4" />
+              {showFilter ? "Sembunyikan Filter" : "Filter Kolom"}
+            </button>
+          </div>
+
+          {showFilter && (
+            <div className="mt-3 flex flex-wrap gap-3 items-end">
+              <div className="flex-1 min-w-[180px] space-y-1">
+                <Label className="text-xs">Nama Investor</Label>
+                <Input
+                  placeholder="Cari nama investor..."
+                  value={filterNama}
+                  onChange={(e) => setFilterNama(e.target.value)}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="w-44 space-y-1">
+                <Label className="text-xs">No PKS (MoU)</Label>
+                <Input
+                  placeholder="MOU-0001"
+                  value={filterPks}
+                  onChange={(e) => setFilterPks(e.target.value)}
+                  className="h-8 text-sm"
+                />
+              </div>
+              {(filterNama || filterPks) && (
+                <button
+                  onClick={() => { setFilterNama(""); setFilterPks(""); }}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-md hover:bg-accent transition-colors"
+                >
+                  <X className="h-4 w-4" />Reset
+                </button>
+              )}
+            </div>
+          )}
+        </CardHeader>
+
+        <CardContent className="p-0">
+          {mous.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
+              <Briefcase className="h-10 w-10" />
+              <p className="text-sm">Belum ada MoU — tambahkan di halaman Perjanjian Kerjasama</p>
+            </div>
+          ) : filteredRekap.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
+              <Filter className="h-10 w-10" />
+              <p className="text-sm">Tidak ada data sesuai filter</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-center py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">No</th>
+                    <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Nama Investor</th>
+                    <th className="text-center py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Periode (hari)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Modal</th>
+                    <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Start</th>
+                    <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">End</th>
+                    <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">No PKS</th>
+                    <th className="text-center py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Keterangan</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Total Profit</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Owner (50%)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">HASANAH (50%)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Investor (35%)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Trader (10%)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">MinBun (5%)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Broker I (5%)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Broker II (5%)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI Total</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI Trader+Inv</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI Investor</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI Trader</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI MinBun</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRekap.map((row) => (
+                    <tr key={row.mou.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                      <td className="py-2.5 px-2.5 text-center text-muted-foreground">{row.no}</td>
+                      <td className="py-2.5 px-2.5 font-medium whitespace-nowrap">{row.mou.investorName}</td>
+                      <td className="py-2.5 px-2.5 text-center text-muted-foreground">{row.mou.contractPeriod}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.mou.investmentAmount)}</td>
+                      <td className="py-2.5 px-2.5 whitespace-nowrap text-muted-foreground">{formatDate(row.mou.date)}</td>
+                      <td className="py-2.5 px-2.5 whitespace-nowrap text-muted-foreground">{formatDate(row.endDateStr)}</td>
+                      <td className="py-2.5 px-2.5 font-mono text-muted-foreground whitespace-nowrap">{row.mou.id}</td>
+                      <td className="py-2.5 px-2.5 text-center text-muted-foreground whitespace-nowrap">{row.usiaBulan} bulan</td>
+                      <td className={`py-2.5 px-2.5 text-right font-bold whitespace-nowrap ${row.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {formatShort(row.totalProfit)}
+                      </td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.owner)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.hasanah)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap text-blue-600 font-medium">{formatShort(row.investor)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.trader)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.minbun)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.brokerI)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.brokerII)}</td>
+                      <td className={`py-2.5 px-2.5 text-right whitespace-nowrap font-semibold ${row.roiTotal >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {pct(row.roiTotal)}
+                      </td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{pct(row.roiTraderInvestor)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{pct(row.roiInvestor)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{pct(row.roiTrader)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{pct(row.roiMinbun)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
