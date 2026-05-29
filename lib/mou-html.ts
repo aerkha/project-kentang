@@ -1,4 +1,4 @@
-import type { MoU } from "./mou-context";
+import type { MoU, MoUInvestor } from "./mou-context";
 import { angkaTerbilang, terbilang } from "./terbilang";
 
 const MONTHS = [
@@ -37,11 +37,31 @@ function row(label: string, value: string, wide = false) {
   </div>`;
 }
 
+// Render satu blok data Pihak Kedua (dipakai untuk investor utama & co-investor)
+function renderInvestorBlock(inv: MoUInvestor | MoU, label: string): string {
+  return `
+    <div style="margin:.5em 2em;">
+      ${row("Nama",     esc((inv as MoU).investorName ?? (inv as MoUInvestor).investorName))}
+      ${row("Alamat",   esc(inv.investorAddress))}
+      ${row("Pekerjaan",esc(inv.investorOccupation))}
+      ${row("No KTP",   esc(inv.investorIdNumber))}
+      ${row("No Telp.", esc(inv.investorPhone))}
+    </div>
+    <p>Sebagai <strong>${esc(label)}</strong></p>`;
+}
+
 export function generateMouHtml(mou: MoU): string {
-  const date     = fmtDate(mou.date);
-  const amount   = fmtRp(mou.investmentAmount);
-  const words    = esc(cap(terbilang(mou.investmentAmount)));
-  const period   = `${cap(angkaTerbilang(mou.contractPeriod))} (${mou.contractPeriod}) hari`;
+  const date       = fmtDate(mou.date);
+  const coInvestors = mou.coInvestors ?? [];
+  const allInvestors: Array<MoU | MoUInvestor> = [mou, ...coInvestors];
+
+  // Total investasi = utama + semua co-investor
+  const totalInvestment = allInvestors.reduce(
+    (sum, inv) => sum + (inv.investmentAmount ?? 0), 0,
+  );
+  const amount = fmtRp(totalInvestment);
+  const words  = esc(cap(terbilang(totalInvestment)));
+  const period = `${cap(angkaTerbilang(mou.contractPeriod))} (${mou.contractPeriod}) hari`;
 
   return `<!DOCTYPE html>
 <html lang="id">
@@ -142,14 +162,10 @@ export function generateMouHtml(mou: MoU): string {
 
     <p>Dalam hal ini keduanya bertindak sebagai Pengelola Investasi dan atas nama PT Madani Agri Lestari, berdasarkan Akta Pendirian Nomor AHU-0059177.AH.01.01.Tahun 2021. Selain daripada itu, bertindak sebagai Pengelola Investasi yang selanjutnya disebut PIHAK PERTAMA.</p>
 
-    <div style="margin:.5em 2em;">
-      ${row("Nama", esc(mou.investorName))}
-      ${row("Alamat", esc(mou.investorAddress))}
-      ${row("Pekerjaan", esc(mou.investorOccupation))}
-      ${row("No. KTP", esc(mou.investorIdNumber))}
-      ${row("No. Telp.", esc(mou.investorPhone))}
-    </div>
-    <p>Untuk selanjutnya disebut PIHAK KEDUA sebagai Penyalur Dana Investasi.</p>
+    ${allInvestors.map((inv, i) =>
+        renderInvestorBlock(inv as MoU, `PIHAK KEDUA ${allInvestors.length > 1 ? ["I","II","III","IV","V"][i] : ""}`)
+      ).join("\n")}
+    <p>Untuk selanjutnya ${allInvestors.length > 1 ? "seluruh PIHAK KEDUA" : "PIHAK KEDUA"} disebut sebagai Penyalur Dana Investasi.</p>
   </div>
 
   <!-- PASAL 1 -->
@@ -200,7 +216,15 @@ export function generateMouHtml(mou: MoU): string {
 
     <p style="margin-top:.8em;"><strong>B. PIHAK KEDUA</strong></p>
     <ol>
-      <li><p>Menyediakan modal kerja sebesar <strong>Rp.${amount} (${words})</strong> yang ditransfer ke rekening <strong>BCA 6768043702 atas nama Adie Bayu Putra S.P</strong> untuk <em>project trading</em> selama periode perjanjian kerjasama berlangsung mengacu pada pasal 3.</p></li>
+      ${allInvestors.length === 1
+        ? `<li><p>Menyediakan modal kerja sebesar <strong>Rp.${amount} (${words})</strong> yang ditransfer ke rekening <strong>BCA 6768043702 atas nama Adie Bayu Putra S.P</strong> untuk <em>project trading</em> selama periode perjanjian kerjasama berlangsung mengacu pada pasal 3.</p></li>`
+        : allInvestors.map((inv, i) => {
+            const a = fmtRp(inv.investmentAmount);
+            const w = esc(cap(terbilang(inv.investmentAmount)));
+            const label = ["I","II","III","IV","V"][i];
+            return `<li><p>PIHAK KEDUA ${label} (<strong>${esc((inv as MoU).investorName ?? (inv as MoUInvestor).investorName)}</strong>) menyediakan modal kerja sebesar <strong>Rp.${a} (${w})</strong> yang ditransfer ke rekening <strong>BCA 6768043702 atas nama Adie Bayu Putra S.P</strong>.</p></li>`;
+          }).join("\n") + `\n<li><p>Total keseluruhan modal dari seluruh PIHAK KEDUA sebesar <strong>Rp.${amount} (${words})</strong>.</p></li>`
+      }
       <li><p>Bersama-sama dengan pihak pertama memantau perkembangan usaha dan mengambil keputusan bersama.</p></li>
       <li><p>Apabila terjadi pembatalan kerja sama yang dilakukan PIHAK PERTAMA, maka PIHAK PERTAMA mengembalikan modal dan keuntungannya sesuai perjanjian kerjasama.</p></li>
       <li><p>Berhak atas keuntungan usaha sesuai dengan pasal 4.</p></li>
@@ -218,12 +242,16 @@ export function generateMouHtml(mou: MoU): string {
     <div class="ptitle">Pasal 7<br>BERAKHIRNYA PERJANJIAN</div>
     <p>Perjanjian kerja sama ini berakhir apabila salah satu pihak memutuskan untuk tidak memperpanjang, dengan pemberitahuan tertulis paling lambat tiga puluh (30) hari sebelumnya. Dalam hal salah satu pihak meninggal dunia selama masa kerja sama, maka hak dan kewajiban yang bersangkutan beralih kepada ahli waris atau pihak yang ditunjuk.</p>
     <p>Ahli waris PIHAK KEDUA:</p>
+    ${allInvestors.map((inv, i) => {
+      const label = allInvestors.length > 1 ? ` PIHAK KEDUA ${["I","II","III","IV","V"][i]}` : "";
+      return `
+    <p style="margin-top:.6em;"><strong>Ahli Waris${label} (${esc((inv as MoU).investorName ?? (inv as MoUInvestor).investorName)})</strong></p>
     <div style="margin:.4em 2em;">
-      ${row("Nama Ahli Waris", esc(mou.heirName), true)}
-      ${row("Hubungan dengan Investor", esc(mou.heirRelationship), true)}
-      ${row("No HP Ahli Waris", esc(mou.heirPhone), true)}
-      ${row("Email Ahli Waris", "-", true)}
-    </div>
+      ${row("Nama Ahli Waris", esc(inv.heirName), true)}
+      ${row("Hubungan dengan Investor", esc(inv.heirRelationship), true)}
+      ${row("No HP Ahli Waris", esc(inv.heirPhone), true)}
+    </div>`;
+    }).join("\n")}
   </div>
 
   <!-- PASAL 8 -->
@@ -273,11 +301,16 @@ export function generateMouHtml(mou: MoU): string {
         <div class="ss"></div>
         <div><strong>Parafitra Fidiasari</strong><br>(Mimin Berkebun)</div>
       </div>
+      ${allInvestors.map((inv, i) => {
+        const label = allInvestors.length > 1 ? `PIHAK KEDUA ${["I","II","III","IV","V"][i]}` : "PIHAK KEDUA";
+        const name  = (inv as MoU).investorName ?? (inv as MoUInvestor).investorName;
+        return `
       <div class="sb">
-        <div class="bold">PIHAK KEDUA</div>
+        <div class="bold">${esc(label)}</div>
         <div class="ss"></div>
-        <div><strong>${esc(mou.investorName)}</strong></div>
-      </div>
+        <div><strong>${esc(name)}</strong></div>
+      </div>`;
+      }).join("\n")}
     </div>
   </div>
 

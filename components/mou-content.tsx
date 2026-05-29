@@ -35,11 +35,26 @@ import {
   CalendarDays,
   PowerOff,
   RotateCcw,
+  UserPlus,
+  X,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────
+
+interface CoInvestorFormData {
+  investorId: string;
+  investorName: string;
+  investorAddress: string;
+  investorOccupation: string;
+  investorIdNumber: string;
+  investorPhone: string;
+  investmentAmount: string;
+  heirName: string;
+  heirRelationship: string;
+  heirPhone: string;
+}
 
 interface MouFormData {
   date: string;
@@ -54,21 +69,20 @@ interface MouFormData {
   heirName: string;
   heirRelationship: string;
   heirPhone: string;
+  coInvestors: CoInvestorFormData[];
 }
 
+const emptyCoInvestor = (): CoInvestorFormData => ({
+  investorId: "", investorName: "", investorAddress: "", investorOccupation: "",
+  investorIdNumber: "", investorPhone: "", investmentAmount: "",
+  heirName: "", heirRelationship: "", heirPhone: "",
+});
+
 const initialForm: MouFormData = {
-  date: "",
-  investorId: "",
-  investorName: "",
-  investorAddress: "",
-  investorOccupation: "",
-  investorIdNumber: "",
-  investorPhone: "",
-  contractPeriod: "",
-  investmentAmount: "",
-  heirName: "",
-  heirRelationship: "",
-  heirPhone: "",
+  date: "", investorId: "", investorName: "", investorAddress: "",
+  investorOccupation: "", investorIdNumber: "", investorPhone: "",
+  contractPeriod: "", investmentAmount: "", heirName: "", heirRelationship: "",
+  heirPhone: "", coInvestors: [],
 };
 
 // ─────────────────────────────────────────────
@@ -122,6 +136,7 @@ interface FormProps {
   previewId: string;
   investors: Investor[];
   onInvestorSelect: (id: string) => void;
+  onCoInvestorSelect: (index: number, id: string) => void;
   isEdit?: boolean;
 }
 
@@ -133,10 +148,24 @@ function MouFormFields({
   previewId,
   investors,
   onInvestorSelect,
+  onCoInvestorSelect,
   isEdit = false,
 }: FormProps) {
-  const set = (k: keyof MouFormData, v: string) =>
+  const set = (k: keyof Omit<MouFormData, "coInvestors">, v: string) =>
     setFormData({ ...formData, [k]: v });
+
+  const setCoInv = (index: number, k: keyof CoInvestorFormData, v: string) => {
+    const updated = formData.coInvestors.map((c, i) =>
+      i === index ? { ...c, [k]: v } : c
+    );
+    setFormData({ ...formData, coInvestors: updated });
+  };
+
+  const addCoInvestor = () =>
+    setFormData({ ...formData, coInvestors: [...formData.coInvestors, emptyCoInvestor()] });
+
+  const removeCoInvestor = (index: number) =>
+    setFormData({ ...formData, coInvestors: formData.coInvestors.filter((_, i) => i !== index) });
 
   return (
     <form onSubmit={onSubmit}>
@@ -268,6 +297,87 @@ function MouFormFields({
             />
           </div>
         </div>
+
+        {/* ── Co-Investor (Pihak Kedua II, III, dst.) ── */}
+        {formData.coInvestors.map((co, idx) => (
+          <div key={idx} className="space-y-3 rounded-lg border border-dashed border-border p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Pihak Kedua {idx + 2} (Co-Investor)
+              </p>
+              <button type="button" onClick={() => removeCoInvestor(idx)}
+                className="text-destructive hover:opacity-70 transition-opacity">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {!isEdit && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Pilih Investor</Label>
+                <Select value={co.investorId} onValueChange={(id) => onCoInvestorSelect(idx, id)}>
+                  <SelectTrigger><SelectValue placeholder="Pilih investor..." /></SelectTrigger>
+                  <SelectContent>
+                    {investors.map((inv) => (
+                      <SelectItem key={inv.id} value={inv.id}>{inv.name} — {inv.id}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Nama <span className="text-destructive">*</span></Label>
+              <Input value={co.investorName} onChange={(e) => setCoInv(idx, "investorName", e.target.value)} placeholder="Nama lengkap" required />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Alamat <span className="text-destructive">*</span></Label>
+              <Input value={co.investorAddress} onChange={(e) => setCoInv(idx, "investorAddress", e.target.value)} placeholder="Alamat lengkap" required />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Pekerjaan <span className="text-destructive">*</span></Label>
+                <Input value={co.investorOccupation} onChange={(e) => setCoInv(idx, "investorOccupation", e.target.value)} placeholder="Pekerjaan" required />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">No KTP <span className="text-destructive">*</span></Label>
+                <Input value={co.investorIdNumber} onChange={(e) => setCoInv(idx, "investorIdNumber", e.target.value)} placeholder="16 digit" maxLength={16} required />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">No Telepon <span className="text-destructive">*</span></Label>
+                <Input value={co.investorPhone} onChange={(e) => setCoInv(idx, "investorPhone", e.target.value)} placeholder="+62 812-xxxx-xxxx" required />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Nilai Investasi (Rp) <span className="text-destructive">*</span></Label>
+                <Input type="number" min="0" step="1000000" value={co.investmentAmount} onChange={(e) => setCoInv(idx, "investmentAmount", e.target.value)} placeholder="50000000" required />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Nama Ahli Waris <span className="text-destructive">*</span></Label>
+              <Input value={co.heirName} onChange={(e) => setCoInv(idx, "heirName", e.target.value)} placeholder="Nama ahli waris" required />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Hubungan <span className="text-destructive">*</span></Label>
+                <Input value={co.heirRelationship} onChange={(e) => setCoInv(idx, "heirRelationship", e.target.value)} placeholder="Suami / Istri / ..." required />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">No HP Ahli Waris <span className="text-destructive">*</span></Label>
+                <Input value={co.heirPhone} onChange={(e) => setCoInv(idx, "heirPhone", e.target.value)} placeholder="+62 858-xxxx-xxxx" required />
+              </div>
+            </div>
+          </div>
+        ))}
+
+        <button
+          type="button"
+          onClick={addCoInvestor}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-2.5 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+        >
+          <UserPlus className="h-4 w-4" />
+          Tambah Co-Investor (Pihak Kedua {formData.coInvestors.length + 2})
+        </button>
 
         {/* ── Data Kontrak ── */}
         <div className="space-y-3">
@@ -416,21 +526,45 @@ export function MouContent() {
     return `${prefix}${String(max + 1).padStart(3, "0")}`;
   };
 
-  // ── Investor auto-fill ──
+  // ── Investor auto-fill (investor utama) ──
   const handleInvestorSelect = (investorId: string) => {
     const inv = investors.find((i) => i.id === investorId);
     if (inv) {
       setForm((prev) => ({
         ...prev,
-        investorId: inv.id,
-        investorName: inv.name,
-        investorAddress: inv.address,
+        investorId:       inv.id,
+        investorName:     inv.name,
+        investorAddress:  inv.address,
         investorOccupation: inv.occupation,
         investorIdNumber: inv.idNumber,
-        investorPhone: inv.phone,
+        investorPhone:    inv.phone,
         investmentAmount: inv.investmentAmount.toString(),
-        heirName: inv.heirName,
+        heirName:         inv.heirName,
       }));
+    }
+  };
+
+  // ── Co-investor auto-fill ──
+  const handleCoInvestorSelect = (index: number, investorId: string) => {
+    const inv = investors.find((i) => i.id === investorId);
+    if (inv) {
+      setForm((prev) => {
+        const updated = prev.coInvestors.map((c, i) =>
+          i === index ? {
+            investorId:         inv.id,
+            investorName:       inv.name,
+            investorAddress:    inv.address,
+            investorOccupation: inv.occupation,
+            investorIdNumber:   inv.idNumber,
+            investorPhone:      inv.phone,
+            investmentAmount:   inv.investmentAmount.toString(),
+            heirName:           inv.heirName,
+            heirRelationship:   c.heirRelationship,
+            heirPhone:          c.heirPhone,
+          } : c
+        );
+        return { ...prev, coInvestors: updated };
+      });
     }
   };
 
@@ -438,18 +572,30 @@ export function MouContent() {
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     addMou({
-      date: form.date,
-      investorId: form.investorId,
-      investorName: form.investorName,
-      investorAddress: form.investorAddress,
+      date:               form.date,
+      investorId:         form.investorId,
+      investorName:       form.investorName,
+      investorAddress:    form.investorAddress,
       investorOccupation: form.investorOccupation,
-      investorIdNumber: form.investorIdNumber,
-      investorPhone: form.investorPhone,
-      contractPeriod: parseInt(form.contractPeriod),
-      investmentAmount: parseFloat(form.investmentAmount),
-      heirName: form.heirName,
-      heirRelationship: form.heirRelationship,
-      heirPhone: form.heirPhone,
+      investorIdNumber:   form.investorIdNumber,
+      investorPhone:      form.investorPhone,
+      contractPeriod:     parseInt(form.contractPeriod),
+      investmentAmount:   parseFloat(form.investmentAmount),
+      heirName:           form.heirName,
+      heirRelationship:   form.heirRelationship,
+      heirPhone:          form.heirPhone,
+      coInvestors: form.coInvestors.map((c) => ({
+        investorId:         c.investorId,
+        investorName:       c.investorName,
+        investorAddress:    c.investorAddress,
+        investorOccupation: c.investorOccupation,
+        investorIdNumber:   c.investorIdNumber,
+        investorPhone:      c.investorPhone,
+        investmentAmount:   parseFloat(c.investmentAmount),
+        heirName:           c.heirName,
+        heirRelationship:   c.heirRelationship,
+        heirPhone:          c.heirPhone,
+      })),
     });
     setForm(initialForm);
     setIsAddOpen(false);
@@ -459,17 +605,29 @@ export function MouContent() {
     e.preventDefault();
     if (!selected) return;
     updateMou(selected.id, {
-      date: form.date,
-      investorName: form.investorName,
-      investorAddress: form.investorAddress,
+      date:               form.date,
+      investorName:       form.investorName,
+      investorAddress:    form.investorAddress,
       investorOccupation: form.investorOccupation,
-      investorIdNumber: form.investorIdNumber,
-      investorPhone: form.investorPhone,
-      contractPeriod: parseInt(form.contractPeriod),
-      investmentAmount: parseFloat(form.investmentAmount),
-      heirName: form.heirName,
-      heirRelationship: form.heirRelationship,
-      heirPhone: form.heirPhone,
+      investorIdNumber:   form.investorIdNumber,
+      investorPhone:      form.investorPhone,
+      contractPeriod:     parseInt(form.contractPeriod),
+      investmentAmount:   parseFloat(form.investmentAmount),
+      heirName:           form.heirName,
+      heirRelationship:   form.heirRelationship,
+      heirPhone:          form.heirPhone,
+      coInvestors: form.coInvestors.map((c) => ({
+        investorId:         c.investorId,
+        investorName:       c.investorName,
+        investorAddress:    c.investorAddress,
+        investorOccupation: c.investorOccupation,
+        investorIdNumber:   c.investorIdNumber,
+        investorPhone:      c.investorPhone,
+        investmentAmount:   parseFloat(c.investmentAmount),
+        heirName:           c.heirName,
+        heirRelationship:   c.heirRelationship,
+        heirPhone:          c.heirPhone,
+      })),
     });
     setForm(initialForm);
     setSelected(null);
@@ -479,18 +637,30 @@ export function MouContent() {
   const openEdit = (mou: MoU) => {
     setSelected(mou);
     setForm({
-      date: mou.date,
-      investorId: mou.investorId,
-      investorName: mou.investorName,
-      investorAddress: mou.investorAddress,
+      date:               mou.date,
+      investorId:         mou.investorId,
+      investorName:       mou.investorName,
+      investorAddress:    mou.investorAddress,
       investorOccupation: mou.investorOccupation,
-      investorIdNumber: mou.investorIdNumber,
-      investorPhone: mou.investorPhone,
-      contractPeriod: mou.contractPeriod.toString(),
-      investmentAmount: mou.investmentAmount.toString(),
-      heirName: mou.heirName,
-      heirRelationship: mou.heirRelationship,
-      heirPhone: mou.heirPhone,
+      investorIdNumber:   mou.investorIdNumber,
+      investorPhone:      mou.investorPhone,
+      contractPeriod:     mou.contractPeriod.toString(),
+      investmentAmount:   mou.investmentAmount.toString(),
+      heirName:           mou.heirName,
+      heirRelationship:   mou.heirRelationship,
+      heirPhone:          mou.heirPhone,
+      coInvestors: (mou.coInvestors ?? []).map((c) => ({
+        investorId:         c.investorId,
+        investorName:       c.investorName,
+        investorAddress:    c.investorAddress,
+        investorOccupation: c.investorOccupation,
+        investorIdNumber:   c.investorIdNumber,
+        investorPhone:      c.investorPhone,
+        investmentAmount:   c.investmentAmount.toString(),
+        heirName:           c.heirName,
+        heirRelationship:   c.heirRelationship,
+        heirPhone:          c.heirPhone,
+      })),
     });
     setIsEditOpen(true);
   };
@@ -556,6 +726,7 @@ export function MouContent() {
               previewId={nextId(form.date)}
               investors={investors}
               onInvestorSelect={handleInvestorSelect}
+              onCoInvestorSelect={handleCoInvestorSelect}
             />
           </DialogContent>
         </Dialog>
@@ -732,6 +903,7 @@ export function MouContent() {
             previewId={selected?.id ?? ""}
             investors={investors}
             onInvestorSelect={handleInvestorSelect}
+            onCoInvestorSelect={handleCoInvestorSelect}
             isEdit
           />
         </DialogContent>

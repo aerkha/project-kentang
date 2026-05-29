@@ -3,21 +3,38 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import pb from "./pocketbase";
 
-export interface MoU {
-  id: string;             // MOU-YYYYMM-NNN (customId, e.g. MOU-202505-001)
-  date: string;
+/** Data satu investor dalam MoU (berlaku untuk investor utama maupun co-investor) */
+export interface MoUInvestor {
   investorId: string;
   investorName: string;
   investorAddress: string;
   investorOccupation: string;
   investorIdNumber: string;
   investorPhone: string;
-  contractPeriod: number;
   investmentAmount: number;
   heirName: string;
   heirRelationship: string;
   heirPhone: string;
+}
+
+export interface MoU {
+  id: string;             // MOU-YYYYMM-NNN (customId, e.g. MOU-202505-001)
+  date: string;
+  // Investor utama (Pihak Kedua I)
+  investorId: string;
+  investorName: string;
+  investorAddress: string;
+  investorOccupation: string;
+  investorIdNumber: string;
+  investorPhone: string;
+  investmentAmount: number;
+  heirName: string;
+  heirRelationship: string;
+  heirPhone: string;
+  contractPeriod: number;
   isTerminated?: boolean;
+  // Investor tambahan (Pihak Kedua II, III, dst.) — opsional
+  coInvestors?: MoUInvestor[];
 }
 
 interface MouContextType {
@@ -35,6 +52,18 @@ const pbIdMap = new Map<string, string>();
 function recordToMou(r: Record<string, unknown>): MoU {
   const customId = r.customId as string;
   pbIdMap.set(customId, r.id as string);
+
+  // coInvestors disimpan sebagai JSON string atau array di PocketBase
+  let coInvestors: MoUInvestor[] | undefined;
+  const raw = r.coInvestors;
+  if (raw) {
+    try {
+      coInvestors = typeof raw === "string" ? JSON.parse(raw) : (raw as MoUInvestor[]);
+    } catch {
+      coInvestors = undefined;
+    }
+  }
+
   return {
     id:                 customId,
     date:               r.date               as string,
@@ -50,6 +79,7 @@ function recordToMou(r: Record<string, unknown>): MoU {
     heirRelationship:   r.heirRelationship   as string,
     heirPhone:          r.heirPhone          as string,
     isTerminated:       (r.isTerminated      as boolean) || false,
+    coInvestors,
   };
 }
 
@@ -106,6 +136,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
       heirRelationship:   mou.heirRelationship,
       heirPhone:          mou.heirPhone,
       isTerminated:       mou.isTerminated || false,
+      coInvestors:        mou.coInvestors ?? [],
     });
     setMous((prev) => [...prev, recordToMou(record)]);
   };
