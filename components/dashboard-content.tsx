@@ -120,6 +120,13 @@ function formatShort(n: number) {
   return String(n);
 }
 
+function formatShortFloat(n: number) {
+  if (Math.abs(n) >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}M`;
+  if (Math.abs(n) >= 1_000_000)     return `${(n / 1_000_000).toFixed(2)}Jt`;
+  if (Math.abs(n) >= 1_000)         return `${(n / 1_000).toFixed(2)}Rb`;
+  return n.toFixed(2);
+}
+
 export function DashboardContent() {
   const { investors }   = useInvestors();
   const { brokers }     = useBrokers();
@@ -966,7 +973,7 @@ export function DashboardContent() {
                       <td className="py-2.5 px-2.5 font-mono text-muted-foreground whitespace-nowrap">{row.mou.id}</td>
                       <td className="py-2.5 px-2.5 text-center text-muted-foreground whitespace-nowrap">bulan ke-{row.usiaBulan + 1}</td>
                       <td className={`py-2.5 px-2.5 text-right font-bold whitespace-nowrap ${row.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {new Intl.NumberFormat("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(row.totalProfit)}
+                        {formatShortFloat(row.totalProfit)}
                       </td>
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.owner)}</td>
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.hasanah)}</td>
