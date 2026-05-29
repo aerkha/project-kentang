@@ -500,9 +500,9 @@ export function InvestorsContent() {
       totalIncome += c.income;
       totalProfit += c.profit;
     });
-    const bagHasil   = totalProfit > 0 ? totalProfit * 0.35 : 0;
-    const netProfit  = totalProfit > 0 ? totalProfit * 0.65 : totalProfit;
-    return { totalIncome, totalProfit, bagHasil, netProfit };
+    const bagHasil          = totalProfit > 0 ? totalProfit * 0.35 : 0;
+    const grossProfitMinbun = totalProfit > 0 ? totalProfit * 0.15 : totalProfit;
+    return { totalIncome, totalProfit, bagHasil, grossProfitMinbun };
   }, [transaksis]);
 
   // ── Estimasi bagi hasil per investor (dari data transaksi) ──
@@ -742,14 +742,14 @@ export function InvestorsContent() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Net Profit Perusahaan</CardTitle>
+              <CardTitle className="text-sm font-medium">Gross Profit MinBun</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className={`text-2xl font-bold ${pnl.netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                {formatRp(pnl.netProfit)}
+              <div className={`text-2xl font-bold ${pnl.grossProfitMinbun >= 0 ? "text-green-600" : "text-red-600"}`}>
+                {formatRp(pnl.grossProfitMinbun)}
               </div>
-              <p className="text-xs text-muted-foreground">65% dari total profit</p>
+              <p className="text-xs text-muted-foreground">15% dari total profit</p>
             </CardContent>
           </Card>
         </div>

@@ -60,8 +60,6 @@ export function AppSidebar() {
         className={cn(
           "fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar border-r border-sidebar-border flex flex-col",
           "transition-transform duration-300 ease-in-out",
-          // mobile: hidden by default, visible when open
-          // desktop (md+): always visible
           isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         )}
       >
