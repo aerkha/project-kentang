@@ -20,6 +20,13 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Plus, Pencil, Trash2, Search, Users, Briefcase, Building2,
   TrendingUp, TrendingDown, DollarSign, Wallet,
   PowerOff, RotateCcw,
@@ -90,9 +97,10 @@ interface InvestorFormProps {
   onSubmit: (e: React.FormEvent) => void;
   submitLabel: string;
   previewId: string;
+  brokers: Broker[];
 }
 
-function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, previewId }: InvestorFormProps) {
+function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, previewId, brokers }: InvestorFormProps) {
   const set = (key: keyof InvestorFormData, value: string) =>
     setFormData({ ...formData, [key]: value });
 
@@ -188,15 +196,39 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
           </p>
 
           <div className="space-y-1.5">
-            <Label htmlFor="inv-broker" className="text-xs">
-              Nama Broker
-            </Label>
-            <Input
-              id="inv-broker"
-              value={formData.brokerName}
-              onChange={(e) => set("brokerName", e.target.value)}
-              placeholder="Nama broker (opsional)"
-            />
+            <Label className="text-xs">Nama Broker</Label>
+            {brokers.length > 0 ? (
+              <Select
+                value={formData.brokerName || "__none__"}
+                onValueChange={(v) => set("brokerName", v === "__none__" ? "" : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih broker (opsional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">
+                    <span className="text-muted-foreground">— Tanpa Broker —</span>
+                  </SelectItem>
+                  {brokers.map((b) => (
+                    <SelectItem key={b.id} value={b.name}>
+                      {b.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={formData.brokerName}
+                onChange={(e) => set("brokerName", e.target.value)}
+                placeholder="Belum ada broker terdaftar"
+                disabled
+              />
+            )}
+            {brokers.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                Tambah broker terlebih dahulu melalui tombol &ldquo;Tambah Broker&rdquo;
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -775,6 +807,7 @@ export function InvestorsContent() {
                 onSubmit={handleAddInvestor}
                 submitLabel="Simpan Investor"
                 previewId={nextInvestorId()}
+                brokers={brokers}
               />
             </DialogContent>
           </Dialog>
@@ -1053,6 +1086,7 @@ export function InvestorsContent() {
             onSubmit={handleEditInvestor}
             submitLabel="Simpan Perubahan"
             previewId={selectedInvestor?.id ?? ""}
+            brokers={brokers}
           />
         </DialogContent>
       </Dialog>

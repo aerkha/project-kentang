@@ -38,8 +38,6 @@ import {
   PieChart as RechartsPieChart,
   Pie,
   Cell,
-  ComposedChart,
-  Line,
   Legend,
   LabelList,
 } from "recharts";
@@ -248,16 +246,18 @@ export function DashboardContent() {
   }, [filteredMousByPeriod]);
 
   // ── Chart: PnL per bulan (dari Transaksi, terfilter) ──
+  // cost = HPP (income - profit) → ditumpuk dengan profit menjadi stacked column
   const monthlyPnlData = useMemo(() => {
-    const map = new Map<string, { month: string; income: number; profit: number }>();
+    const map = new Map<string, { month: string; income: number; profit: number; cost: number }>();
     filteredTransaksis.forEach((t) => {
       const c     = calcTransaksi(t);
       const ym    = t.date.slice(0, 7);
       const label = monthLabel(ym);
-      if (!map.has(ym)) map.set(ym, { month: label, income: 0, profit: 0 });
+      if (!map.has(ym)) map.set(ym, { month: label, income: 0, profit: 0, cost: 0 });
       const e = map.get(ym)!;
-      e.income  += c.income;
-      e.profit  += c.profit;
+      e.income += c.income;
+      e.profit += c.profit;
+      e.cost   += Math.max(0, c.income - c.profit); // HPP / biaya pokok
     });
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
@@ -525,6 +525,7 @@ export function DashboardContent() {
                         }
                         contentStyle={tooltipStyle}
                         labelStyle={{ color: "hsl(var(--card-foreground))" }}
+                        itemStyle={{ color: "#ffffff" }}
                       />
                       <Bar
                         dataKey="investment"
@@ -546,20 +547,20 @@ export function DashboardContent() {
             </Card>
           )}
 
-          {/* PnL per bulan */}
+          {/* PnL per bulan — stacked column */}
           {monthlyPnlData.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle>PnL per Bulan</CardTitle>
                 <CardDescription>
-                  Penjualan, harga pokok, dan laba bersih tiap bulan
+                  HPP dan laba bersih ditumpuk per bulan
                   {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart
+                    <BarChart
                       data={monthlyPnlData}
                       margin={{ top: 8, right: 20, left: 8, bottom: 4 }}
                     >
@@ -573,33 +574,48 @@ export function DashboardContent() {
                       <Tooltip
                         formatter={(value, name) => {
                           const labels: Record<string, string> = {
-                            income: "Income",
-                            profit: "Profit",
+                            cost:   "HPP / Biaya",
+                            profit: "Laba Bersih",
                           };
                           return [formatCurrency(value as number), labels[name as string] ?? name];
                         }}
                         contentStyle={tooltipStyle}
+                        labelStyle={{ color: "hsl(var(--card-foreground))", fontWeight: 600 }}
                       />
                       <Legend
                         formatter={(value) => {
                           const labels: Record<string, string> = {
-                            income: "Income",
-                            profit: "Profit",
+                            cost:   "HPP / Biaya",
+                            profit: "Laba Bersih",
                           };
                           return labels[value] ?? value;
                         }}
                         wrapperStyle={{ fontSize: "11px" }}
                       />
-                      <Bar dataKey="income" fill="#4ade80" radius={[3, 3, 0, 0]} name="income" />
-                      <Line
-                        type="monotone"
-                        dataKey="profit"
-                        stroke="#f59e0b"
-                        strokeWidth={2.5}
-                        dot={{ r: 4, fill: "#f59e0b" }}
-                        name="profit"
+                      {/* HPP — segmen bawah */}
+                      <Bar
+                        dataKey="cost"
+                        stackId="pnl"
+                        fill="#93c5fd"
+                        name="cost"
+                        radius={[0, 0, 0, 0]}
                       />
-                    </ComposedChart>
+                      {/* Laba Bersih — segmen atas */}
+                      <Bar
+                        dataKey="profit"
+                        stackId="pnl"
+                        fill="#4ade80"
+                        name="profit"
+                        radius={[4, 4, 0, 0]}
+                      >
+                        <LabelList
+                          dataKey="income"
+                          position="top"
+                          formatter={(v: number) => formatShort(v)}
+                          style={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                        />
+                      </Bar>
+                    </BarChart>
                   </ResponsiveContainer>
                 </div>
               </CardContent>
