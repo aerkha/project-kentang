@@ -191,6 +191,43 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // ── Mode test: kirim email contoh tanpa cek PocketBase ──
+  const isTest = req.nextUrl.searchParams.get("test") === "true";
+  if (isTest) {
+    try {
+      const resend   = new Resend(process.env.RESEND_API_KEY);
+      const todayStr = fmtDate(new Date().toISOString().slice(0, 10));
+      const dummy: DueCycle[] = [{
+        mou: {
+          id: "pb-test-id",
+          customId: "MOU-202505-001",
+          date: "2025-04-01",
+          investorId: "INV-0001",
+          investorName: "Investor Test",
+          investorPhone: "0812-3456-7890",
+          investmentAmount: 50_000_000,
+          contractPeriod: 90,
+          isTerminated: false,
+        },
+        cycleNumber:   1,
+        cycleStart:    "2025-04-01",
+        cycleEnd:      "2025-05-01",
+        daysOverdue:   0,
+      }];
+
+      const result = await resend.emails.send({
+        from:    process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev",
+        to:      (process.env.ADMIN_EMAIL ?? "").split(",").map((e) => e.trim()).filter(Boolean),
+        subject: `[MinBun TEST] 🔔 Email Reminder Bagi Hasil — ${todayStr}`,
+        html:    buildEmailHtml(dummy, todayStr),
+      });
+
+      return NextResponse.json({ mode: "test", resend: result });
+    } catch (err) {
+      return NextResponse.json({ mode: "test", error: String(err) }, { status: 500 });
+    }
+  }
+
   try {
     // ── Koneksi ke PocketBase ──
     const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
@@ -233,7 +270,7 @@ export async function GET(req: NextRequest) {
     // ── Kirim Email via Resend ──
     const resend = new Resend(process.env.RESEND_API_KEY);
     await resend.emails.send({
-      from:    process.env.RESEND_FROM_EMAIL ?? "MinBun ERP <noreply@resend.dev>",
+      from:    process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev",
       to:      (process.env.ADMIN_EMAIL ?? "").split(",").map((e) => e.trim()).filter(Boolean),
       subject: `[MinBun] 🔔 ${toSend.length} Investor Jatuh Tempo Bagi Hasil — ${todayStr}`,
       html:    buildEmailHtml(toSend, todayStr),
