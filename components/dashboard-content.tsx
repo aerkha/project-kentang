@@ -975,13 +975,13 @@ export function DashboardContent() {
                       <td className={`py-2.5 px-2.5 text-right font-bold whitespace-nowrap ${row.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {formatShortFloat(row.totalProfit)}
                       </td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.owner)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.hasanah)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap text-blue-600 font-medium">{formatShort(row.investor)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.trader)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.minbun)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.brokerI)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.brokerII)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.owner)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.hasanah)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap text-blue-600 font-medium">{formatShortFloat(row.investor)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.trader)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.minbun)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.brokerI)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.brokerII)}</td>
                       <td className={`py-2.5 px-2.5 text-right whitespace-nowrap font-semibold ${row.roiTotal >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {pct(row.roiTotal)}
                       </td>
