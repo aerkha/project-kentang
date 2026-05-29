@@ -131,14 +131,39 @@ export function DashboardContent() {
   }, [investors, brokers]);
 
 
-  // ── Chart: investasi per broker ──
-  const brokerData = useMemo(() => {
-    const map = new Map<string, number>();
-    investors.forEach((inv) => {
-      map.set(inv.brokerName, (map.get(inv.brokerName) ?? 0) + inv.investmentAmount);
+  // ── Chart: investasi per broker — stacked per investor ──
+  const brokerStackedData = useMemo(() => {
+    const COLORS = [
+      "#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6",
+      "#06b6d4","#f97316","#84cc16","#ec4899","#6366f1",
+      "#14b8a6","#eab308","#a855f7","#22c55e","#0ea5e9",
+    ];
+
+    const active = investors.filter((inv) => inv.isActive !== false && inv.investmentAmount > 0);
+
+    // Urutan broker: dari daftar broker, lalu "Tanpa Broker"
+    const brokerOrder: string[] = [];
+    brokers.forEach((b) => {
+      if (active.some((inv) => inv.brokerName === b.name)) brokerOrder.push(b.name);
     });
-    return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
-  }, [investors]);
+    if (active.some((inv) => !inv.brokerName?.trim())) brokerOrder.push("Tanpa Broker");
+
+    // Satu baris per broker, kolom = investor ID
+    const data = brokerOrder.map((brokerName) => {
+      const row: Record<string, string | number> = { broker: brokerName };
+      active
+        .filter((inv) => (inv.brokerName?.trim() || "Tanpa Broker") === brokerName)
+        .forEach((inv) => { row[inv.id] = inv.investmentAmount; });
+      return row;
+    });
+
+    // Map ID → nama untuk tooltip & legend
+    const idToName = new Map(active.map((inv) => [inv.id, inv.name]));
+    const investorIds = active.map((inv) => inv.id);
+    const colorMap   = new Map(active.map((inv, i) => [inv.id, COLORS[i % COLORS.length]]));
+
+    return { data, investorIds, idToName, colorMap };
+  }, [investors, brokers]);
 
   // ── Chart: kontribusi investasi per investor aktif ──
   const investorContribData = useMemo(() => {
@@ -452,7 +477,7 @@ export function DashboardContent() {
 
           <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">MoU Baru</CardTitle>
+              <CardTitle className="text-sm font-medium">PKS</CardTitle>
               <Briefcase className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -499,7 +524,7 @@ export function DashboardContent() {
               <CardHeader>
                 <CardTitle>Investasi Masuk per Bulan</CardTitle>
                 <CardDescription>
-                  Total nilai dan jumlah MoU baru tiap bulan
+                  Total nilai dan jumlah PKS
                   {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
                 </CardDescription>
               </CardHeader>
@@ -581,6 +606,7 @@ export function DashboardContent() {
                         }}
                         contentStyle={tooltipStyle}
                         labelStyle={{ color: "hsl(var(--card-foreground))", fontWeight: 600 }}
+                        itemStyle={{ color: "#000000" }}
                       />
                       <Legend
                         formatter={(value) => {
@@ -629,21 +655,37 @@ export function DashboardContent() {
         <Card>
           <CardHeader>
             <CardTitle>Investasi per Broker</CardTitle>
-            <CardDescription>Total nilai investasi berdasarkan broker</CardDescription>
+            <CardDescription>Kontribusi tiap investor dalam setiap broker</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={brokerData} margin={{ top: 5, right: 20, left: 8, bottom: 5 }}>
+                <BarChart
+                  data={brokerStackedData.data}
+                  margin={{ top: 16, right: 20, left: 8, bottom: 4 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <XAxis dataKey="broker" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={formatShort} tick={{ fontSize: 11 }} width={52} />
                   <Tooltip
-                    formatter={(value) => [formatCurrency(value as number), "Investasi"]}
+                    formatter={(value, id) => [
+                      formatCurrency(value as number),
+                      brokerStackedData.idToName.get(id as string) ?? id,
+                    ]}
                     contentStyle={tooltipStyle}
-                    labelStyle={{ color: "hsl(var(--card-foreground))" }}
+                    labelStyle={{ color: "hsl(var(--card-foreground))", fontWeight: 600 }}
+                    itemStyle={{ color: "#ffffff" }}
                   />
-                  <Bar dataKey="value" radius={[4, 4, 0, 0]} fill="hsl(var(--chart-1))" />
+                  {brokerStackedData.investorIds.map((id, i) => (
+                    <Bar
+                      key={id}
+                      dataKey={id}
+                      stackId="b"
+                      fill={brokerStackedData.colorMap.get(id)}
+                      radius={i === brokerStackedData.investorIds.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                      name={id}
+                    />
+                  ))}
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -820,9 +862,9 @@ export function DashboardContent() {
         <CardHeader>
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div>
-              <CardTitle>Rekap Investasi per MoU</CardTitle>
+              <CardTitle>Rekap Investasi per PKS</CardTitle>
               <CardDescription>
-                Distribusi profit berdasarkan transaksi dalam periode setiap MoU
+                Distribusi profit berdasarkan transaksi dalam periode setiap PKS
                 {periodMetrics.isFiltered && ` · MoU mulai ${periodMetrics.periodLabel}`}
               </CardDescription>
             </div>
