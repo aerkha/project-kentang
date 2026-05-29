@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -151,6 +151,31 @@ function buildEmailHtml(cycles: DueCycle[], date: string): string {
 </html>`;
 }
 
+// ─── Nodemailer transporter ───────────────────────────────────────────────────
+
+function createTransporter() {
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_APP_PASSWORD,
+    },
+  });
+}
+
+async function sendEmail(cycles: DueCycle[], todayStr: string): Promise<void> {
+  const transporter = createTransporter();
+  const recipients  = (process.env.ADMIN_EMAIL ?? "")
+    .split(",").map((e) => e.trim()).filter(Boolean);
+
+  await transporter.sendMail({
+    from:    `"MinBun ERP" <${process.env.GMAIL_USER}>`,
+    to:      recipients.join(", "),
+    subject: `[MinBun] 🔔 ${cycles.length} Investor Jatuh Tempo Bagi Hasil — ${todayStr}`,
+    html:    buildEmailHtml(cycles, todayStr),
+  });
+}
+
 // ─── WA via Fonnte ────────────────────────────────────────────────────────────
 
 async function sendWhatsApp(cycles: DueCycle[], date: string): Promise<void> {
@@ -195,7 +220,6 @@ export async function GET(req: NextRequest) {
   const isTest = req.nextUrl.searchParams.get("test") === "true";
   if (isTest) {
     try {
-      const resend   = new Resend(process.env.RESEND_API_KEY);
       const todayStr = fmtDate(new Date().toISOString().slice(0, 10));
       const dummy: DueCycle[] = [{
         mou: {
@@ -215,14 +239,8 @@ export async function GET(req: NextRequest) {
         daysOverdue:   0,
       }];
 
-      const result = await resend.emails.send({
-        from:    process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev",
-        to:      (process.env.ADMIN_EMAIL ?? "").split(",").map((e) => e.trim()).filter(Boolean),
-        subject: `[MinBun TEST] 🔔 Email Reminder Bagi Hasil — ${todayStr}`,
-        html:    buildEmailHtml(dummy, todayStr),
-      });
-
-      return NextResponse.json({ mode: "test", resend: result });
+      await sendEmail(dummy, `${todayStr} (TEST)`);
+      return NextResponse.json({ mode: "test", status: "email sent" });
     } catch (err) {
       return NextResponse.json({ mode: "test", error: String(err) }, { status: 500 });
     }
@@ -267,14 +285,8 @@ export async function GET(req: NextRequest) {
 
     const todayStr = fmtDate(new Date().toISOString().slice(0, 10));
 
-    // ── Kirim Email via Resend ──
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    await resend.emails.send({
-      from:    process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev",
-      to:      (process.env.ADMIN_EMAIL ?? "").split(",").map((e) => e.trim()).filter(Boolean),
-      subject: `[MinBun] 🔔 ${toSend.length} Investor Jatuh Tempo Bagi Hasil — ${todayStr}`,
-      html:    buildEmailHtml(toSend, todayStr),
-    });
+    // ── Kirim Email via Gmail ──
+    await sendEmail(toSend, todayStr);
 
     // ── Kirim WA via Fonnte (jika dikonfigurasi) ──
     await sendWhatsApp(toSend, todayStr);
