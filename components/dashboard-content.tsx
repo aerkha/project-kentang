@@ -89,14 +89,20 @@ function calcMouDistribution(
     const hasBroker = !!t.brokerName;
     const hasBII    = !!t.hasBrokerII;
 
-    owner    += profit * 0.25;
-    hasanah  += profit * 0.25;
+    // Owner = pemilik lahan = 50% dari profit investor ini
+    owner    += profit * 0.50;
+
+    // Hasanah = gabungan semua sub-komponen di bawah (total = 50%)
     investor += profit * 0.35;
     trader   += profit * (hasBII ? 0.05 : 0.10);
     minbun   += profit * (hasBroker ? 0 : 0.05);
     brokerI  += profit * (hasBroker ? 0.05 : 0);
     brokerII += profit * (hasBII    ? 0.05 : 0);
   });
+
+  // Hasanah = jumlah seluruh sub-komponen (investor + trader + minbun + broker)
+  // Selalu = 50% dari totalProfit
+  hasanah = investor + trader + minbun + brokerI + brokerII;
 
   return { totalProfit, owner, hasanah, investor, trader, minbun, brokerI, brokerII };
 }
@@ -958,9 +964,9 @@ export function DashboardContent() {
                       <td className="py-2.5 px-2.5 whitespace-nowrap text-muted-foreground">{formatDate(row.mou.date)}</td>
                       <td className="py-2.5 px-2.5 whitespace-nowrap text-muted-foreground">{formatDate(row.endDateStr)}</td>
                       <td className="py-2.5 px-2.5 font-mono text-muted-foreground whitespace-nowrap">{row.mou.id}</td>
-                      <td className="py-2.5 px-2.5 text-center text-muted-foreground whitespace-nowrap">{row.usiaBulan} bulan</td>
+                      <td className="py-2.5 px-2.5 text-center text-muted-foreground whitespace-nowrap">bulan ke-{row.usiaBulan + 1}</td>
                       <td className={`py-2.5 px-2.5 text-right font-bold whitespace-nowrap ${row.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {formatShort(row.totalProfit)}
+                        {new Intl.NumberFormat("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(row.totalProfit)}
                       </td>
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.owner)}</td>
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.hasanah)}</td>
