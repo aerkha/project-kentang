@@ -19,6 +19,7 @@ import {
   X,
   CalendarDays,
   Receipt,
+  Wallet,
 } from "lucide-react";
 import {
   Select,
@@ -251,6 +252,8 @@ export function DashboardContent() {
       income += c.income;
       profit += c.profit;
     });
+    const bagHasil          = profit > 0 ? profit * 0.35 : 0;
+    const grossProfitMinbun = profit > 0 ? profit * 0.15 : profit;
     const periodLabel = filterYear
       ? filterMonth
         ? `${MONTHS[parseInt(filterMonth) - 1]} ${filterYear}`
@@ -259,7 +262,7 @@ export function DashboardContent() {
         ? MONTHS[parseInt(filterMonth) - 1]
         : "Semua Periode";
     return {
-      income, profit,
+      income, profit, bagHasil, grossProfitMinbun,
       trxCount:   filteredTransaksis.length,
       mouCount:   filteredMousByPeriod.length,
       periodLabel,
@@ -522,6 +525,32 @@ export function DashboardContent() {
                 {formatShort(periodMetrics.profit)}
               </div>
               <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.profit)}</p>
+            </CardContent>
+          </Card>
+
+          <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Bagi Hasil Investor</CardTitle>
+              <Wallet className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-orange-500">
+                {formatShort(periodMetrics.bagHasil)}
+              </div>
+              <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasil)}</p>
+            </CardContent>
+          </Card>
+
+          <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Gross Profit MinBun</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${periodMetrics.grossProfitMinbun >= 0 ? "text-green-600" : "text-red-600"}`}>
+                {formatShort(periodMetrics.grossProfitMinbun)}
+              </div>
+              <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.grossProfitMinbun)}</p>
             </CardContent>
           </Card>
         </div>

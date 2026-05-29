@@ -28,7 +28,6 @@ import {
 } from "@/components/ui/select";
 import {
   Plus, Pencil, Trash2, Search, Users, Briefcase, Building2,
-  TrendingUp, TrendingDown, DollarSign, Wallet,
   PowerOff, RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
@@ -491,20 +490,6 @@ export function InvestorsContent() {
 
   const [searchQuery, setSearchQuery] = useState("");
 
-  // ── PnL metrics dari data transaksi ──
-  const pnl = useMemo(() => {
-    let totalIncome = 0;
-    let totalProfit = 0;
-    transaksis.forEach((t) => {
-      const c = calcTransaksi(t);
-      totalIncome += c.income;
-      totalProfit += c.profit;
-    });
-    const bagHasil          = totalProfit > 0 ? totalProfit * 0.35 : 0;
-    const grossProfitMinbun = totalProfit > 0 ? totalProfit * 0.15 : totalProfit;
-    return { totalIncome, totalProfit, bagHasil, grossProfitMinbun };
-  }, [transaksis]);
-
   // ── Estimasi bagi hasil per investor (dari data transaksi) ──
   const investorPnlMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -699,61 +684,6 @@ export function InvestorsContent() {
 
   return (
     <div className="space-y-6">
-
-      {/* ── Ringkasan PnL ── */}
-      {transaksis.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Income</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatRp(pnl.totalIncome)}</div>
-              <p className="text-xs text-muted-foreground">dari {transaksis.length} transaksi</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Profit</CardTitle>
-              {pnl.totalProfit >= 0
-                ? <TrendingUp className="h-4 w-4 text-green-500" />
-                : <TrendingDown className="h-4 w-4 text-red-500" />}
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${pnl.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                {formatRp(pnl.totalProfit)}
-              </div>
-              <p className="text-xs text-muted-foreground">income − (modal + ongkir)</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Bagi Hasil Investor</CardTitle>
-              <Wallet className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-orange-500">{formatRp(pnl.bagHasil)}</div>
-              <p className="text-xs text-muted-foreground">35% dari total profit</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Gross Profit MinBun</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${pnl.grossProfitMinbun >= 0 ? "text-green-600" : "text-red-600"}`}>
-                {formatRp(pnl.grossProfitMinbun)}
-              </div>
-              <p className="text-xs text-muted-foreground">15% dari total profit</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       {/* ══════════════════════════════════════
           INVESTOR SECTION
