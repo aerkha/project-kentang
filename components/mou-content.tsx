@@ -35,6 +35,7 @@ import {
   CalendarDays,
   PowerOff,
   RotateCcw,
+  Upload,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -55,6 +56,9 @@ interface MouFormData {
   heirName: string;
   heirRelationship: string;
   heirPhone: string;
+  esignPihakPertama1: string;
+  esignPihakPertama2: string;
+  esignPihakKedua: string;
 }
 
 const initialForm: MouFormData = {
@@ -71,13 +75,16 @@ const initialForm: MouFormData = {
   heirName: "",
   heirRelationship: "",
   heirPhone: "",
+  esignPihakPertama1: "",
+  esignPihakPertama2: "",
+  esignPihakKedua: "",
 };
 
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
 
-type MouStatus = "aktif" | "expired" | "nonaktif";
+type MouStatus = "pending" | "aktif" | "expired" | "nonaktif";
 
 function getMouStatus(mou: MoU): MouStatus {
   if (mou.isTerminated) return "nonaktif";
@@ -85,7 +92,9 @@ function getMouStatus(mou: MoU): MouStatus {
   end.setDate(end.getDate() + mou.contractPeriod);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  return end >= today ? "aktif" : "expired";
+  if (end < today) return "expired";
+  if (!mou.hasSignedDoc) return "pending";
+  return "aktif";
 }
 
 function formatDate(s: string) {
@@ -362,6 +371,68 @@ function MouFormFields({
             </div>
           </div>
         </div>
+
+        {/* ── E-Sign Tanda Tangan ── */}
+        <div className="space-y-3">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
+            E-Sign Tanda Tangan (Opsional)
+          </p>
+          {(
+            [
+              { field: "esignPihakPertama1" as const, label: "E-Sign Pihak Pertama I", hint: "Adie Bayu Putra" },
+              { field: "esignPihakPertama2" as const, label: "E-Sign Pihak Pertama II", hint: "Parafitra Fidiasari" },
+              { field: "esignPihakKedua"    as const, label: "E-Sign Pihak Kedua (Investor)", hint: formData.investorName || "Investor" },
+            ] as const
+          ).map(({ field, label, hint }) => (
+            <div key={field} className="space-y-1.5">
+              <Label className="text-xs">
+                {label}
+                <span className="ml-1 text-muted-foreground font-normal">— {hint}</span>
+              </Label>
+              {formData[field] ? (
+                <div className="flex items-center gap-3 p-2 border rounded-md bg-muted/30">
+                  <img
+                    src={formData[field]}
+                    alt={label}
+                    className="h-14 w-auto object-contain border rounded bg-white"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => set(field, "")}
+                  >
+                    Hapus
+                  </Button>
+                </div>
+              ) : (
+                <Input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="cursor-pointer"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (file.size > 200 * 1024) {
+                      alert(`Ukuran file terlalu besar (${(file.size / 1024).toFixed(0)} KB). Maksimal 200 KB untuk e-sign.`);
+                      e.target.value = "";
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = (ev) => set(field, ev.target?.result as string ?? "");
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              )}
+              {!formData[field] && (
+                <p className="text-[11px] text-muted-foreground">
+                  JPEG / PNG / WebP · Maks. 200 KB
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       <DialogFooter className="mt-4 pt-4 border-t">
@@ -375,10 +446,10 @@ function MouFormFields({
 // Main component
 // ─────────────────────────────────────────────
 
-type Filter = "semua" | "aktif" | "expired" | "nonaktif";
+type Filter = "semua" | "pending" | "aktif" | "expired" | "nonaktif";
 
 export function MouContent() {
-  const { mous, addMou, updateMou, deleteMou } = useMou();
+  const { mous, addMou, updateMou, deleteMou, uploadSignedDoc } = useMou();
   const { investors } = useInvestors();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -391,6 +462,11 @@ export function MouContent() {
   const [terminateAction, setTerminateAction] = useState<"nonaktifkan" | "aktifkan">("nonaktifkan");
   const [selected, setSelected] = useState<MoU | null>(null);
   const [form, setForm] = useState<MouFormData>(initialForm);
+
+  const [isUploadDocOpen, setIsUploadDocOpen] = useState(false);
+  const [uploadDocTarget, setUploadDocTarget] = useState<MoU | null>(null);
+  const [uploadDocFile, setUploadDocFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   // ── Filter ──
   const filtered = mous.filter((m) => {
@@ -462,6 +538,9 @@ export function MouContent() {
       heirRelationship: form.heirRelationship,
       heirPhone: form.heirPhone,
       keterangan: form.keterangan,
+      esignPihakPertama1: form.esignPihakPertama1,
+      esignPihakPertama2: form.esignPihakPertama2,
+      esignPihakKedua: form.esignPihakKedua,
     });
     setForm(initialForm);
     setIsAddOpen(false);
@@ -483,6 +562,9 @@ export function MouContent() {
       heirRelationship: form.heirRelationship,
       heirPhone: form.heirPhone,
       keterangan: form.keterangan,
+      esignPihakPertama1: form.esignPihakPertama1,
+      esignPihakPertama2: form.esignPihakPertama2,
+      esignPihakKedua: form.esignPihakKedua,
     });
     setForm(initialForm);
     setSelected(null);
@@ -505,8 +587,30 @@ export function MouContent() {
       heirName: mou.heirName,
       heirRelationship: mou.heirRelationship,
       heirPhone: mou.heirPhone,
+      esignPihakPertama1: mou.esignPihakPertama1 ?? "",
+      esignPihakPertama2: mou.esignPihakPertama2 ?? "",
+      esignPihakKedua: mou.esignPihakKedua ?? "",
     });
     setIsEditOpen(true);
+  };
+
+  const openUploadDoc = (mou: MoU) => {
+    setUploadDocTarget(mou);
+    setUploadDocFile(null);
+    setIsUploadDocOpen(true);
+  };
+
+  const handleSignedDocUpload = async () => {
+    if (!uploadDocTarget || !uploadDocFile) return;
+    setIsUploading(true);
+    try {
+      await uploadSignedDoc(uploadDocTarget.id, uploadDocFile);
+      setIsUploadDocOpen(false);
+      setUploadDocTarget(null);
+      setUploadDocFile(null);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const openDelete = (mou: MoU) => {
@@ -533,9 +637,10 @@ export function MouContent() {
 
   // ── Count per status ──
   const counts = {
-    semua: mous.length,
-    aktif: mous.filter((m) => getMouStatus(m) === "aktif").length,
-    expired: mous.filter((m) => getMouStatus(m) === "expired").length,
+    semua:    mous.length,
+    pending:  mous.filter((m) => getMouStatus(m) === "pending").length,
+    aktif:    mous.filter((m) => getMouStatus(m) === "aktif").length,
+    expired:  mous.filter((m) => getMouStatus(m) === "expired").length,
     nonaktif: mous.filter((m) => getMouStatus(m) === "nonaktif").length,
   };
 
@@ -577,7 +682,7 @@ export function MouContent() {
 
       {/* ── Filter tabs ── */}
       <div className="flex flex-wrap gap-2">
-        {(["semua", "aktif", "expired", "nonaktif"] as Filter[]).map((f) => (
+        {(["semua", "pending", "aktif", "expired", "nonaktif"] as Filter[]).map((f) => (
           <Button
             key={f}
             variant={filter === f ? "default" : "outline"}
@@ -667,6 +772,8 @@ export function MouContent() {
                             className={
                               status === "aktif"
                                 ? "bg-green-100 text-green-800 hover:bg-green-100"
+                                : status === "pending"
+                                ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-100"
                                 : status === "nonaktif"
                                 ? "bg-red-100 text-red-700 hover:bg-red-100"
                                 : "bg-muted text-muted-foreground"
@@ -701,7 +808,14 @@ export function MouContent() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7"
-                              title={mou.isTerminated ? "Aktifkan Kembali" : "Nonaktifkan"}
+                              title={
+                                status === "pending"
+                                  ? "Upload PKS bertanda tangan terlebih dahulu untuk mengaktifkan"
+                                  : mou.isTerminated
+                                  ? "Aktifkan Kembali"
+                                  : "Nonaktifkan"
+                              }
+                              disabled={status === "pending"}
                               onClick={() => openTerminate(mou)}
                             >
                               {mou.isTerminated ? (
@@ -709,6 +823,15 @@ export function MouContent() {
                               ) : (
                                 <PowerOff className="h-3.5 w-3.5 text-orange-500" />
                               )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              title="Upload PKS Bertanda Tangan"
+                              onClick={() => openUploadDoc(mou)}
+                            >
+                              <Upload className={`h-3.5 w-3.5 ${mou.hasSignedDoc ? "text-green-600" : "text-blue-500"}`} />
                             </Button>
                             <Button
                               variant="ghost"
@@ -825,6 +948,54 @@ export function MouContent() {
                 Aktifkan Kembali
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* ── Upload Signed Doc dialog ── */}
+      <Dialog open={isUploadDocOpen} onOpenChange={setIsUploadDocOpen}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Upload PKS Bertanda Tangan</DialogTitle>
+            <DialogDescription>
+              Upload dokumen PKS <strong>{uploadDocTarget?.id}</strong> yang telah
+              ditandatangani dan dibubuhi materai. Setelah berhasil diupload, status
+              akan otomatis berubah menjadi <strong>aktif</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Label className="text-xs">
+              File PKS (PDF / Gambar) <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              type="file"
+              accept=".pdf,image/*"
+              className="cursor-pointer"
+              onChange={(e) => setUploadDocFile(e.target.files?.[0] ?? null)}
+            />
+            {uploadDocFile && (
+              <p className="text-xs text-muted-foreground">
+                File dipilih: <span className="font-medium">{uploadDocFile.name}</span>{" "}
+                ({(uploadDocFile.size / 1024).toFixed(0)} KB)
+              </p>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsUploadDocOpen(false);
+                setUploadDocFile(null);
+              }}
+            >
+              Batal
+            </Button>
+            <Button
+              disabled={!uploadDocFile || isUploading}
+              onClick={handleSignedDocUpload}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              {isUploading ? "Mengunggah…" : "Upload & Aktifkan"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

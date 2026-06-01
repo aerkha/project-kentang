@@ -265,17 +265,23 @@ export function generateMouHtml(mou: MoU): string {
     <div class="sig">
       <div class="sb">
         <div class="bold">PIHAK PERTAMA I</div>
-        <div class="ss"></div>
+        ${mou.esignPihakPertama1
+          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakPertama1)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
+          : `<div class="ss"></div>`}
         <div><strong>Adie Bayu Putra</strong></div>
       </div>
       <div class="sb">
         <div class="bold">PIHAK PERTAMA II</div>
-        <div class="ss"></div>
+        ${mou.esignPihakPertama2
+          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakPertama2)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
+          : `<div class="ss"></div>`}
         <div><strong>Parafitra Fidiasari</strong><br>(Mimin Berkebun)</div>
       </div>
       <div class="sb">
         <div class="bold">PIHAK KEDUA</div>
-        <div class="ss"></div>
+        ${mou.esignPihakKedua
+          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakKedua)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
+          : `<div class="ss"></div>`}
         <div><strong>${esc(mou.investorName)}</strong></div>
       </div>
     </div>

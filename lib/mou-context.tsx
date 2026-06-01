@@ -19,13 +19,18 @@ export interface MoU {
   heirPhone: string;
   keterangan?: string;
   isTerminated?: boolean;
+  esignPihakPertama1?: string;
+  esignPihakPertama2?: string;
+  esignPihakKedua?: string;
+  hasSignedDoc?: boolean;
 }
 
 interface MouContextType {
   mous: MoU[];
-  addMou:    (mou: Omit<MoU, "id">) => Promise<void>;
-  updateMou: (id: string, updates: Partial<MoU>) => Promise<void>;
-  deleteMou: (id: string) => Promise<void>;
+  addMou:          (mou: Omit<MoU, "id">) => Promise<void>;
+  updateMou:       (id: string, updates: Partial<MoU>) => Promise<void>;
+  deleteMou:       (id: string) => Promise<void>;
+  uploadSignedDoc: (id: string, file: File) => Promise<void>;
 }
 
 const MouContext = createContext<MouContextType | undefined>(undefined);
@@ -36,6 +41,10 @@ const pbIdMap = new Map<string, string>();
 function recordToMou(r: Record<string, unknown>): MoU {
   const customId = r.customId as string;
   pbIdMap.set(customId, r.id as string);
+  const signedDoc = r.signedDoc;
+  const hasSignedDoc = Array.isArray(signedDoc)
+    ? signedDoc.length > 0
+    : !!(signedDoc && signedDoc !== "");
   return {
     id:                 customId,
     date:               r.date               as string,
@@ -52,6 +61,10 @@ function recordToMou(r: Record<string, unknown>): MoU {
     heirPhone:          r.heirPhone          as string,
     keterangan:         (r.keterangan        as string) || "",
     isTerminated:       (r.isTerminated      as boolean) || false,
+    esignPihakPertama1: (r.esignPihakPertama1 as string) || "",
+    esignPihakPertama2: (r.esignPihakPertama2 as string) || "",
+    esignPihakKedua:    (r.esignPihakKedua    as string) || "",
+    hasSignedDoc,
   };
 }
 
@@ -109,6 +122,9 @@ export function MouProvider({ children }: { children: ReactNode }) {
       heirPhone:          mou.heirPhone,
       keterangan:         mou.keterangan || "",
       isTerminated:       mou.isTerminated || false,
+      esignPihakPertama1: mou.esignPihakPertama1 || "",
+      esignPihakPertama2: mou.esignPihakPertama2 || "",
+      esignPihakKedua:    mou.esignPihakKedua    || "",
     });
     setMous((prev) => [...prev, recordToMou(record)]);
   };
@@ -130,8 +146,17 @@ export function MouProvider({ children }: { children: ReactNode }) {
     setMous((prev) => prev.filter((m) => m.id !== id));
   };
 
+  const uploadSignedDoc = async (id: string, file: File) => {
+    const pbId = pbIdMap.get(id);
+    if (!pbId) return;
+    const fd = new FormData();
+    fd.append("signedDoc", file);
+    const record = await pb.collection("mous").update(pbId, fd);
+    setMous((prev) => prev.map((m) => (m.id === id ? recordToMou(record) : m)));
+  };
+
   return (
-    <MouContext.Provider value={{ mous, addMou, updateMou, deleteMou }}>
+    <MouContext.Provider value={{ mous, addMou, updateMou, deleteMou, uploadSignedDoc }}>
       {children}
     </MouContext.Provider>
   );
