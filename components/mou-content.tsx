@@ -134,6 +134,7 @@ interface FormProps {
   investors: Investor[];
   onInvestorSelect: (id: string) => void;
   isEdit?: boolean;
+  isSaving?: boolean;
 }
 
 function MouFormFields({
@@ -145,6 +146,7 @@ function MouFormFields({
   investors,
   onInvestorSelect,
   isEdit = false,
+  isSaving = false,
 }: FormProps) {
   const set = (k: keyof MouFormData, v: string) =>
     setFormData({ ...formData, [k]: v });
@@ -436,7 +438,9 @@ function MouFormFields({
       </div>
 
       <DialogFooter className="mt-4 pt-4 border-t">
-        <Button type="submit">{submitLabel}</Button>
+        <Button type="submit" disabled={isSaving}>
+          {isSaving ? "Menyimpan…" : submitLabel}
+        </Button>
       </DialogFooter>
     </form>
   );
@@ -467,6 +471,7 @@ export function MouContent() {
   const [uploadDocTarget, setUploadDocTarget] = useState<MoU | null>(null);
   const [uploadDocFile, setUploadDocFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [overwriteConfirmed, setOverwriteConfirmed] = useState(false);
 
   // ── Filter ──
   const filtered = mous.filter((m) => {
@@ -521,54 +526,72 @@ export function MouContent() {
     }
   };
 
+  const [isSaving, setIsSaving] = useState(false);
+
   // ── Handlers ──
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    addMou({
-      date: form.date,
-      investorId: form.investorId,
-      investorName: form.investorName,
-      investorAddress: form.investorAddress,
-      investorOccupation: form.investorOccupation,
-      investorIdNumber: form.investorIdNumber,
-      investorPhone: form.investorPhone,
-      contractPeriod: parseInt(form.contractPeriod),
-      investmentAmount: parseFloat(form.investmentAmount),
-      heirName: form.heirName,
-      heirRelationship: form.heirRelationship,
-      heirPhone: form.heirPhone,
-      keterangan: form.keterangan,
-      esignPihakPertama1: form.esignPihakPertama1,
-      esignPihakPertama2: form.esignPihakPertama2,
-      esignPihakKedua: form.esignPihakKedua,
-    });
-    setForm(initialForm);
-    setIsAddOpen(false);
+    setIsSaving(true);
+    try {
+      await addMou({
+        date: form.date,
+        investorId: form.investorId,
+        investorName: form.investorName,
+        investorAddress: form.investorAddress,
+        investorOccupation: form.investorOccupation,
+        investorIdNumber: form.investorIdNumber,
+        investorPhone: form.investorPhone,
+        contractPeriod: parseInt(form.contractPeriod),
+        investmentAmount: parseFloat(form.investmentAmount),
+        heirName: form.heirName,
+        heirRelationship: form.heirRelationship,
+        heirPhone: form.heirPhone,
+        keterangan: form.keterangan,
+        esignPihakPertama1: form.esignPihakPertama1,
+        esignPihakPertama2: form.esignPihakPertama2,
+        esignPihakKedua: form.esignPihakKedua,
+      });
+      setForm(initialForm);
+      setIsAddOpen(false);
+    } catch (err) {
+      console.error("Gagal menyimpan PKS:", err);
+      alert("Gagal menyimpan PKS. Periksa koneksi atau log konsol untuk detail.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleEdit = (e: React.FormEvent) => {
+  const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selected) return;
-    updateMou(selected.id, {
-      date: form.date,
-      investorName: form.investorName,
-      investorAddress: form.investorAddress,
-      investorOccupation: form.investorOccupation,
-      investorIdNumber: form.investorIdNumber,
-      investorPhone: form.investorPhone,
-      contractPeriod: parseInt(form.contractPeriod),
-      investmentAmount: parseFloat(form.investmentAmount),
-      heirName: form.heirName,
-      heirRelationship: form.heirRelationship,
-      heirPhone: form.heirPhone,
-      keterangan: form.keterangan,
-      esignPihakPertama1: form.esignPihakPertama1,
-      esignPihakPertama2: form.esignPihakPertama2,
-      esignPihakKedua: form.esignPihakKedua,
-    });
-    setForm(initialForm);
-    setSelected(null);
-    setIsEditOpen(false);
+    setIsSaving(true);
+    try {
+      await updateMou(selected.id, {
+        date: form.date,
+        investorName: form.investorName,
+        investorAddress: form.investorAddress,
+        investorOccupation: form.investorOccupation,
+        investorIdNumber: form.investorIdNumber,
+        investorPhone: form.investorPhone,
+        contractPeriod: parseInt(form.contractPeriod),
+        investmentAmount: parseFloat(form.investmentAmount),
+        heirName: form.heirName,
+        heirRelationship: form.heirRelationship,
+        heirPhone: form.heirPhone,
+        keterangan: form.keterangan,
+        esignPihakPertama1: form.esignPihakPertama1,
+        esignPihakPertama2: form.esignPihakPertama2,
+        esignPihakKedua: form.esignPihakKedua,
+      });
+      setForm(initialForm);
+      setSelected(null);
+      setIsEditOpen(false);
+    } catch (err) {
+      console.error("Gagal memperbarui PKS:", err);
+      alert("Gagal memperbarui PKS. Periksa koneksi atau log konsol untuk detail.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const openEdit = (mou: MoU) => {
@@ -597,6 +620,7 @@ export function MouContent() {
   const openUploadDoc = (mou: MoU) => {
     setUploadDocTarget(mou);
     setUploadDocFile(null);
+    setOverwriteConfirmed(false);
     setIsUploadDocOpen(true);
   };
 
@@ -625,6 +649,10 @@ export function MouContent() {
   };
 
   const handlePrint = (mou: MoU) => {
+    if (mou.hasSignedDoc && mou.signedDocUrl) {
+      window.open(mou.signedDocUrl, "_blank");
+      return;
+    }
     const html = generateMouHtml(mou);
     const w = window.open("", "_blank");
     if (w) {
@@ -675,6 +703,7 @@ export function MouContent() {
               previewId={nextId(form.date)}
               investors={investors}
               onInvestorSelect={handleInvestorSelect}
+              isSaving={isSaving}
             />
           </DialogContent>
         </Dialog>
@@ -874,6 +903,7 @@ export function MouContent() {
             investors={investors}
             onInvestorSelect={handleInvestorSelect}
             isEdit
+            isSaving={isSaving}
           />
         </DialogContent>
       </Dialog>
@@ -952,51 +982,97 @@ export function MouContent() {
         </DialogContent>
       </Dialog>
       {/* ── Upload Signed Doc dialog ── */}
-      <Dialog open={isUploadDocOpen} onOpenChange={setIsUploadDocOpen}>
-        <DialogContent className="sm:max-w-[420px]">
+      <Dialog open={isUploadDocOpen} onOpenChange={(open) => {
+        if (!open) { setUploadDocFile(null); setOverwriteConfirmed(false); }
+        setIsUploadDocOpen(open);
+      }}>
+        <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
-            <DialogTitle>Upload PKS Bertanda Tangan</DialogTitle>
+            <DialogTitle>
+              {uploadDocTarget?.hasSignedDoc ? "Upload Ulang PKS Bertanda Tangan" : "Upload PKS Bertanda Tangan"}
+            </DialogTitle>
             <DialogDescription>
-              Upload dokumen PKS <strong>{uploadDocTarget?.id}</strong> yang telah
-              ditandatangani dan dibubuhi materai. Setelah berhasil diupload, status
-              akan otomatis berubah menjadi <strong>aktif</strong>.
+              PKS <strong>{uploadDocTarget?.id}</strong> —{" "}
+              {uploadDocTarget?.hasSignedDoc
+                ? "dokumen bertanda tangan sudah tersimpan."
+                : "upload dokumen yang telah ditandatangani dan dibubuhi materai."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2">
-            <Label className="text-xs">
-              File PKS (PDF / Gambar) <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              type="file"
-              accept=".pdf,image/*"
-              className="cursor-pointer"
-              onChange={(e) => setUploadDocFile(e.target.files?.[0] ?? null)}
-            />
-            {uploadDocFile && (
-              <p className="text-xs text-muted-foreground">
-                File dipilih: <span className="font-medium">{uploadDocFile.name}</span>{" "}
-                ({(uploadDocFile.size / 1024).toFixed(0)} KB)
+
+          {/* Peringatan overwrite — tampil jika sudah ada doc & belum dikonfirmasi */}
+          {uploadDocTarget?.hasSignedDoc && !overwriteConfirmed ? (
+            <div className="space-y-4 py-2">
+              <div className="rounded-md border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800 space-y-1">
+                <p className="font-semibold">Dokumen sudah diupload sebelumnya.</p>
+                <p>
+                  PKS ini sudah memiliki dokumen bertanda tangan &amp; bermaterai.
+                  Mengupload ulang akan <strong>menghapus permanen</strong> dokumen
+                  lama dan menggantinya dengan dokumen baru.
+                </p>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Apakah Anda yakin ingin menimpa dokumen lama?
               </p>
-            )}
-          </div>
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsUploadDocOpen(false);
-                setUploadDocFile(null);
-              }}
-            >
-              Batal
-            </Button>
-            <Button
-              disabled={!uploadDocFile || isUploading}
-              onClick={handleSignedDocUpload}
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              {isUploading ? "Mengunggah…" : "Upload & Aktifkan"}
-            </Button>
-          </DialogFooter>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => {
+                  setIsUploadDocOpen(false);
+                  setOverwriteConfirmed(false);
+                }}>
+                  Batal
+                </Button>
+                <Button
+                  className="bg-orange-500 hover:bg-orange-600 text-white"
+                  onClick={() => setOverwriteConfirmed(true)}
+                >
+                  Ya, Upload Ulang
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-3 py-2">
+                <Label className="text-xs">
+                  File PKS (PDF / Gambar) <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  type="file"
+                  accept=".pdf,image/*"
+                  className="cursor-pointer"
+                  onChange={(e) => setUploadDocFile(e.target.files?.[0] ?? null)}
+                />
+                {uploadDocFile && (
+                  <p className="text-xs text-muted-foreground">
+                    File dipilih:{" "}
+                    <span className="font-medium">{uploadDocFile.name}</span>{" "}
+                    ({(uploadDocFile.size / 1024).toFixed(0)} KB)
+                  </p>
+                )}
+              </div>
+              <DialogFooter className="gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsUploadDocOpen(false);
+                    setUploadDocFile(null);
+                    setOverwriteConfirmed(false);
+                  }}
+                >
+                  Batal
+                </Button>
+                <Button
+                  disabled={!uploadDocFile || isUploading}
+                  onClick={handleSignedDocUpload}
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  {isUploading
+                    ? "Mengunggah…"
+                    : uploadDocTarget?.hasSignedDoc
+                    ? "Timpa & Upload Ulang"
+                    : "Upload & Aktifkan"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

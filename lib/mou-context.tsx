@@ -23,6 +23,7 @@ export interface MoU {
   esignPihakPertama2?: string;
   esignPihakKedua?: string;
   hasSignedDoc?: boolean;
+  signedDocUrl?: string;
 }
 
 interface MouContextType {
@@ -38,13 +39,20 @@ const MouContext = createContext<MouContextType | undefined>(undefined);
 // Map customId → PocketBase record id
 const pbIdMap = new Map<string, string>();
 
+const PB_BASE = process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
+
 function recordToMou(r: Record<string, unknown>): MoU {
   const customId = r.customId as string;
-  pbIdMap.set(customId, r.id as string);
+  const pbRecordId = r.id as string;
+  pbIdMap.set(customId, pbRecordId);
   const signedDoc = r.signedDoc;
-  const hasSignedDoc = Array.isArray(signedDoc)
-    ? signedDoc.length > 0
-    : !!(signedDoc && signedDoc !== "");
+  const signedDocFilename = Array.isArray(signedDoc)
+    ? (signedDoc[0] as string) || ""
+    : (signedDoc as string) || "";
+  const hasSignedDoc = !!signedDocFilename;
+  const signedDocUrl = signedDocFilename
+    ? `${PB_BASE}/api/files/mous/${pbRecordId}/${signedDocFilename}`
+    : "";
   return {
     id:                 customId,
     date:               r.date               as string,
@@ -65,6 +73,7 @@ function recordToMou(r: Record<string, unknown>): MoU {
     esignPihakPertama2: (r.esignPihakPertama2 as string) || "",
     esignPihakKedua:    (r.esignPihakKedua    as string) || "",
     hasSignedDoc,
+    signedDocUrl,
   };
 }
 
