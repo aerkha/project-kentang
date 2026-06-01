@@ -614,14 +614,14 @@ export function MouContent() {
         /* ── Table ── */
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Daftar MoU</CardTitle>
+            <CardTitle className="text-base">Daftar PKS</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">No. MoU</th>
+                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">No. PKS</th>
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Tanggal</th>
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Investor</th>
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Keterangan</th>
@@ -737,9 +737,9 @@ export function MouContent() {
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
-            <DialogTitle>Edit MoU</DialogTitle>
+            <DialogTitle>Edit PKS</DialogTitle>
             <DialogDescription>
-              Perbarui data MoU — No. MoU tidak dapat diubah
+              Perbarui data PKS — No. PKS tidak dapat diubah
             </DialogDescription>
           </DialogHeader>
           <MouFormFields
@@ -759,7 +759,7 @@ export function MouContent() {
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Hapus MoU</DialogTitle>
+            <DialogTitle>Hapus PKS</DialogTitle>
             <DialogDescription>
               Yakin ingin menghapus <strong>{selected?.id}</strong> atas nama{" "}
               <strong>{selected?.investorName}</strong>? Tindakan ini tidak dapat
@@ -789,7 +789,7 @@ export function MouContent() {
             <DialogDescription>
               {terminateAction === "nonaktifkan" ? (
                 <>
-                  Yakin ingin <strong>menghentikan</strong> MoU{" "}
+                  Yakin ingin <strong>menghentikan</strong> PKS{" "}
                   <strong>{selected?.id}</strong> atas nama{" "}
                   <strong>{selected?.investorName}</strong>?{" "}
                   Perjanjian akan ditandai sebagai <em>nonaktif</em> secara manual.
@@ -797,7 +797,7 @@ export function MouContent() {
                 </>
               ) : (
                 <>
-                  Aktifkan kembali MoU <strong>{selected?.id}</strong> atas nama{" "}
+                  Aktifkan kembali PKS <strong>{selected?.id}</strong> atas nama{" "}
                   <strong>{selected?.investorName}</strong>?{" "}
                   Status akan dihitung ulang berdasarkan tanggal perjanjian.
                 </>
