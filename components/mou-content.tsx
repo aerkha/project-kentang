@@ -43,6 +43,7 @@ import {
 
 interface MouFormData {
   date: string;
+  keterangan: string;
   investorId: string;
   investorName: string;
   investorAddress: string;
@@ -58,6 +59,7 @@ interface MouFormData {
 
 const initialForm: MouFormData = {
   date: "",
+  keterangan: "",
   investorId: "",
   investorName: "",
   investorAddress: "",
@@ -163,6 +165,15 @@ function MouFormFields({
               value={formData.date}
               onChange={(e) => set("date", e.target.value)}
               required
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="mou-keterangan" className="text-xs">Keterangan</Label>
+            <Input
+              id="mou-keterangan"
+              value={formData.keterangan}
+              onChange={(e) => set("keterangan", e.target.value)}
+              placeholder="Catatan tambahan (opsional)"
             />
           </div>
         </div>
@@ -450,6 +461,7 @@ export function MouContent() {
       heirName: form.heirName,
       heirRelationship: form.heirRelationship,
       heirPhone: form.heirPhone,
+      keterangan: form.keterangan,
     });
     setForm(initialForm);
     setIsAddOpen(false);
@@ -470,6 +482,7 @@ export function MouContent() {
       heirName: form.heirName,
       heirRelationship: form.heirRelationship,
       heirPhone: form.heirPhone,
+      keterangan: form.keterangan,
     });
     setForm(initialForm);
     setSelected(null);
@@ -480,6 +493,7 @@ export function MouContent() {
     setSelected(mou);
     setForm({
       date: mou.date,
+      keterangan: mou.keterangan ?? "",
       investorId: mou.investorId,
       investorName: mou.investorName,
       investorAddress: mou.investorAddress,
@@ -610,6 +624,7 @@ export function MouContent() {
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">No. MoU</th>
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Tanggal</th>
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Investor</th>
+                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Keterangan</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground">Periode</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground">Nilai Investasi</th>
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Berakhir</th>
@@ -630,6 +645,9 @@ export function MouContent() {
                         <td className="py-3 px-4">
                           <div className="font-medium">{mou.investorName}</div>
                           <div className="text-xs text-muted-foreground">{mou.investorId}</div>
+                        </td>
+                        <td className="py-3 px-4 text-muted-foreground text-xs max-w-[160px]">
+                          {mou.keterangan || <span className="italic opacity-50">—</span>}
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1 text-muted-foreground">

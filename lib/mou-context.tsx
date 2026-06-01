@@ -17,6 +17,7 @@ export interface MoU {
   heirName: string;
   heirRelationship: string;
   heirPhone: string;
+  keterangan?: string;
   isTerminated?: boolean;
 }
 
@@ -49,6 +50,7 @@ function recordToMou(r: Record<string, unknown>): MoU {
     heirName:           r.heirName           as string,
     heirRelationship:   r.heirRelationship   as string,
     heirPhone:          r.heirPhone          as string,
+    keterangan:         (r.keterangan        as string) || "",
     isTerminated:       (r.isTerminated      as boolean) || false,
   };
 }
@@ -105,6 +107,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
       heirName:           mou.heirName,
       heirRelationship:   mou.heirRelationship,
       heirPhone:          mou.heirPhone,
+      keterangan:         mou.keterangan || "",
       isTerminated:       mou.isTerminated || false,
     });
     setMous((prev) => [...prev, recordToMou(record)]);
