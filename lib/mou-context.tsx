@@ -19,7 +19,7 @@ export interface MoU {
   heirPhone: string;
   keterangan?: string;
   isTerminated?: boolean;
-  esignPihakPertama1?: string;
+  esignPihakPertama1?: string;  // PocketBase file URL (setelah diupload)
   esignPihakPertama2?: string;
   esignPihakKedua?: string;
   hasSignedDoc?: boolean;
@@ -41,18 +41,32 @@ const pbIdMap = new Map<string, string>();
 
 const PB_BASE = process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
 
+/** Konversi base64 data URL ke File object untuk upload ke PocketBase */
+function base64ToFile(dataUrl: string, fieldName: string): File {
+  const [header, b64] = dataUrl.split(",");
+  const mime = header.match(/:(.*?);/)?.[1] ?? "image/png";
+  const ext  = mime.split("/")[1] ?? "png";
+  const bytes = atob(b64);
+  const arr   = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new File([arr], `${fieldName}.${ext}`, { type: mime });
+}
+
+/** Ambil URL file dari field File PocketBase */
+function pbFileUrl(pbRecordId: string, fieldValue: unknown): string {
+  const filename = Array.isArray(fieldValue)
+    ? (fieldValue[0] as string) || ""
+    : (fieldValue as string) || "";
+  return filename ? `${PB_BASE}/api/files/mous/${pbRecordId}/${filename}` : "";
+}
+
 function recordToMou(r: Record<string, unknown>): MoU {
-  const customId = r.customId as string;
+  const customId   = r.customId as string;
   const pbRecordId = r.id as string;
   pbIdMap.set(customId, pbRecordId);
-  const signedDoc = r.signedDoc;
-  const signedDocFilename = Array.isArray(signedDoc)
-    ? (signedDoc[0] as string) || ""
-    : (signedDoc as string) || "";
-  const hasSignedDoc = !!signedDocFilename;
-  const signedDocUrl = signedDocFilename
-    ? `${PB_BASE}/api/files/mous/${pbRecordId}/${signedDocFilename}`
-    : "";
+
+  const signedDocUrl = pbFileUrl(pbRecordId, r.signedDoc);
+
   return {
     id:                 customId,
     date:               r.date               as string,
@@ -69,10 +83,10 @@ function recordToMou(r: Record<string, unknown>): MoU {
     heirPhone:          r.heirPhone          as string,
     keterangan:         (r.keterangan        as string) || "",
     isTerminated:       (r.isTerminated      as boolean) || false,
-    esignPihakPertama1: (r.esignPihakPertama1 as string) || "",
-    esignPihakPertama2: (r.esignPihakPertama2 as string) || "",
-    esignPihakKedua:    (r.esignPihakKedua    as string) || "",
-    hasSignedDoc,
+    esignPihakPertama1: pbFileUrl(pbRecordId, r.esignPihakPertama1),
+    esignPihakPertama2: pbFileUrl(pbRecordId, r.esignPihakPertama2),
+    esignPihakKedua:    pbFileUrl(pbRecordId, r.esignPihakKedua),
+    hasSignedDoc:       !!signedDocUrl,
     signedDocUrl,
   };
 }
@@ -80,10 +94,8 @@ function recordToMou(r: Record<string, unknown>): MoU {
 /**
  * Format ID: MOU-YYYYMM-NNN
  * Contoh: MOU-202505-001
- * Sequence di-reset setiap bulan untuk memudahkan identifikasi & pengarsipan.
  */
 async function generateCustomId(date: string): Promise<string> {
-  // "2025-05-14" → "202505"
   const ym     = date.slice(0, 7).replace("-", "");
   const prefix = `MOU-${ym}-`;
   try {
@@ -115,12 +127,9 @@ export function MouProvider({ children }: { children: ReactNode }) {
 
   const addMou = async (mou: Omit<MoU, "id">) => {
     const customId = await generateCustomId(mou.date);
-    const esign: Record<string, string> = {};
-    if (mou.esignPihakPertama1) esign.esignPihakPertama1 = mou.esignPihakPertama1;
-    if (mou.esignPihakPertama2) esign.esignPihakPertama2 = mou.esignPihakPertama2;
-    if (mou.esignPihakKedua)    esign.esignPihakKedua    = mou.esignPihakKedua;
 
-    const record = await pb.collection("mous").create({
+    // Step 1: buat record tanpa esign
+    let record = await pb.collection("mous").create({
       customId,
       date:               mou.date,
       investorId:         mou.investorId,
@@ -135,22 +144,62 @@ export function MouProvider({ children }: { children: ReactNode }) {
       heirRelationship:   mou.heirRelationship,
       heirPhone:          mou.heirPhone,
       keterangan:         mou.keterangan || "",
-      isTerminated:       mou.isTerminated || false,
-      ...esign,
+      isTerminated:       false,
     });
+
+    // Step 2: upload esign sebagai file jika ada (base64 data URL)
+    const esignPairs: [string, string][] = (
+      [
+        ["esignPihakPertama1", mou.esignPihakPertama1 ?? ""],
+        ["esignPihakPertama2", mou.esignPihakPertama2 ?? ""],
+        ["esignPihakKedua",    mou.esignPihakKedua    ?? ""],
+      ] as [string, string][]
+    ).filter(([, v]) => v.startsWith("data:"));
+
+    if (esignPairs.length > 0) {
+      const fd = new FormData();
+      for (const [key, value] of esignPairs) {
+        fd.append(key, base64ToFile(value, key));
+      }
+      record = await pb.collection("mous").update(record.id, fd);
+    }
+
     setMous((prev) => [...prev, recordToMou(record)]);
   };
 
   const updateMou = async (id: string, updates: Partial<MoU>) => {
     const pbId = pbIdMap.get(id);
     if (!pbId) return;
-    // Jangan kirim field esign ke PB jika kosong — field mungkin belum ada di schema
-    const esignKeys = ["esignPihakPertama1", "esignPihakPertama2", "esignPihakKedua"] as const;
-    const payload = { ...updates };
-    for (const key of esignKeys) {
-      if (key in payload && !payload[key]) delete payload[key];
+
+    // Pisahkan field esign dari update reguler
+    const {
+      esignPihakPertama1,
+      esignPihakPertama2,
+      esignPihakKedua,
+      hasSignedDoc: _hsd,
+      signedDocUrl: _sdu,
+      ...regularUpdates
+    } = updates;
+
+    let record = await pb.collection("mous").update(pbId, regularUpdates);
+
+    // Upload esign sebagai file jika ada base64 baru
+    const esignPairs: [string, string][] = (
+      [
+        ["esignPihakPertama1", esignPihakPertama1 ?? ""],
+        ["esignPihakPertama2", esignPihakPertama2 ?? ""],
+        ["esignPihakKedua",    esignPihakKedua    ?? ""],
+      ] as [string, string][]
+    ).filter(([, v]) => v.startsWith("data:"));
+
+    if (esignPairs.length > 0) {
+      const fd = new FormData();
+      for (const [key, value] of esignPairs) {
+        fd.append(key, base64ToFile(value, key));
+      }
+      record = await pb.collection("mous").update(pbId, fd);
     }
-    const record = await pb.collection("mous").update(pbId, payload);
+
     setMous((prev) =>
       prev.map((m) => (m.id === id ? recordToMou(record) : m))
     );
