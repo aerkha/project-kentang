@@ -555,7 +555,11 @@ export function MouContent() {
       setIsAddOpen(false);
     } catch (err) {
       console.error("Gagal menyimpan PKS:", err);
-      alert("Gagal menyimpan PKS. Periksa koneksi atau log konsol untuk detail.");
+      const detail = err && typeof err === "object" && "data" in err
+        ? JSON.stringify((err as Record<string, unknown>).data, null, 2)
+        : String(err);
+      console.error("Detail validasi PocketBase:", detail);
+      alert(`Gagal menyimpan PKS.\n\nDetail:\n${detail}`);
     } finally {
       setIsSaving(false);
     }
