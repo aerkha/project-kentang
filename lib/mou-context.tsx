@@ -115,6 +115,11 @@ export function MouProvider({ children }: { children: ReactNode }) {
 
   const addMou = async (mou: Omit<MoU, "id">) => {
     const customId = await generateCustomId(mou.date);
+    const esign: Record<string, string> = {};
+    if (mou.esignPihakPertama1) esign.esignPihakPertama1 = mou.esignPihakPertama1;
+    if (mou.esignPihakPertama2) esign.esignPihakPertama2 = mou.esignPihakPertama2;
+    if (mou.esignPihakKedua)    esign.esignPihakKedua    = mou.esignPihakKedua;
+
     const record = await pb.collection("mous").create({
       customId,
       date:               mou.date,
@@ -131,9 +136,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
       heirPhone:          mou.heirPhone,
       keterangan:         mou.keterangan || "",
       isTerminated:       mou.isTerminated || false,
-      esignPihakPertama1: mou.esignPihakPertama1 || "",
-      esignPihakPertama2: mou.esignPihakPertama2 || "",
-      esignPihakKedua:    mou.esignPihakKedua    || "",
+      ...esign,
     });
     setMous((prev) => [...prev, recordToMou(record)]);
   };
@@ -141,7 +144,13 @@ export function MouProvider({ children }: { children: ReactNode }) {
   const updateMou = async (id: string, updates: Partial<MoU>) => {
     const pbId = pbIdMap.get(id);
     if (!pbId) return;
-    const record = await pb.collection("mous").update(pbId, updates);
+    // Jangan kirim field esign ke PB jika kosong — field mungkin belum ada di schema
+    const esignKeys = ["esignPihakPertama1", "esignPihakPertama2", "esignPihakKedua"] as const;
+    const payload = { ...updates };
+    for (const key of esignKeys) {
+      if (key in payload && !payload[key]) delete payload[key];
+    }
+    const record = await pb.collection("mous").update(pbId, payload);
     setMous((prev) =>
       prev.map((m) => (m.id === id ? recordToMou(record) : m))
     );
