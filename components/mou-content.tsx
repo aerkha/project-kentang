@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useAuth } from "@/lib/auth-context";
@@ -460,7 +460,7 @@ type Filter = "semua" | "pending" | "aktif" | "expired" | "nonaktif";
 
 export function MouContent() {
   const { mous, addMou, updateMou, deleteMou, uploadSignedDoc } = useMou();
-  const { investors, updateInvestor } = useInvestors();
+  const { investors } = useInvestors();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
@@ -479,35 +479,6 @@ export function MouContent() {
   const [isUploading, setIsUploading] = useState(false);
   const [overwriteConfirmed, setOverwriteConfirmed] = useState(false);
 
-  // ── Sinkronisasi status investor berdasarkan status PKS ──
-  // Effect bergantung pada mous DAN investors sehingga sync berjalan meskipun
-  // salah satu dimuat lebih lambat. Guard "investor.isActive !== shouldBeActive"
-  // memastikan updateInvestor hanya dipanggil saat benar-benar ada perubahan,
-  // sehingga tidak terjadi infinite loop.
-  useEffect(() => {
-    if (!mous.length || !investors.length) return;
-
-    // Hitung status aktif yang diharapkan untuk setiap investor
-    // Investor aktif jika minimal 1 PKS-nya berstatus "aktif"
-    const desired = new Map<string, boolean>();
-    for (const mou of mous) {
-      const s = getMouStatus(mou);
-      if (s === "aktif") {
-        desired.set(mou.investorId, true);
-      } else if (!desired.has(mou.investorId)) {
-        desired.set(mou.investorId, false);
-      }
-    }
-
-    // Update investor yang statusnya berbeda dari yang diharapkan
-    desired.forEach((shouldBeActive, investorId) => {
-      const investor = investors.find((i) => i.id === investorId);
-      if (investor && investor.isActive !== shouldBeActive) {
-        updateInvestor(investorId, { isActive: shouldBeActive });
-      }
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mous, investors]);
 
   // ── Filter ──
   const filtered = mous.filter((m) => {

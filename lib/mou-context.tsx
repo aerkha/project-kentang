@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import pb from "./pocketbase";
+import { useInvestors } from "./investors-context";
 
 export interface MoU {
   id: string;             // MOU-YYYYMM-NNN (customId, e.g. MOU-202505-001)
@@ -19,7 +20,7 @@ export interface MoU {
   heirPhone: string;
   keterangan?: string;
   isTerminated?: boolean;
-  esignPihakPertama1?: string;  // PocketBase file URL (setelah diupload)
+  esignPihakPertama1?: string;
   esignPihakPertama2?: string;
   esignPihakKedua?: string;
   hasSignedDoc?: boolean;
@@ -91,9 +92,19 @@ function recordToMou(r: Record<string, unknown>): MoU {
   };
 }
 
+/** Apakah sebuah MoU berstatus "aktif" (bukan expired, terminated, atau pending) */
+function isMouAktif(mou: MoU): boolean {
+  if (mou.isTerminated) return false;
+  if (!mou.hasSignedDoc) return false;
+  const end = new Date(mou.date);
+  end.setDate(end.getDate() + mou.contractPeriod);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return end >= today;
+}
+
 /**
  * Format ID: MOU-YYYYMM-NNN
- * Contoh: MOU-202505-001
  */
 async function generateCustomId(date: string): Promise<string> {
   const ym     = date.slice(0, 7).replace("-", "");
@@ -117,6 +128,7 @@ async function generateCustomId(date: string): Promise<string> {
 
 export function MouProvider({ children }: { children: ReactNode }) {
   const [mous, setMous] = useState<MoU[]>([]);
+  const { investors, updateInvestor } = useInvestors();
 
   useEffect(() => {
     pb.collection("mous")
@@ -124,6 +136,27 @@ export function MouProvider({ children }: { children: ReactNode }) {
       .then((records) => setMous(records.map(recordToMou)))
       .catch(console.error);
   }, []);
+
+  /**
+   * Sinkronisasi isActive investor berdasarkan seluruh PKS yang dimilikinya.
+   * Dipanggil langsung setelah setiap operasi MoU yang bisa mengubah status.
+   * @param investorId  customId investor (e.g. "INV-0004")
+   * @param latestMous  array MoU terbaru (setelah mutasi, sebelum re-render)
+   */
+  const syncInvestorStatus = async (investorId: string, latestMous: MoU[]) => {
+    const shouldBeActive = latestMous
+      .filter((m) => m.investorId === investorId)
+      .some(isMouAktif);
+
+    const investor = investors.find((i) => i.id === investorId);
+    if (investor && investor.isActive !== shouldBeActive) {
+      try {
+        await updateInvestor(investorId, { isActive: shouldBeActive });
+      } catch (e) {
+        console.error("Gagal sinkronisasi status investor:", e);
+      }
+    }
+  };
 
   const addMou = async (mou: Omit<MoU, "id">) => {
     const customId = await generateCustomId(mou.date);
@@ -164,7 +197,12 @@ export function MouProvider({ children }: { children: ReactNode }) {
       record = await pb.collection("mous").update(record.id, fd);
     }
 
-    setMous((prev) => [...prev, recordToMou(record)]);
+    const newMou    = recordToMou(record);
+    const updatedMous = [...mous, newMou];
+    setMous(updatedMous);
+
+    // PKS baru selalu pending → investor nonaktif (kecuali punya PKS aktif lain)
+    await syncInvestorStatus(mou.investorId, updatedMous);
   };
 
   const updateMou = async (id: string, updates: Partial<MoU>) => {
@@ -200,17 +238,29 @@ export function MouProvider({ children }: { children: ReactNode }) {
       record = await pb.collection("mous").update(pbId, fd);
     }
 
-    setMous((prev) =>
-      prev.map((m) => (m.id === id ? recordToMou(record) : m))
-    );
+    const updatedMou  = recordToMou(record);
+    const updatedMous = mous.map((m) => (m.id === id ? updatedMou : m));
+    setMous(updatedMous);
+
+    // Sync jika update menyentuh field yang bisa mengubah status PKS
+    if ("isTerminated" in updates) {
+      await syncInvestorStatus(updatedMou.investorId, updatedMous);
+    }
   };
 
   const deleteMou = async (id: string) => {
-    const pbId = pbIdMap.get(id);
+    const pbId       = pbIdMap.get(id);
     if (!pbId) return;
+    const mouToDelete = mous.find((m) => m.id === id);
     await pb.collection("mous").delete(pbId);
     pbIdMap.delete(id);
-    setMous((prev) => prev.filter((m) => m.id !== id));
+    const updatedMous = mous.filter((m) => m.id !== id);
+    setMous(updatedMous);
+
+    // Sync jika PKS yang dihapus berpengaruh pada status investor
+    if (mouToDelete) {
+      await syncInvestorStatus(mouToDelete.investorId, updatedMous);
+    }
   };
 
   const uploadSignedDoc = async (id: string, file: File) => {
@@ -218,8 +268,13 @@ export function MouProvider({ children }: { children: ReactNode }) {
     if (!pbId) return;
     const fd = new FormData();
     fd.append("signedDoc", file);
-    const record = await pb.collection("mous").update(pbId, fd);
-    setMous((prev) => prev.map((m) => (m.id === id ? recordToMou(record) : m)));
+    const record      = await pb.collection("mous").update(pbId, fd);
+    const updatedMou  = recordToMou(record);
+    const updatedMous = mous.map((m) => (m.id === id ? updatedMou : m));
+    setMous(updatedMous);
+
+    // PKS kini hasSignedDoc=true → mungkin menjadi aktif → sync investor
+    await syncInvestorStatus(updatedMou.investorId, updatedMous);
   };
 
   return (
