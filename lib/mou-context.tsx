@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
 import { useInvestors } from "./investors-context";
 
@@ -136,6 +136,26 @@ export function MouProvider({ children }: { children: ReactNode }) {
       .then((records) => setMous(records.map(recordToMou)))
       .catch(console.error);
   }, []);
+
+  // ── Initial sync: jalankan sekali setelah mous & investors keduanya terisi ──
+  const initialSyncDone = useRef(false);
+  useEffect(() => {
+    if (initialSyncDone.current) return;
+    if (!mous.length || !investors.length) return;
+    initialSyncDone.current = true;
+
+    const investorIds = [...new Set(mous.map((m) => m.investorId))];
+    for (const investorId of investorIds) {
+      const shouldBeActive = mous
+        .filter((m) => m.investorId === investorId)
+        .some(isMouAktif);
+      const investor = investors.find((i) => i.id === investorId);
+      if (investor && investor.isActive !== shouldBeActive) {
+        updateInvestor(investorId, { isActive: shouldBeActive }).catch(console.error);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mous, investors]);
 
   /**
    * Sinkronisasi isActive investor berdasarkan seluruh PKS yang dimilikinya.

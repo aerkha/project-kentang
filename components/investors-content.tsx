@@ -551,30 +551,10 @@ export function InvestorsContent() {
 
   // ── Investor handlers ──
 
-  const handleAddInvestor = (e: React.FormEvent) => {
+  const handleAddInvestor = async (e: React.FormEvent) => {
     e.preventDefault();
-    addInvestor({
-      name: investorForm.name,
-      address: investorForm.address,
-      brokerName: investorForm.brokerName,
-      idNumber: investorForm.idNumber,
-      bankName: investorForm.bankName,
-      accountNumber: investorForm.accountNumber,
-      phone: investorForm.phone,
-      occupation: investorForm.occupation,
-      investmentAmount: parseFloat(investorForm.investmentAmount),
-      heirName: investorForm.heirName,
-      heirBankName: investorForm.heirBankName,
-      heirAccountNumber: investorForm.heirAccountNumber,
-    });
-    setInvestorForm(initialInvestorForm);
-    setIsAddInvestorOpen(false);
-  };
-
-  const handleEditInvestor = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (selectedInvestor) {
-      updateInvestor(selectedInvestor.id, {
+    try {
+      await addInvestor({
         name: investorForm.name,
         address: investorForm.address,
         brokerName: investorForm.brokerName,
@@ -588,10 +568,39 @@ export function InvestorsContent() {
         heirBankName: investorForm.heirBankName,
         heirAccountNumber: investorForm.heirAccountNumber,
       });
+      setInvestorForm(initialInvestorForm);
+      setIsAddInvestorOpen(false);
+    } catch (err) {
+      console.error("Gagal menambahkan investor:", err);
+      alert("Gagal menambahkan investor. Periksa koneksi atau log konsol untuk detail.");
     }
-    setInvestorForm(initialInvestorForm);
-    setSelectedInvestor(null);
-    setIsEditInvestorOpen(false);
+  };
+
+  const handleEditInvestor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedInvestor) return;
+    try {
+      await updateInvestor(selectedInvestor.id, {
+        name: investorForm.name,
+        address: investorForm.address,
+        brokerName: investorForm.brokerName,
+        idNumber: investorForm.idNumber,
+        bankName: investorForm.bankName,
+        accountNumber: investorForm.accountNumber,
+        phone: investorForm.phone,
+        occupation: investorForm.occupation,
+        investmentAmount: parseFloat(investorForm.investmentAmount),
+        heirName: investorForm.heirName,
+        heirBankName: investorForm.heirBankName,
+        heirAccountNumber: investorForm.heirAccountNumber,
+      });
+      setInvestorForm(initialInvestorForm);
+      setSelectedInvestor(null);
+      setIsEditInvestorOpen(false);
+    } catch (err) {
+      console.error("Gagal memperbarui investor:", err);
+      alert("Gagal memperbarui investor. Periksa koneksi atau log konsol untuk detail.");
+    }
   };
 
   const handleEditInvestorClick = (investor: Investor) => {
