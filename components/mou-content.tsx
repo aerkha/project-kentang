@@ -1126,7 +1126,7 @@ export function MouContent() {
         if (!open) { resetUploadDialog(); }
         setIsUploadDocOpen(open);
       }}>
-        <DialogContent className={uploadPreviewUrl ? "sm:max-w-[720px]" : "sm:max-w-[440px]"}>
+        <DialogContent className={`flex flex-col max-h-[90vh] ${uploadPreviewUrl ? "sm:max-w-[720px]" : "sm:max-w-[440px]"}`}>
           <DialogHeader>
             <DialogTitle>
               {uploadDocTarget?.hasSignedDoc ? "Upload Ulang PKS Bertanda Tangan" : "Upload PKS Bertanda Tangan"}
@@ -1170,7 +1170,7 @@ export function MouContent() {
             </div>
           ) : (
             <>
-              <div className="space-y-3 py-2">
+              <div className="overflow-y-auto flex-1 space-y-3 py-2 pr-1">
                 {/* Pilih file */}
                 <div className="space-y-1.5">
                   <Label className="text-xs">
@@ -1198,7 +1198,7 @@ export function MouContent() {
                       <iframe
                         src={uploadPreviewUrl}
                         className="w-full rounded-md border border-border"
-                        style={{ height: "420px" }}
+                        style={{ height: "300px" }}
                         title="Preview PKS"
                       />
                     ) : (
@@ -1207,7 +1207,7 @@ export function MouContent() {
                         <img
                           src={uploadPreviewUrl}
                           alt="Preview PKS"
-                          className="max-w-full max-h-[420px] object-contain"
+                          className="max-w-full max-h-[300px] object-contain"
                         />
                       </div>
                     )}
