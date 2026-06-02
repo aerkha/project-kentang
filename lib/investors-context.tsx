@@ -92,7 +92,7 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
       heirName:         inv.heirName,
       heirBankName:     inv.heirBankName,
       heirAccountNumber: inv.heirAccountNumber,
-      isActive:         inv.isActive === true,
+      isActive:         inv.isActive !== false,
     });
     setInvestors((prev) => [...prev, recordToInvestor(record)]);
   };

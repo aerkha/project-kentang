@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useTransaksi, calcTransaksi } from "@/lib/transaksi-context";
+import { useMou } from "@/lib/mou-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -482,6 +483,7 @@ function formatRp(n: number) {
 
 export function InvestorsContent() {
   const { investors, addInvestor, updateInvestor, deleteInvestor } = useInvestors();
+  const { mous } = useMou();
   const { brokers, addBroker, updateBroker, deleteBroker } = useBrokers();
   const { transaksis } = useTransaksi();
   const { user } = useAuth();
@@ -789,7 +791,17 @@ export function InvestorsContent() {
             const pct = investor.investmentAmount > 0
               ? ((bagHasil / investor.investmentAmount) * 100).toFixed(1)
               : "0.0";
-            const isActive = investor.isActive !== false;
+            const isActive = investor.isActive === true;
+
+            // Tentukan label & warna badge berdasarkan kondisi PKS investor
+            const investorMous = mous.filter((m) => m.investorId === investor.id);
+            const hasPendingMou = investorMous.some((m) => !m.isTerminated && !m.hasSignedDoc);
+            const investorBadge = isActive
+              ? { label: "Aktif",   cls: "bg-green-100 text-green-800" }
+              : hasPendingMou
+              ? { label: "Pending", cls: "bg-yellow-100 text-yellow-800" }
+              : { label: "Nonaktif", cls: "bg-red-100 text-red-700" };
+
             return (
             <Card key={investor.id} className={`hover:shadow-md transition-shadow ${isActive ? "" : "opacity-60"}`}>
               <CardHeader className="pb-3">
@@ -799,11 +811,9 @@ export function InvestorsContent() {
                       <CardTitle className="text-base leading-tight">{investor.name}</CardTitle>
                       <Badge
                         variant="secondary"
-                        className={isActive
-                          ? "bg-green-100 text-green-800 text-[10px] px-1.5"
-                          : "bg-red-100 text-red-700 text-[10px] px-1.5"}
+                        className={`${investorBadge.cls} text-[10px] px-1.5`}
                       >
-                        {isActive ? "Aktif" : "Nonaktif"}
+                        {investorBadge.label}
                       </Badge>
                     </div>
                     <span className="text-xs font-mono text-muted-foreground">{investor.id}</span>
