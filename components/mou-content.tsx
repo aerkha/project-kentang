@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useAuth } from "@/lib/auth-context";
@@ -480,12 +480,12 @@ export function MouContent() {
   const [overwriteConfirmed, setOverwriteConfirmed] = useState(false);
 
   // ── Sinkronisasi status investor berdasarkan status PKS ──
-  // Gunakan ref agar effect tidak re-run saat investors berubah (hindari loop)
-  const investorsRef = useRef(investors);
-  useEffect(() => { investorsRef.current = investors; }, [investors]);
-
+  // Effect bergantung pada mous DAN investors sehingga sync berjalan meskipun
+  // salah satu dimuat lebih lambat. Guard "investor.isActive !== shouldBeActive"
+  // memastikan updateInvestor hanya dipanggil saat benar-benar ada perubahan,
+  // sehingga tidak terjadi infinite loop.
   useEffect(() => {
-    if (!mous.length) return;
+    if (!mous.length || !investors.length) return;
 
     // Hitung status aktif yang diharapkan untuk setiap investor
     // Investor aktif jika minimal 1 PKS-nya berstatus "aktif"
@@ -501,13 +501,13 @@ export function MouContent() {
 
     // Update investor yang statusnya berbeda dari yang diharapkan
     desired.forEach((shouldBeActive, investorId) => {
-      const investor = investorsRef.current.find((i) => i.id === investorId);
+      const investor = investors.find((i) => i.id === investorId);
       if (investor && investor.isActive !== shouldBeActive) {
         updateInvestor(investorId, { isActive: shouldBeActive });
       }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mous]);
+  }, [mous, investors]);
 
   // ── Filter ──
   const filtered = mous.filter((m) => {
