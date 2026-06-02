@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ErrorDialog } from "@/components/ui/error-dialog";
+import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
 import {
   Tooltip,
   TooltipContent,
@@ -423,8 +425,9 @@ function MouFormFields({
                     const file = e.target.files?.[0];
                     if (!file) return;
                     if (file.size > 200 * 1024) {
-                      alert(`Ukuran file terlalu besar (${(file.size / 1024).toFixed(0)} KB). Maksimal 200 KB untuk e-sign.`);
                       e.target.value = "";
+                      // alert ringan — tidak perlu dialog penuh untuk validasi lokal
+                      window.alert(`Ukuran file terlalu besar (${(file.size / 1024).toFixed(0)} KB). Maksimal 200 KB untuk e-sign.`);
                       return;
                     }
                     const reader = new FileReader();
@@ -479,6 +482,8 @@ export function MouContent() {
   const [isUploading, setIsUploading] = useState(false);
   const [overwriteConfirmed, setOverwriteConfirmed] = useState(false);
 
+  const [errorInfo, setErrorInfo] = useState<PbErrorInfo | null>(null);
+
 
   // ── Filter ──
   const filtered = mous.filter((m) => {
@@ -493,12 +498,15 @@ export function MouContent() {
     setIsTerminateOpen(true);
   };
 
-  const confirmTerminate = () => {
-    if (selected) {
-      updateMou(selected.id, { isTerminated: terminateAction === "nonaktifkan" });
+  const confirmTerminate = async () => {
+    if (!selected) return;
+    try {
+      await updateMou(selected.id, { isTerminated: terminateAction === "nonaktifkan" });
+      setSelected(null);
+      setIsTerminateOpen(false);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal mengubah status PKS"));
     }
-    setSelected(null);
-    setIsTerminateOpen(false);
   };
 
   // ── Preview ID (MOU-YYYYMM-NNN) ──
@@ -561,12 +569,7 @@ export function MouContent() {
       setForm(initialForm);
       setIsAddOpen(false);
     } catch (err) {
-      console.error("Gagal menyimpan PKS:", err);
-      const detail = err && typeof err === "object" && "data" in err
-        ? JSON.stringify((err as Record<string, unknown>).data, null, 2)
-        : String(err);
-      console.error("Detail validasi PocketBase:", detail);
-      alert(`Gagal menyimpan PKS.\n\nDetail:\n${detail}`);
+      setErrorInfo(formatPbError(err, "Gagal menyimpan PKS"));
     } finally {
       setIsSaving(false);
     }
@@ -598,8 +601,7 @@ export function MouContent() {
       setSelected(null);
       setIsEditOpen(false);
     } catch (err) {
-      console.error("Gagal memperbarui PKS:", err);
-      alert("Gagal memperbarui PKS. Periksa koneksi atau log konsol untuk detail.");
+      setErrorInfo(formatPbError(err, "Gagal memperbarui PKS"));
     } finally {
       setIsSaving(false);
     }
@@ -643,6 +645,8 @@ export function MouContent() {
       setIsUploadDocOpen(false);
       setUploadDocTarget(null);
       setUploadDocFile(null);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal mengupload dokumen PKS"));
     } finally {
       setIsUploading(false);
     }
@@ -653,10 +657,15 @@ export function MouContent() {
     setIsDeleteOpen(true);
   };
 
-  const confirmDelete = () => {
-    if (selected) deleteMou(selected.id);
-    setSelected(null);
-    setIsDeleteOpen(false);
+  const confirmDelete = async () => {
+    if (!selected) return;
+    try {
+      await deleteMou(selected.id);
+      setSelected(null);
+      setIsDeleteOpen(false);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal menghapus PKS"));
+    }
   };
 
   const handlePrint = (mou: MoU) => {
@@ -1102,6 +1111,13 @@ export function MouContent() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ── Error dialog ── */}
+      <ErrorDialog
+        open={!!errorInfo}
+        onClose={() => setErrorInfo(null)}
+        error={errorInfo}
+      />
     </div>
   );
 }

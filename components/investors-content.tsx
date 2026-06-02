@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ErrorDialog } from "@/components/ui/error-dialog";
+import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
 import {
   Dialog,
   DialogContent,
@@ -517,6 +519,7 @@ export function InvestorsContent() {
   const [isAddBrokerOpen, setIsAddBrokerOpen] = useState(false);
   const [isEditBrokerOpen, setIsEditBrokerOpen] = useState(false);
   const [isDeleteBrokerOpen, setIsDeleteBrokerOpen] = useState(false);
+  const [errorInfo, setErrorInfo] = useState<PbErrorInfo | null>(null);
   const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null);
   const [brokerForm, setBrokerForm] = useState<BrokerFormData>(initialBrokerForm);
 
@@ -573,12 +576,7 @@ export function InvestorsContent() {
       setInvestorForm(initialInvestorForm);
       setIsAddInvestorOpen(false);
     } catch (err) {
-      console.error("Gagal menambahkan investor:", err);
-      const detail = err && typeof err === "object" && "data" in err
-        ? JSON.stringify((err as Record<string, unknown>).data, null, 2)
-        : String(err);
-      console.error("Detail validasi PocketBase:", detail);
-      alert(`Gagal menambahkan investor.\n\nDetail:\n${detail}`);
+      setErrorInfo(formatPbError(err, "Gagal menambahkan investor"));
     }
   };
 
@@ -604,8 +602,7 @@ export function InvestorsContent() {
       setSelectedInvestor(null);
       setIsEditInvestorOpen(false);
     } catch (err) {
-      console.error("Gagal memperbarui investor:", err);
-      alert("Gagal memperbarui investor. Periksa koneksi atau log konsol untuk detail.");
+      setErrorInfo(formatPbError(err, "Gagal memperbarui investor"));
     }
   };
 
@@ -633,32 +630,23 @@ export function InvestorsContent() {
     setIsDeleteInvestorOpen(true);
   };
 
-  const handleDeleteInvestorConfirm = () => {
-    if (selectedInvestor) deleteInvestor(selectedInvestor.id);
-    setSelectedInvestor(null);
-    setIsDeleteInvestorOpen(false);
+  const handleDeleteInvestorConfirm = async () => {
+    if (!selectedInvestor) return;
+    try {
+      await deleteInvestor(selectedInvestor.id);
+      setSelectedInvestor(null);
+      setIsDeleteInvestorOpen(false);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal menghapus investor"));
+    }
   };
 
   // ── Broker handlers ──
 
-  const handleAddBroker = (e: React.FormEvent) => {
+  const handleAddBroker = async (e: React.FormEvent) => {
     e.preventDefault();
-    addBroker({
-      name: brokerForm.name,
-      address: brokerForm.address,
-      idNumber: brokerForm.idNumber,
-      bankName: brokerForm.bankName,
-      accountNumber: brokerForm.accountNumber,
-      phone: brokerForm.phone,
-    });
-    setBrokerForm(initialBrokerForm);
-    setIsAddBrokerOpen(false);
-  };
-
-  const handleEditBroker = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (selectedBroker) {
-      updateBroker(selectedBroker.id, {
+    try {
+      await addBroker({
         name: brokerForm.name,
         address: brokerForm.address,
         idNumber: brokerForm.idNumber,
@@ -666,10 +654,31 @@ export function InvestorsContent() {
         accountNumber: brokerForm.accountNumber,
         phone: brokerForm.phone,
       });
+      setBrokerForm(initialBrokerForm);
+      setIsAddBrokerOpen(false);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal menambahkan broker"));
     }
-    setBrokerForm(initialBrokerForm);
-    setSelectedBroker(null);
-    setIsEditBrokerOpen(false);
+  };
+
+  const handleEditBroker = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBroker) return;
+    try {
+      await updateBroker(selectedBroker.id, {
+        name: brokerForm.name,
+        address: brokerForm.address,
+        idNumber: brokerForm.idNumber,
+        bankName: brokerForm.bankName,
+        accountNumber: brokerForm.accountNumber,
+        phone: brokerForm.phone,
+      });
+      setBrokerForm(initialBrokerForm);
+      setSelectedBroker(null);
+      setIsEditBrokerOpen(false);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal memperbarui broker"));
+    }
   };
 
   const handleEditBrokerClick = (broker: Broker) => {
@@ -690,10 +699,15 @@ export function InvestorsContent() {
     setIsDeleteBrokerOpen(true);
   };
 
-  const handleDeleteBrokerConfirm = () => {
-    if (selectedBroker) deleteBroker(selectedBroker.id);
-    setSelectedBroker(null);
-    setIsDeleteBrokerOpen(false);
+  const handleDeleteBrokerConfirm = async () => {
+    if (!selectedBroker) return;
+    try {
+      await deleteBroker(selectedBroker.id);
+      setSelectedBroker(null);
+      setIsDeleteBrokerOpen(false);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal menghapus broker"));
+    }
   };
 
   return (
@@ -1093,6 +1107,13 @@ export function InvestorsContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Error dialog ── */}
+      <ErrorDialog
+        open={!!errorInfo}
+        onClose={() => setErrorInfo(null)}
+        error={errorInfo}
+      />
     </div>
   );
 }

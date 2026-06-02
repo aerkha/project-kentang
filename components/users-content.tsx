@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { ErrorDialog } from "@/components/ui/error-dialog";
+import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -89,6 +91,7 @@ export function UsersContent() {
   const [form,        setForm]        = useState<UserFormData>(emptyForm());
   const [formError,   setFormError]   = useState("");
   const [isSubmitting,setIsSubmitting]= useState(false);
+  const [errorInfo,   setErrorInfo]   = useState<PbErrorInfo | null>(null);
 
   const currentUserId = pb.authStore.record?.id as string | undefined;
 
@@ -138,15 +141,13 @@ export function UsersContent() {
       setIsAddOpen(false);
       setForm(emptyForm());
     } catch (e: unknown) {
-      const err = e as { data?: { data?: Record<string, { message: string }> }; message?: string };
-      // Coba ambil pesan error spesifik dari PocketBase
-      const details = err.data?.data;
-      if (details) {
-        const msg = Object.values(details).map((v) => v.message).join(", ");
-        setFormError(msg || "Gagal membuat user");
+      const info = formatPbError(e, "Gagal membuat user");
+      if (info.fields.length > 0) {
+        setFormError(info.fields.map((f) => `${f.field}: ${f.message}`).join(" · "));
       } else {
-        setFormError(err.message || "Gagal membuat user");
+        setFormError(info.title);
       }
+      setErrorInfo(info);
     } finally {
       setIsSubmitting(false);
     }
@@ -187,8 +188,9 @@ export function UsersContent() {
       setSelected(null);
       setForm(emptyForm());
     } catch (e: unknown) {
-      const err = e as { message?: string };
-      setFormError(err.message || "Gagal mengupdate user");
+      const info = formatPbError(e, "Gagal mengupdate user");
+      setFormError(info.title);
+      setErrorInfo(info);
     } finally {
       setIsSubmitting(false);
     }
@@ -201,7 +203,7 @@ export function UsersContent() {
       await pb.collection("users").delete(selected.id);
       setUsers((prev) => prev.filter((u) => u.id !== selected.id));
     } catch (e) {
-      console.error("Gagal menghapus user:", e);
+      setErrorInfo(formatPbError(e, "Gagal menghapus user"));
     } finally {
       setSelected(null);
       setIsDeleteOpen(false);
@@ -577,6 +579,12 @@ export function UsersContent() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Error dialog ── */}
+      <ErrorDialog
+        open={!!errorInfo}
+        onClose={() => setErrorInfo(null)}
+        error={errorInfo}
+      />
     </div>
   );
 }
