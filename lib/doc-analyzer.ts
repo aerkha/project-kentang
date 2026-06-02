@@ -1,13 +1,22 @@
 /**
  * doc-analyzer.ts
- * Analisis dokumen (gambar ATAU PDF) secara lokal menggunakan Canvas API
- * untuk mendeteksi keberadaan tanda tangan dan materai.
+ * Analisis dokumen PKS (PDF / gambar) secara lokal menggunakan Canvas API
+ * untuk mendeteksi tanda tangan dan materai.
  *
- * Alur kerja:
- *  - File gambar  → render langsung ke <canvas>
- *  - File PDF     → render halaman terakhir via pdf.js ke <canvas>
- *  - Tanda tangan → cari kepadatan piksel gelap di zona bawah dokumen
- *  - Materai      → cari cluster piksel merah (materai Peruri) atau biru/ungu (stempel)
+ * Strategi deteksi:
+ *
+ * TANDA TANGAN
+ *   Perbedaan utama area bertanda tangan vs kosong:
+ *   - Area kosong: hanya ada garis horizontal tipis + teks label (pola sangat teratur)
+ *   - Area bertanda tangan: coretan tinta tidak beraturan, kepadatan piksel tidak merata
+ *   → Kita ukur "ketidakberaturan" (variance antar-baris) di zona bawah dokumen.
+ *     Tanda tangan = variance tinggi; teks cetak = variance rendah; kosong = sangat rendah.
+ *
+ * MATERAI
+ *   Materai Peruri (fisik): kotak ~3×3 cm warna merah/oranye di scan berwarna,
+ *   atau area abu-abu lebih padat di scan hitam-putih.
+ *   → Cari cluster piksel merah/oranye (scan berwarna)
+ *   → Atau cari area berdensitas sedang-tinggi yang bukan teks (scan B&W)
  */
 
 export interface DocAnalysisResult {
@@ -15,210 +24,280 @@ export interface DocAnalysisResult {
   hasStamp:     boolean;
   confidence:   "high" | "medium" | "low";
   message:      string;
-  /** Halaman yang dianalisis (untuk PDF) */
   pageAnalyzed?: number;
 }
 
-// ── Threshold ──────────────────────────────────────────────────
-const DARK_THRESHOLD   = 120;   // 0–255; di bawah ini = piksel gelap (tinta)
-const RED_R_MIN        = 140;
-const RED_G_MAX        = 110;
-const RED_B_MAX        = 110;
-const BLUE_B_MIN       = 140;
-const BLUE_R_MAX       = 110;
-const BLUE_G_MAX       = 120;
-const MIN_STAMP_PIXELS = 300;   // cluster piksel warna minimum
-const SIG_CELL_DENSITY = 0.04;  // 4% piksel gelap per sel = ada tinta
-const MIN_SIG_CELLS    = 2;     // minimal 2 sel bertinta = ada tanda tangan
+// ─── Konstanta ─────────────────────────────────────────────────
 
-// ── Helpers ────────────────────────────────────────────────────
+/** Piksel dengan brightness di bawah ini dianggap tinta/gelap */
+const INK_THRESHOLD = 160;
 
-function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+/** Minimum variance baris untuk dianggap ada tanda tangan (0–255²) */
+const SIG_VARIANCE_MIN = 180;
+
+/** Minimum jumlah sel bertanda tangan */
+const SIG_CELLS_MIN = 2;
+
+/** Minimum piksel merah/oranye agar materai terdeteksi */
+const STAMP_RED_MIN = 80;
+
+/** Minimum piksel biru per halaman (stempel dinas) */
+const STAMP_BLUE_MIN = 120;
+
+// ─── Helper: load gambar ───────────────────────────────────────
+
+function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload  = () => { URL.revokeObjectURL(url); resolve(img); };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Gagal memuat gambar")); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Gagal load gambar")); };
     img.src = url;
   });
 }
 
-/** Buat canvas dari HTMLImageElement, dengan resize maks 1200px */
-function imageToCanvas(img: HTMLImageElement): CanvasRenderingContext2D {
-  const MAX = 1200;
+/** Render gambar ke canvas dengan resize maks 1400px */
+function imageToCtx(img: HTMLImageElement): CanvasRenderingContext2D {
+  const MAX = 1400;
   let w = img.naturalWidth  || img.width;
   let h = img.naturalHeight || img.height;
   if (w > MAX || h > MAX) {
     const r = Math.min(MAX / w, MAX / h);
-    w = Math.round(w * r);
-    h = Math.round(h * r);
+    w = Math.round(w * r); h = Math.round(h * r);
   }
-  const canvas = document.createElement("canvas");
-  canvas.width  = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d")!;
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d")!;
   ctx.drawImage(img, 0, 0, w, h);
   return ctx;
 }
 
-/**
- * Render satu halaman PDF ke canvas menggunakan pdf.js.
- * pdf.js meng-encode halaman ke ImageData, sehingga hasilnya
- * bisa langsung kita analisis pikselnya.
- */
-async function pdfPageToCanvas(
-  file: File,
-  pageNum: number,
-): Promise<CanvasRenderingContext2D> {
-  // Import dinamis agar tidak memperlambat initial bundle
+// ─── Helper: render halaman PDF ─────────────────────────────────
+
+async function pdfPageToCtx(file: File, pageNum: number): Promise<CanvasRenderingContext2D> {
   const pdfjs = await import("pdfjs-dist");
 
-  // Arahkan worker ke file yang dibundel pdfjs
+  // Worker di-serve dari /public agar tidak bergantung pada bundler
   if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/build/pdf.worker.mjs",
-      import.meta.url,
-    ).toString();
+    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
   }
 
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf         = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-  const page        = await pdf.getPage(pageNum);
+  const buf  = await file.arrayBuffer();
+  const pdf  = await pdfjs.getDocument({ data: buf }).promise;
+  const page = await pdf.getPage(pageNum);
 
-  // Render pada scale 1.5 untuk resolusi yang cukup untuk analisis piksel
-  const viewport = page.getViewport({ scale: 1.5 });
-  const canvas   = document.createElement("canvas");
-  canvas.width   = viewport.width;
-  canvas.height  = viewport.height;
-  const ctx      = canvas.getContext("2d")!;
-
-  await page.render({ canvasContext: ctx as unknown as CanvasRenderingContext2D, canvas, viewport }).promise;
+  // Scale 2× untuk resolusi analisis yang lebih baik
+  const vp  = page.getViewport({ scale: 2 });
+  const c   = document.createElement("canvas");
+  c.width   = vp.width;
+  c.height  = vp.height;
+  const ctx = c.getContext("2d")!;
+  await page.render({ canvasContext: ctx, canvas: c, viewport: vp }).promise;
   return ctx;
 }
 
-// ── Deteksi tanda tangan ───────────────────────────────────────
+// ─── Deteksi TANDA TANGAN ──────────────────────────────────────
+//
+// Metode: ukur variance kepadatan tinta antar-baris di zona bawah.
+//
+// Zona bawah dibagi menjadi kolom-kolom vertikal.
+// Dalam setiap kolom, hitung kepadatan tinta tiap baris piksel.
+// Variance kepadatan baris = ukuran ketidakberaturan = indikator tanda tangan.
+//
+// Intuisi:
+//   Teks cetak → garis-garis tinta horizontal yang teratur → variance rendah
+//   Tanda tangan → coretan melengkung acak → variance tinggi
+//   Kosong → hampir tidak ada tinta → variance sangat rendah
+
+function rowDensities(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): number[] {
+  const data = ctx.getImageData(x, y, w, h).data;
+  const densities: number[] = [];
+  for (let row = 0; row < h; row++) {
+    let inkPx = 0;
+    for (let col = 0; col < w; col++) {
+      const i = (row * w + col) * 4;
+      const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      if (brightness < INK_THRESHOLD) inkPx++;
+    }
+    densities.push(inkPx / w);
+  }
+  return densities;
+}
+
+function variance(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  const mean = arr.reduce((s, v) => s + v, 0) / arr.length;
+  return arr.reduce((s, v) => s + (v - mean) ** 2, 0) / arr.length;
+}
 
 function detectSignature(ctx: CanvasRenderingContext2D, w: number, h: number): boolean {
-  // Zona bawah 45% adalah area yang paling umum untuk tanda tangan
-  const zoneTop    = Math.round(h * 0.55);
-  const zoneHeight = h - zoneTop;
-  const cols = 6;
-  const rows = 4;
-  const cellW = Math.round(w / cols);
-  const cellH = Math.round(zoneHeight / rows);
+  // Zona tanda tangan: bawah 45%
+  const zoneY = Math.round(h * 0.55);
+  const zoneH = h - zoneY;
 
-  let sigCells = 0;
+  // Bagi zona menjadi 4 kolom, 3 baris sub-cell
+  const cols    = 4;
+  const rows    = 3;
+  const cellW   = Math.round(w / cols);
+  const cellH   = Math.round(zoneH / rows);
+  let sigCells  = 0;
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
-      const x    = col * cellW;
-      const y    = zoneTop + row * cellH;
-      const data = ctx.getImageData(x, y, cellW, cellH).data;
-      let darkCount = 0;
-      const total   = cellW * cellH;
+      const cx = col * cellW;
+      const cy = zoneY + row * cellH;
+      const densities = rowDensities(ctx, cx, cy, cellW, cellH);
+      const v = variance(densities);
 
-      for (let i = 0; i < data.length; i += 4) {
-        const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-        if (brightness < DARK_THRESHOLD) darkCount++;
-      }
+      // Filter sel dengan sangat sedikit tinta (area kosong) — skip
+      const avgDensity = densities.reduce((s, d) => s + d, 0) / densities.length;
+      if (avgDensity < 0.005) continue;  // < 0.5% tinta → kosong, abaikan
 
-      if (darkCount / total > SIG_CELL_DENSITY) sigCells++;
+      if (v > SIG_VARIANCE_MIN) sigCells++;
     }
   }
 
-  return sigCells >= MIN_SIG_CELLS;
+  return sigCells >= SIG_CELLS_MIN;
 }
 
-// ── Deteksi materai / stempel ──────────────────────────────────
+// ─── Deteksi MATERAI ───────────────────────────────────────────
+//
+// Strategi berlapis:
+// 1. Scan berwarna: cari cluster piksel merah/oranye (materai Peruri)
+//    atau biru/ungu (stempel dinas)
+// 2. Scan B&W / grayscale: cari area persegi dengan kepadatan sedang-tinggi
+//    yang bukan bagian dari blok teks (materai punya teks + pola dekoratif)
 
 function detectStamp(ctx: CanvasRenderingContext2D, w: number, h: number): boolean {
   const data = ctx.getImageData(0, 0, w, h).data;
   let redCount  = 0;
   let blueCount = 0;
 
+  // Buat grid 20×20 untuk mencari area padat non-teks
+  const gridSize = 20;
+  const cellW    = Math.round(w / gridSize);
+  const cellH    = Math.round(h / gridSize);
+  const densGrid: number[] = new Array(gridSize * gridSize).fill(0);
+
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
     if (a < 50) continue;
-    // Merah / oranye → materai Peruri
-    if (r > RED_R_MIN && g < RED_G_MAX && b < RED_B_MAX) redCount++;
-    // Biru → stempel dinas
-    if (b > BLUE_B_MIN && r < BLUE_R_MAX && g < BLUE_G_MAX) blueCount++;
+
+    const pixIdx = i / 4;
+    const px = pixIdx % w;
+    const py = Math.floor(pixIdx / w);
+    const gx = Math.min(gridSize - 1, Math.floor(px / cellW));
+    const gy = Math.min(gridSize - 1, Math.floor(py / cellH));
+    densGrid[gy * gridSize + gx]++;
+
+    // Oranye gelap / merah → materai Peruri (R dominan, B rendah)
+    // Mencakup: merah (255,0,0), oranye gelap (~180,80,20), merah-oranye (~200,60,30)
+    const isRedOrange =
+      r > 130 &&              // saluran merah cukup kuat
+      r > g * 1.4 &&          // merah jauh lebih dominan dari hijau
+      b < 90  &&              // biru rendah (bukan pink/ungu)
+      g < 150;                // hijau tidak terlalu tinggi (bukan kuning)
+    if (isRedOrange) redCount++;
+
+    // Biru/ungu → stempel dinas
+    const isBlue   = b > 140 && r < 100 && g < 120;
+    const isPurple = b > 100 && r > 80 && b > r && b > g && g < 100;
+    if (isBlue || isPurple) blueCount++;
   }
 
-  return redCount > MIN_STAMP_PIXELS || blueCount > MIN_STAMP_PIXELS;
+  // Lulus jika ada warna materai/stempel
+  if (redCount > STAMP_RED_MIN || blueCount > STAMP_BLUE_MIN) return true;
+
+  // Fallback B&W: cari sel dengan kepadatan sedang (20–60%) yang bersebelahan
+  // → pola materai atau stempel abu-abu
+  const totalPixels = cellW * cellH;
+  let denseCells = 0;
+  for (let gy = 0; gy < gridSize; gy++) {
+    for (let gx = 0; gx < gridSize; gx++) {
+      const density = densGrid[gy * gridSize + gx] / totalPixels;
+      // 15–70% = ada konten tapi bukan area serba hitam (judul/teks tebal)
+      if (density > 0.15 && density < 0.70) denseCells++;
+    }
+  }
+
+  // Cluster minimum 4 sel padat bersebelahan → kemungkinan stempel/materai
+  let clusterMax = 0;
+  for (let gy = 0; gy < gridSize - 1; gy++) {
+    for (let gx = 0; gx < gridSize - 1; gx++) {
+      const d  = densGrid[gy * gridSize + gx]       / totalPixels;
+      const dr = densGrid[gy * gridSize + gx + 1]   / totalPixels;
+      const dd = densGrid[(gy + 1) * gridSize + gx] / totalPixels;
+      const dd2= densGrid[(gy + 1) * gridSize + gx + 1] / totalPixels;
+      const cluster = [d, dr, dd, dd2].filter(v => v > 0.15 && v < 0.70).length;
+      if (cluster > clusterMax) clusterMax = cluster;
+    }
+  }
+
+  return clusterMax >= 4;
 }
 
-// ── Fungsi utama ───────────────────────────────────────────────
+// ─── Fungsi utama ───────────────────────────────────────────────
 
 export async function analyzeDocument(file: File): Promise<DocAnalysisResult> {
   const isPdf = file.type === "application/pdf";
 
   try {
-    let ctx: CanvasRenderingContext2D;
-    let pageAnalyzed: number | undefined;
-
     if (isPdf) {
-      // Untuk PDF: ambil halaman terakhir (biasanya di sanalah tanda tangan & materai)
-      const pdfjs       = await import("pdfjs-dist");
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf         = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-      const totalPages  = pdf.numPages;
+      const pdfjs = await import("pdfjs-dist");
+      if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+      }
+      const buf        = await file.arrayBuffer();
+      const pdf        = await pdfjs.getDocument({ data: buf }).promise;
+      const totalPages = pdf.numPages;
 
-      // Analisis halaman terakhir; jika dokumen panjang juga cek halaman sebelum terakhir
+      // Cek halaman terakhir dan (jika ada) satu sebelum terakhir
       const pagesToCheck = totalPages > 1
         ? [totalPages, totalPages - 1]
         : [1];
 
-      let bestSig   = false;
-      let bestStamp = false;
-      pageAnalyzed  = totalPages;
+      let hasSig   = false;
+      let hasStamp = false;
+      let analyzedPage = totalPages;
 
       for (const pg of pagesToCheck) {
-        ctx = await pdfPageToCanvas(file, pg);
+        const ctx = await pdfPageToCtx(file, pg);
         const w = ctx.canvas.width;
         const h = ctx.canvas.height;
-        const sig   = detectSignature(ctx, w, h);
-        const stamp = detectStamp(ctx, w, h);
-        if (sig)   bestSig   = true;
-        if (stamp) bestStamp = true;
-        // Kalau keduanya sudah ketemu, tidak perlu lanjut
-        if (bestSig && bestStamp) { pageAnalyzed = pg; break; }
+        if (!hasSig   && detectSignature(ctx, w, h)) { hasSig   = true; analyzedPage = pg; }
+        if (!hasStamp && detectStamp(ctx, w, h))     { hasStamp = true; }
+        if (hasSig && hasStamp) break;
       }
 
-      return buildResult(bestSig, bestStamp, pageAnalyzed);
+      return buildResult(hasSig, hasStamp, analyzedPage);
     } else {
-      // Gambar
-      const img = await loadImageFromFile(file);
-      ctx = imageToCanvas(img);
-      const w = ctx.canvas.width;
-      const h = ctx.canvas.height;
-      return buildResult(detectSignature(ctx, w, h), detectStamp(ctx, w, h));
+      const img = await loadImage(file);
+      const ctx = imageToCtx(img);
+      return buildResult(
+        detectSignature(ctx, ctx.canvas.width, ctx.canvas.height),
+        detectStamp(ctx, ctx.canvas.width, ctx.canvas.height),
+      );
     }
   } catch (err) {
-    console.error("[doc-analyzer] error:", err);
+    console.error("[doc-analyzer]", err);
     return {
       hasSignature: false,
       hasStamp:     false,
       confidence:   "low",
-      message:      "Gagal menganalisis file. Pastikan file tidak rusak atau password-protected.",
+      message:      "Gagal menganalisis file — pastikan PDF tidak terenkripsi/rusak.",
     };
   }
 }
 
-function buildResult(
-  hasSignature: boolean,
-  hasStamp: boolean,
-  pageAnalyzed?: number,
-): DocAnalysisResult {
-  const both    = hasSignature && hasStamp;
-  const neither = !hasSignature && !hasStamp;
-  const confidence: DocAnalysisResult["confidence"] = both ? "high" : neither ? "medium" : "medium";
+function buildResult(sig: boolean, stamp: boolean, page?: number): DocAnalysisResult {
+  const confidence: DocAnalysisResult["confidence"] =
+    sig && stamp ? "high" : !sig && !stamp ? "low" : "medium";
 
-  let message = "";
-  if (both)              message = "Tanda tangan dan materai terdeteksi.";
-  else if (neither)      message = "Tanda tangan dan materai tidak terdeteksi. Pastikan dokumen sudah lengkap sebelum upload.";
-  else if (hasSignature) message = "Tanda tangan terdeteksi, namun materai tidak ditemukan.";
-  else                   message = "Materai terdeteksi, namun tanda tangan tidak ditemukan.";
+  let message: string;
+  if (sig && stamp)    message = "Tanda tangan dan materai terdeteksi.";
+  else if (!sig && !stamp) message = "Tanda tangan dan materai tidak terdeteksi. Periksa kembali dokumen.";
+  else if (sig)        message = "Tanda tangan terdeteksi, namun materai tidak ditemukan.";
+  else                 message = "Materai terdeteksi, namun tanda tangan tidak ditemukan.";
 
-  return { hasSignature, hasStamp, confidence, message, pageAnalyzed };
+  return { hasSignature: sig, hasStamp: stamp, confidence, message, pageAnalyzed: page };
 }
