@@ -137,6 +137,26 @@ export function MouProvider({ children }: { children: ReactNode }) {
   const pbIdMapRef = useRef(new Map<string, string>());
   const map = pbIdMapRef.current;
 
+  /**
+   * Ambil PocketBase internal ID untuk sebuah customId.
+   * Jika tidak ada di cache (map stale / baru mount), re-fetch dari server.
+   * Ini mencegah error 404 saat PocketBase direstart atau data di-recreate.
+   */
+  const resolvePbId = async (customId: string): Promise<string | null> => {
+    const cached = map.get(customId);
+    if (cached) return cached;
+    try {
+      const res = await pb.collection("mous").getFirstListItem(
+        `customId = "${customId}"`,
+        { fields: "id,customId" },
+      );
+      map.set(customId, res.id);
+      return res.id;
+    } catch {
+      return null;
+    }
+  };
+
   useEffect(() => {
     pb.collection("mous")
       .getFullList({ sort: "customId" })
@@ -245,7 +265,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
   };
 
   const updateMou = async (id: string, updates: Partial<MoU>) => {
-    const pbId = map.get(id);
+    const pbId = await resolvePbId(id);
     if (!pbId) return;
 
     // Pisahkan field esign dari update reguler
@@ -288,7 +308,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteMou = async (id: string) => {
-    const pbId       = map.get(id);
+    const pbId       = await resolvePbId(id);
     if (!pbId) return;
     const mouToDelete = mous.find((m) => m.id === id);
     await pb.collection("mous").delete(pbId);
@@ -303,8 +323,8 @@ export function MouProvider({ children }: { children: ReactNode }) {
   };
 
   const uploadSignedDoc = async (id: string, file: File) => {
-    const pbId = map.get(id);
-    if (!pbId) return;
+    const pbId = await resolvePbId(id);
+    if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan di server — coba refresh halaman.`);
     const fd = new FormData();
     fd.append("signedDoc", file);
     const record      = await pb.collection("mous").update(pbId, fd);

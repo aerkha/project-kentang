@@ -62,6 +62,19 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
   const pbIdMapRef = useRef(new Map<string, string>());
   const map = pbIdMapRef.current;
 
+  const resolvePbId = async (customId: string): Promise<string | null> => {
+    const cached = map.get(customId);
+    if (cached) return cached;
+    try {
+      const res = await pb.collection("brokers").getFirstListItem(
+        `customId = "${customId}"`,
+        { fields: "id,customId" },
+      );
+      map.set(customId, res.id);
+      return res.id;
+    } catch { return null; }
+  };
+
   useEffect(() => {
     pb.collection("brokers")
       .getFullList({ sort: "customId" })
@@ -98,7 +111,7 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
   };
 
   const updateBroker = async (id: string, updates: Partial<Broker>) => {
-    const pbId = map.get(id);
+    const pbId = await resolvePbId(id);
     if (!pbId) return;
     const record = await pb.collection("brokers").update(pbId, { ...updates, updatedBy: currentUserId() });
     setBrokers((prev) =>
@@ -107,7 +120,7 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteBroker = async (id: string) => {
-    const pbId = map.get(id);
+    const pbId = await resolvePbId(id);
     if (!pbId) return;
     await pb.collection("brokers").delete(pbId);
     map.delete(id);

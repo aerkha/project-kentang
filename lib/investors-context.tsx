@@ -76,6 +76,19 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
   const pbIdMap = useRef(new Map<string, string>());
   const map = pbIdMap.current;
 
+  const resolvePbId = async (customId: string): Promise<string | null> => {
+    const cached = map.get(customId);
+    if (cached) return cached;
+    try {
+      const res = await pb.collection("investors").getFirstListItem(
+        `customId = "${customId}"`,
+        { fields: "id,customId" },
+      );
+      map.set(customId, res.id);
+      return res.id;
+    } catch { return null; }
+  };
+
   useEffect(() => {
     pb.collection("investors")
       .getFullList({ sort: "customId" })
@@ -119,7 +132,7 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
   };
 
   const updateInvestor = async (id: string, updates: Partial<Investor>) => {
-    const pbId = map.get(id);
+    const pbId = await resolvePbId(id);
     if (!pbId) return;
     const record = await pb.collection("investors").update(pbId, { ...updates, updatedBy: currentUserId() });
     setInvestors((prev) =>
@@ -128,7 +141,7 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteInvestor = async (id: string) => {
-    const pbId = map.get(id);
+    const pbId = await resolvePbId(id);
     if (!pbId) return;
     await pb.collection("investors").delete(pbId);
     map.delete(id);
