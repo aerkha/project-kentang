@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useAuth } from "@/lib/auth-context";
 import { generateMouHtml } from "@/lib/mou-html";
-import { analyzeDocument, type DocAnalysisResult } from "@/lib/doc-analyzer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -482,10 +481,10 @@ export function MouContent() {
   const [isUploadDocOpen, setIsUploadDocOpen] = useState(false);
   const [uploadDocTarget, setUploadDocTarget] = useState<MoU | null>(null);
   const [uploadDocFile, setUploadDocFile] = useState<File | null>(null);
+  const [uploadPreviewUrl, setUploadPreviewUrl] = useState<string | null>(null);
+  const [docConfirmed, setDocConfirmed] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [overwriteConfirmed, setOverwriteConfirmed] = useState(false);
-  const [docAnalysis, setDocAnalysis] = useState<DocAnalysisResult | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const [errorInfo, setErrorInfo] = useState<PbErrorInfo | null>(null);
   const [page, setPage] = useState(1);
@@ -650,23 +649,26 @@ export function MouContent() {
   const openUploadDoc = (mou: MoU) => {
     setUploadDocTarget(mou);
     setUploadDocFile(null);
-    setDocAnalysis(null);
+    setUploadPreviewUrl(null);
+    setDocConfirmed(false);
     setOverwriteConfirmed(false);
     setIsUploadDocOpen(true);
   };
 
-  const handleFileSelect = useCallback(async (file: File | null) => {
+  const resetUploadDialog = () => {
+    if (uploadPreviewUrl) URL.revokeObjectURL(uploadPreviewUrl);
+    setUploadDocFile(null);
+    setUploadPreviewUrl(null);
+    setDocConfirmed(false);
+    setOverwriteConfirmed(false);
+  };
+
+  const handleUploadFileChange = (file: File | null) => {
+    if (uploadPreviewUrl) URL.revokeObjectURL(uploadPreviewUrl);
     setUploadDocFile(file);
-    setDocAnalysis(null);
-    if (!file) return;
-    setIsAnalyzing(true);
-    try {
-      const result = await analyzeDocument(file);
-      setDocAnalysis(result);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  }, []);
+    setDocConfirmed(false);
+    setUploadPreviewUrl(file ? URL.createObjectURL(file) : null);
+  };
 
   const handleSignedDocUpload = async () => {
     if (!uploadDocTarget || !uploadDocFile) return;
@@ -1121,10 +1123,10 @@ export function MouContent() {
       </Dialog>
       {/* ── Upload Signed Doc dialog ── */}
       <Dialog open={isUploadDocOpen} onOpenChange={(open) => {
-        if (!open) { setUploadDocFile(null); setDocAnalysis(null); setOverwriteConfirmed(false); }
+        if (!open) { resetUploadDialog(); }
         setIsUploadDocOpen(open);
       }}>
-        <DialogContent className="sm:max-w-[440px]">
+        <DialogContent className={uploadPreviewUrl ? "sm:max-w-[720px]" : "sm:max-w-[440px]"}>
           <DialogHeader>
             <DialogTitle>
               {uploadDocTarget?.hasSignedDoc ? "Upload Ulang PKS Bertanda Tangan" : "Upload PKS Bertanda Tangan"}
@@ -1137,7 +1139,7 @@ export function MouContent() {
             </DialogDescription>
           </DialogHeader>
 
-          {/* Peringatan overwrite — tampil jika sudah ada doc & belum dikonfirmasi */}
+          {/* Peringatan overwrite */}
           {uploadDocTarget?.hasSignedDoc && !overwriteConfirmed ? (
             <div className="space-y-4 py-2">
               <div className="rounded-md border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800 space-y-1">
@@ -1154,7 +1156,7 @@ export function MouContent() {
               <DialogFooter className="gap-2">
                 <Button variant="outline" onClick={() => {
                   setIsUploadDocOpen(false);
-                  setOverwriteConfirmed(false);
+                  resetUploadDialog();
                 }}>
                   Batal
                 </Button>
@@ -1169,91 +1171,78 @@ export function MouContent() {
           ) : (
             <>
               <div className="space-y-3 py-2">
-                <Label className="text-xs">
-                  File PKS (PDF / Gambar) <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  type="file"
-                  accept=".pdf,image/*"
-                  className="cursor-pointer"
-                  onChange={(e) => handleFileSelect(e.target.files?.[0] ?? null)}
-                />
-                {uploadDocFile && (
-                  <p className="text-xs text-muted-foreground">
-                    File dipilih:{" "}
-                    <span className="font-medium">{uploadDocFile.name}</span>{" "}
-                    ({(uploadDocFile.size / 1024).toFixed(0)} KB)
-                  </p>
-                )}
+                {/* Pilih file */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">
+                    File PKS (PDF / Gambar) <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    type="file"
+                    accept=".pdf,image/*"
+                    className="cursor-pointer"
+                    onChange={(e) => handleUploadFileChange(e.target.files?.[0] ?? null)}
+                  />
+                  {uploadDocFile && (
+                    <p className="text-xs text-muted-foreground">
+                      <span className="font-medium">{uploadDocFile.name}</span>{" "}
+                      ({(uploadDocFile.size / 1024).toFixed(0)} KB)
+                    </p>
+                  )}
+                </div>
 
-                {/* ── Hasil analisis dokumen ── */}
-                {isAnalyzing && (
-                  <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-                    <svg className="h-4 w-4 animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                    </svg>
-                    Menganalisis dokumen…
-                  </div>
-                )}
-
-                {!isAnalyzing && docAnalysis && (
-                  <div className={`rounded-md border p-3 space-y-2 text-sm ${
-                    docAnalysis.hasSignature && docAnalysis.hasStamp
-                      ? "border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-700"
-                      : !docAnalysis.hasSignature && !docAnalysis.hasStamp
-                      ? "border-orange-200 bg-orange-50 dark:bg-orange-950 dark:border-orange-700"
-                      : "border-yellow-200 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-700"
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-foreground">🔍 Hasil Analisis Dokumen</p>
-                      {docAnalysis.pageAnalyzed && (
-                        <span className="text-xs text-muted-foreground">
-                          hal. {docAnalysis.pageAnalyzed}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-base leading-none ${docAnalysis.hasSignature ? "text-green-600" : "text-orange-500"}`}>
-                          {docAnalysis.hasSignature ? "✅" : "⚠️"}
-                        </span>
-                        <span className={docAnalysis.hasSignature ? "text-green-700 dark:text-green-400" : "text-orange-700 dark:text-orange-400"}>
-                          {docAnalysis.hasSignature ? "Tanda tangan terdeteksi" : "Tanda tangan tidak terdeteksi"}
-                        </span>
+                {/* Preview dokumen */}
+                {uploadPreviewUrl && uploadDocFile && (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">Preview dokumen</p>
+                    {uploadDocFile.type === "application/pdf" ? (
+                      <iframe
+                        src={uploadPreviewUrl}
+                        className="w-full rounded-md border border-border"
+                        style={{ height: "420px" }}
+                        title="Preview PKS"
+                      />
+                    ) : (
+                      <div className="rounded-md border border-border overflow-hidden bg-muted/30 flex items-center justify-center" style={{ maxHeight: "420px" }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={uploadPreviewUrl}
+                          alt="Preview PKS"
+                          className="max-w-full max-h-[420px] object-contain"
+                        />
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-base leading-none ${docAnalysis.hasStamp ? "text-green-600" : "text-orange-500"}`}>
-                          {docAnalysis.hasStamp ? "✅" : "⚠️"}
-                        </span>
-                        <span className={docAnalysis.hasStamp ? "text-green-700 dark:text-green-400" : "text-orange-700 dark:text-orange-400"}>
-                          {docAnalysis.hasStamp ? "Materai / stempel terdeteksi" : "Materai / stempel tidak terdeteksi"}
-                        </span>
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">{docAnalysis.message}</p>
-                    {(!docAnalysis.hasSignature || !docAnalysis.hasStamp) && (
-                      <p className="text-xs text-muted-foreground italic">
-                        Deteksi bersifat estimasi — upload tetap dapat dilanjutkan.
-                      </p>
                     )}
                   </div>
                 )}
+
+                {/* Konfirmasi */}
+                {uploadPreviewUrl && (
+                  <label className="flex items-start gap-2.5 cursor-pointer rounded-md border border-border p-3 hover:bg-muted/40 transition-colors">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                      checked={docConfirmed}
+                      onChange={(e) => setDocConfirmed(e.target.checked)}
+                    />
+                    <span className="text-sm leading-snug">
+                      Saya telah memeriksa dokumen di atas dan menyatakan bahwa dokumen sudah{" "}
+                      <strong>final, ditandatangani, dan dibubuhi materai</strong> sesuai ketentuan.
+                    </span>
+                  </label>
+                )}
               </div>
+
               <DialogFooter className="gap-2">
                 <Button
                   variant="outline"
                   onClick={() => {
                     setIsUploadDocOpen(false);
-                    setUploadDocFile(null);
-                    setDocAnalysis(null);
-                    setOverwriteConfirmed(false);
+                    resetUploadDialog();
                   }}
                 >
                   Batal
                 </Button>
                 <Button
-                  disabled={!uploadDocFile || isUploading}
+                  disabled={!uploadDocFile || !docConfirmed || isUploading}
                   onClick={handleSignedDocUpload}
                 >
                   <Upload className="h-4 w-4 mr-2" />
