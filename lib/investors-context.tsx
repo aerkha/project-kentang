@@ -1,7 +1,9 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
+
+const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
 export interface Investor {
   id: string;           // INV-0001 (customId)
@@ -29,10 +31,7 @@ interface InvestorsContextType {
 
 const InvestorsContext = createContext<InvestorsContextType | undefined>(undefined);
 
-// Map customId → PocketBase record id (untuk update & delete)
-const pbIdMap = new Map<string, string>();
-
-function recordToInvestor(r: Record<string, unknown>): Investor {
+function recordToInvestor(r: Record<string, unknown>, pbIdMap: Map<string, string>): Investor {
   const customId = r.customId as string;
   pbIdMap.set(customId, r.id as string);
   return {
@@ -53,6 +52,12 @@ function recordToInvestor(r: Record<string, unknown>): Investor {
   };
 }
 
+function isCustomIdConflict(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const data = (err as { data?: { data?: { customId?: { code?: string } } } }).data;
+  return data?.data?.customId?.code === "validation_not_unique";
+}
+
 async function generateCustomId(): Promise<string> {
   try {
     const res = await pb.collection("investors").getList(1, 1, {
@@ -68,49 +73,65 @@ async function generateCustomId(): Promise<string> {
 
 export function InvestorsProvider({ children }: { children: ReactNode }) {
   const [investors, setInvestors] = useState<Investor[]>([]);
+  const pbIdMap = useRef(new Map<string, string>());
+  const map = pbIdMap.current;
 
   useEffect(() => {
     pb.collection("investors")
       .getFullList({ sort: "customId" })
-      .then((records) => setInvestors(records.map(recordToInvestor)))
+      .then((records) => setInvestors(records.map((r) => recordToInvestor(r, map))))
       .catch(console.error);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const addInvestor = async (inv: Omit<Investor, "id">) => {
-    const customId = await generateCustomId();
-    const record = await pb.collection("investors").create({
-      customId,
-      name:             inv.name,
-      address:          inv.address,
-      brokerName:       inv.brokerName || "",
-      idNumber:         inv.idNumber,
-      bankName:         inv.bankName,
-      accountNumber:    inv.accountNumber,
-      phone:            inv.phone,
-      occupation:       inv.occupation || "",
-      investmentAmount: inv.investmentAmount,
-      heirName:         inv.heirName,
-      heirBankName:     inv.heirBankName,
-      heirAccountNumber: inv.heirAccountNumber,
-      isActive:         inv.isActive !== false,
-    });
-    setInvestors((prev) => [...prev, recordToInvestor(record)]);
+    let customId = await generateCustomId();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const record = await pb.collection("investors").create({
+          customId,
+          createdBy: currentUserId(),
+          updatedBy: currentUserId(),
+          name:             inv.name,
+          address:          inv.address,
+          brokerName:       inv.brokerName || "",
+          idNumber:         inv.idNumber,
+          bankName:         inv.bankName,
+          accountNumber:    inv.accountNumber,
+          phone:            inv.phone,
+          occupation:       inv.occupation || "",
+          investmentAmount: inv.investmentAmount,
+          heirName:         inv.heirName,
+          heirBankName:     inv.heirBankName,
+          heirAccountNumber: inv.heirAccountNumber,
+          isActive:         inv.isActive !== false,
+        });
+        setInvestors((prev) => [...prev, recordToInvestor(record, map)]);
+        return;
+      } catch (err) {
+        if (isCustomIdConflict(err) && attempt < 4) {
+          customId = await generateCustomId();
+          continue;
+        }
+        throw err;
+      }
+    }
   };
 
   const updateInvestor = async (id: string, updates: Partial<Investor>) => {
-    const pbId = pbIdMap.get(id);
+    const pbId = map.get(id);
     if (!pbId) return;
-    const record = await pb.collection("investors").update(pbId, updates);
+    const record = await pb.collection("investors").update(pbId, { ...updates, updatedBy: currentUserId() });
     setInvestors((prev) =>
-      prev.map((inv) => (inv.id === id ? recordToInvestor(record) : inv))
+      prev.map((inv) => (inv.id === id ? recordToInvestor(record, map) : inv))
     );
   };
 
   const deleteInvestor = async (id: string) => {
-    const pbId = pbIdMap.get(id);
+    const pbId = map.get(id);
     if (!pbId) return;
     await pb.collection("investors").delete(pbId);
-    pbIdMap.delete(id);
+    map.delete(id);
     setInvestors((prev) => prev.filter((inv) => inv.id !== id));
   };
 

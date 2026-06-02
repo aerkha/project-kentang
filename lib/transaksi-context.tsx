@@ -1,7 +1,9 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
+
+const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
 export interface TransaksiInvestorEntry {
   investorId: string;
@@ -42,10 +44,7 @@ interface TransaksiContextType {
 
 const TransaksiContext = createContext<TransaksiContextType | undefined>(undefined);
 
-// Map customId → PocketBase record id
-const pbIdMap = new Map<string, string>();
-
-function recordToTransaksi(r: Record<string, unknown>): Transaksi {
+function recordToTransaksi(r: Record<string, unknown>, pbIdMap: Map<string, string>): Transaksi {
   const customId = r.customId as string;
   pbIdMap.set(customId, r.id as string);
   return {
@@ -60,6 +59,12 @@ function recordToTransaksi(r: Record<string, unknown>): Transaksi {
     brokerName:      (r.brokerName     as string) || undefined,
     hasBrokerII:     (r.hasBrokerII    as boolean) || undefined,
   };
+}
+
+function isCustomIdConflict(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const data = (err as { data?: { data?: { customId?: { code?: string } } } }).data;
+  return data?.data?.customId?.code === "validation_not_unique";
 }
 
 async function generateCustomId(): Promise<string> {
@@ -77,45 +82,61 @@ async function generateCustomId(): Promise<string> {
 
 export function TransaksiProvider({ children }: { children: ReactNode }) {
   const [transaksis, setTransaksis] = useState<Transaksi[]>([]);
+  const pbIdMapRef = useRef(new Map<string, string>());
+  const map = pbIdMapRef.current;
 
   useEffect(() => {
     pb.collection("transaksis")
       .getFullList({ sort: "customId" })
-      .then((records) => setTransaksis(records.map(recordToTransaksi)))
+      .then((records) => setTransaksis(records.map((r) => recordToTransaksi(r, map))))
       .catch(console.error);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const addTransaksi = async (t: Omit<Transaksi, "id">) => {
-    const customId = await generateCustomId();
-    const record = await pb.collection("transaksis").create({
-      customId,
-      date:            t.date,
-      description:     t.description || "",
-      hpp:             t.hpp,
-      kebutuhanModal:  t.kebutuhanModal,
-      investorEntries: t.investorEntries,
-      ongkirPerKg:     t.ongkirPerKg,
-      hargaJual:       t.hargaJual,
-      brokerName:      t.brokerName  || "",
-      hasBrokerII:     t.hasBrokerII || false,
-    });
-    setTransaksis((prev) => [...prev, recordToTransaksi(record)]);
+    let customId = await generateCustomId();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const record = await pb.collection("transaksis").create({
+          customId,
+          createdBy: currentUserId(),
+          updatedBy: currentUserId(),
+          date:            t.date,
+          description:     t.description || "",
+          hpp:             t.hpp,
+          kebutuhanModal:  t.kebutuhanModal,
+          investorEntries: t.investorEntries,
+          ongkirPerKg:     t.ongkirPerKg,
+          hargaJual:       t.hargaJual,
+          brokerName:      t.brokerName  || "",
+          hasBrokerII:     t.hasBrokerII || false,
+        });
+        setTransaksis((prev) => [...prev, recordToTransaksi(record, map)]);
+        return;
+      } catch (err) {
+        if (isCustomIdConflict(err) && attempt < 4) {
+          customId = await generateCustomId();
+          continue;
+        }
+        throw err;
+      }
+    }
   };
 
   const updateTransaksi = async (id: string, updates: Partial<Transaksi>) => {
-    const pbId = pbIdMap.get(id);
+    const pbId = map.get(id);
     if (!pbId) return;
-    const record = await pb.collection("transaksis").update(pbId, updates);
+    const record = await pb.collection("transaksis").update(pbId, { ...updates, updatedBy: currentUserId() });
     setTransaksis((prev) =>
-      prev.map((t) => (t.id === id ? recordToTransaksi(record) : t))
+      prev.map((t) => (t.id === id ? recordToTransaksi(record, map) : t))
     );
   };
 
   const deleteTransaksi = async (id: string) => {
-    const pbId = pbIdMap.get(id);
+    const pbId = map.get(id);
     if (!pbId) return;
     await pb.collection("transaksis").delete(pbId);
-    pbIdMap.delete(id);
+    map.delete(id);
     setTransaksis((prev) => prev.filter((t) => t.id !== id));
   };
 

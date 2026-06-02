@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { toast } from "sonner";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useTransaksi, calcTransaksi } from "@/lib/transaksi-context";
@@ -99,9 +100,10 @@ interface InvestorFormProps {
   submitLabel: string;
   previewId: string;
   brokers: Broker[];
+  isSaving?: boolean;
 }
 
-function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, previewId, brokers }: InvestorFormProps) {
+function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, previewId, brokers, isSaving = false }: InvestorFormProps) {
   const set = (key: keyof InvestorFormData, value: string) =>
     setFormData({ ...formData, [key]: value });
 
@@ -332,7 +334,9 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
       </div>
 
       <DialogFooter className="mt-4 pt-4 border-t">
-        <Button type="submit">{submitLabel}</Button>
+        <Button type="submit" disabled={isSaving}>
+          {isSaving ? "Menyimpan…" : submitLabel}
+        </Button>
       </DialogFooter>
     </form>
   );
@@ -344,9 +348,10 @@ interface BrokerFormProps {
   onSubmit: (e: React.FormEvent) => void;
   submitLabel: string;
   previewId: string;
+  isSaving?: boolean;
 }
 
-function BrokerFormFields({ formData, setFormData, onSubmit, submitLabel, previewId }: BrokerFormProps) {
+function BrokerFormFields({ formData, setFormData, onSubmit, submitLabel, previewId, isSaving = false }: BrokerFormProps) {
   const set = (key: keyof BrokerFormData, value: string) =>
     setFormData({ ...formData, [key]: value });
 
@@ -458,7 +463,9 @@ function BrokerFormFields({ formData, setFormData, onSubmit, submitLabel, previe
       </div>
 
       <DialogFooter className="mt-4 pt-4 border-t">
-        <Button type="submit">{submitLabel}</Button>
+        <Button type="submit" disabled={isSaving}>
+          {isSaving ? "Menyimpan…" : submitLabel}
+        </Button>
       </DialogFooter>
     </form>
   );
@@ -519,6 +526,7 @@ export function InvestorsContent() {
   const [isAddBrokerOpen, setIsAddBrokerOpen] = useState(false);
   const [isEditBrokerOpen, setIsEditBrokerOpen] = useState(false);
   const [isDeleteBrokerOpen, setIsDeleteBrokerOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [errorInfo, setErrorInfo] = useState<PbErrorInfo | null>(null);
   const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null);
   const [brokerForm, setBrokerForm] = useState<BrokerFormData>(initialBrokerForm);
@@ -558,6 +566,7 @@ export function InvestorsContent() {
 
   const handleAddInvestor = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSaving(true);
     try {
       await addInvestor({
         name: investorForm.name,
@@ -573,16 +582,20 @@ export function InvestorsContent() {
         heirBankName: investorForm.heirBankName,
         heirAccountNumber: investorForm.heirAccountNumber,
       });
+      toast.success("Investor berhasil ditambahkan");
       setInvestorForm(initialInvestorForm);
       setIsAddInvestorOpen(false);
     } catch (err) {
       setErrorInfo(formatPbError(err, "Gagal menambahkan investor"));
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleEditInvestor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedInvestor) return;
+    setIsSaving(true);
     try {
       await updateInvestor(selectedInvestor.id, {
         name: investorForm.name,
@@ -598,11 +611,14 @@ export function InvestorsContent() {
         heirBankName: investorForm.heirBankName,
         heirAccountNumber: investorForm.heirAccountNumber,
       });
+      toast.success("Data investor berhasil diperbarui");
       setInvestorForm(initialInvestorForm);
       setSelectedInvestor(null);
       setIsEditInvestorOpen(false);
     } catch (err) {
       setErrorInfo(formatPbError(err, "Gagal memperbarui investor"));
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -626,6 +642,20 @@ export function InvestorsContent() {
   };
 
   const handleDeleteInvestorClick = (investor: Investor) => {
+    // Cek apakah investor masih punya MoU
+    const hasMou = mous.some((m) => m.investorId === investor.id);
+    if (hasMou) {
+      setErrorInfo({
+        title: `Investor "${investor.name}" tidak dapat dihapus`,
+        fields: [{
+          field: "mous",
+          code: "has_related_records",
+          message: "Investor masih memiliki data PKS. Hapus semua PKS terkait terlebih dahulu sebelum menghapus investor.",
+        }],
+        raw: "",
+      });
+      return;
+    }
     setSelectedInvestor(investor);
     setIsDeleteInvestorOpen(true);
   };
@@ -634,6 +664,7 @@ export function InvestorsContent() {
     if (!selectedInvestor) return;
     try {
       await deleteInvestor(selectedInvestor.id);
+      toast.success("Investor berhasil dihapus");
       setSelectedInvestor(null);
       setIsDeleteInvestorOpen(false);
     } catch (err) {
@@ -645,6 +676,7 @@ export function InvestorsContent() {
 
   const handleAddBroker = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSaving(true);
     try {
       await addBroker({
         name: brokerForm.name,
@@ -654,16 +686,20 @@ export function InvestorsContent() {
         accountNumber: brokerForm.accountNumber,
         phone: brokerForm.phone,
       });
+      toast.success("Broker berhasil ditambahkan");
       setBrokerForm(initialBrokerForm);
       setIsAddBrokerOpen(false);
     } catch (err) {
       setErrorInfo(formatPbError(err, "Gagal menambahkan broker"));
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleEditBroker = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedBroker) return;
+    setIsSaving(true);
     try {
       await updateBroker(selectedBroker.id, {
         name: brokerForm.name,
@@ -673,11 +709,14 @@ export function InvestorsContent() {
         accountNumber: brokerForm.accountNumber,
         phone: brokerForm.phone,
       });
+      toast.success("Data broker berhasil diperbarui");
       setBrokerForm(initialBrokerForm);
       setSelectedBroker(null);
       setIsEditBrokerOpen(false);
     } catch (err) {
       setErrorInfo(formatPbError(err, "Gagal memperbarui broker"));
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -703,6 +742,7 @@ export function InvestorsContent() {
     if (!selectedBroker) return;
     try {
       await deleteBroker(selectedBroker.id);
+      toast.success("Broker berhasil dihapus");
       setSelectedBroker(null);
       setIsDeleteBrokerOpen(false);
     } catch (err) {
@@ -742,6 +782,7 @@ export function InvestorsContent() {
                 onSubmit={handleAddBroker}
                 submitLabel="Simpan Broker"
                 previewId={nextBrokerId()}
+                isSaving={isSaving}
               />
             </DialogContent>
           </Dialog>}
@@ -766,6 +807,7 @@ export function InvestorsContent() {
                 submitLabel="Simpan Investor"
                 previewId={nextInvestorId()}
                 brokers={brokers}
+                isSaving={isSaving}
               />
             </DialogContent>
           </Dialog>
@@ -1042,6 +1084,7 @@ export function InvestorsContent() {
             submitLabel="Simpan Perubahan"
             previewId={selectedInvestor?.id ?? ""}
             brokers={brokers}
+            isSaving={isSaving}
           />
         </DialogContent>
       </Dialog>
@@ -1084,6 +1127,7 @@ export function InvestorsContent() {
             onSubmit={handleEditBroker}
             submitLabel="Simpan Perubahan"
             previewId={selectedBroker?.id ?? ""}
+            isSaving={isSaving}
           />
         </DialogContent>
       </Dialog>

@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { toast } from "sonner";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useAuth } from "@/lib/auth-context";
 import { generateMouHtml } from "@/lib/mou-html";
+import { analyzeDocument, type DocAnalysisResult } from "@/lib/doc-analyzer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -468,6 +470,7 @@ export function MouContent() {
   const isAdmin = user?.role === "admin";
 
   const [filter, setFilter] = useState<Filter>("semua");
+  const changeFilter = (f: Filter) => { setFilter(f); setPage(1); };
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -481,15 +484,22 @@ export function MouContent() {
   const [uploadDocFile, setUploadDocFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [overwriteConfirmed, setOverwriteConfirmed] = useState(false);
+  const [docAnalysis, setDocAnalysis] = useState<DocAnalysisResult | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const [errorInfo, setErrorInfo] = useState<PbErrorInfo | null>(null);
+  const [page, setPage] = useState(1);
 
+  const ITEMS_PER_PAGE = 20;
 
   // ── Filter ──
   const filtered = mous.filter((m) => {
     if (filter === "semua") return true;
     return getMouStatus(m) === filter;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+  const paginated  = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
   // ── Terminate / Reactivate ──
   const openTerminate = (mou: MoU) => {
@@ -500,12 +510,16 @@ export function MouContent() {
 
   const confirmTerminate = async () => {
     if (!selected) return;
+    setIsConfirming(true);
     try {
       await updateMou(selected.id, { isTerminated: terminateAction === "nonaktifkan" });
+      toast.success(terminateAction === "nonaktifkan" ? "PKS berhasil dinonaktifkan" : "PKS berhasil diaktifkan kembali");
       setSelected(null);
       setIsTerminateOpen(false);
     } catch (err) {
       setErrorInfo(formatPbError(err, "Gagal mengubah status PKS"));
+    } finally {
+      setIsConfirming(false);
     }
   };
 
@@ -542,6 +556,7 @@ export function MouContent() {
   };
 
   const [isSaving, setIsSaving] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
 
   // ── Handlers ──
   const handleAdd = async (e: React.FormEvent) => {
@@ -566,6 +581,7 @@ export function MouContent() {
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
       });
+      toast.success("PKS berhasil disimpan");
       setForm(initialForm);
       setIsAddOpen(false);
     } catch (err) {
@@ -597,6 +613,7 @@ export function MouContent() {
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
       });
+      toast.success("PKS berhasil diperbarui");
       setForm(initialForm);
       setSelected(null);
       setIsEditOpen(false);
@@ -633,15 +650,30 @@ export function MouContent() {
   const openUploadDoc = (mou: MoU) => {
     setUploadDocTarget(mou);
     setUploadDocFile(null);
+    setDocAnalysis(null);
     setOverwriteConfirmed(false);
     setIsUploadDocOpen(true);
   };
+
+  const handleFileSelect = useCallback(async (file: File | null) => {
+    setUploadDocFile(file);
+    setDocAnalysis(null);
+    if (!file) return;
+    setIsAnalyzing(true);
+    try {
+      const result = await analyzeDocument(file);
+      setDocAnalysis(result);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, []);
 
   const handleSignedDocUpload = async () => {
     if (!uploadDocTarget || !uploadDocFile) return;
     setIsUploading(true);
     try {
       await uploadSignedDoc(uploadDocTarget.id, uploadDocFile);
+      toast.success("Dokumen berhasil diupload — PKS sekarang aktif");
       setIsUploadDocOpen(false);
       setUploadDocTarget(null);
       setUploadDocFile(null);
@@ -659,12 +691,16 @@ export function MouContent() {
 
   const confirmDelete = async () => {
     if (!selected) return;
+    setIsConfirming(true);
     try {
       await deleteMou(selected.id);
+      toast.success("PKS berhasil dihapus");
       setSelected(null);
       setIsDeleteOpen(false);
     } catch (err) {
       setErrorInfo(formatPbError(err, "Gagal menghapus PKS"));
+    } finally {
+      setIsConfirming(false);
     }
   };
 
@@ -736,7 +772,7 @@ export function MouContent() {
             key={f}
             variant={filter === f ? "default" : "outline"}
             size="sm"
-            onClick={() => setFilter(f)}
+            onClick={() => changeFilter(f)}
             className="capitalize"
           >
             {f}
@@ -787,7 +823,7 @@ export function MouContent() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((mou) => {
+                  {paginated.map((mou) => {
                     const status = getMouStatus(mou);
                     return (
                       <tr
@@ -918,6 +954,53 @@ export function MouContent() {
               </table>
             </div>
           </CardContent>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+              <p className="text-xs text-muted-foreground">
+                {(page - 1) * ITEMS_PER_PAGE + 1}–{Math.min(page * ITEMS_PER_PAGE, filtered.length)} dari {filtered.length} PKS
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                >
+                  ←
+                </Button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                  .reduce<(number | "…")[]>((acc, p, i, arr) => {
+                    if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push("…");
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, i) =>
+                    p === "…" ? (
+                      <span key={`ellipsis-${i}`} className="px-1 text-muted-foreground text-xs">…</span>
+                    ) : (
+                      <Button
+                        key={p}
+                        variant={page === p ? "default" : "outline"}
+                        size="sm"
+                        className="w-8 h-8 p-0 text-xs"
+                        onClick={() => setPage(p as number)}
+                      >
+                        {p}
+                      </Button>
+                    )
+                  )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                >
+                  →
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 
@@ -929,6 +1012,23 @@ export function MouContent() {
             <DialogDescription>
               Perbarui data PKS — No. PKS tidak dapat diubah
             </DialogDescription>
+            {(() => {
+              if (!selected) return null;
+              const inv = investors.find((i) => i.id === selected.investorId);
+              if (!inv) return null;
+              const drifted =
+                inv.name       !== selected.investorName     ||
+                inv.address    !== selected.investorAddress  ||
+                inv.occupation !== selected.investorOccupation ||
+                inv.idNumber   !== selected.investorIdNumber ||
+                inv.phone      !== selected.investorPhone;
+              if (!drifted) return null;
+              return (
+                <Badge variant="outline" className="mt-1 w-fit text-amber-600 border-amber-400 bg-amber-50 dark:bg-amber-950 dark:border-amber-700 dark:text-amber-400 text-xs">
+                  ⚠ Data investor lebih baru dari snapshot di PKS ini
+                </Badge>
+              );
+            })()}
           </DialogHeader>
           <MouFormFields
             formData={form}
@@ -959,8 +1059,8 @@ export function MouContent() {
             <Button variant="outline" onClick={() => setIsDeleteOpen(false)}>
               Batal
             </Button>
-            <Button variant="destructive" onClick={confirmDelete}>
-              Hapus
+            <Button variant="destructive" onClick={confirmDelete} disabled={isConfirming}>
+              {isConfirming ? "Menghapus…" : "Hapus"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1001,17 +1101,19 @@ export function MouContent() {
               <Button
                 className="bg-orange-500 hover:bg-orange-600 text-white"
                 onClick={confirmTerminate}
+                disabled={isConfirming}
               >
                 <PowerOff className="h-4 w-4 mr-2" />
-                Nonaktifkan
+                {isConfirming ? "Memproses…" : "Nonaktifkan"}
               </Button>
             ) : (
               <Button
                 className="bg-green-600 hover:bg-green-700 text-white"
                 onClick={confirmTerminate}
+                disabled={isConfirming}
               >
                 <RotateCcw className="h-4 w-4 mr-2" />
-                Aktifkan Kembali
+                {isConfirming ? "Memproses…" : "Aktifkan Kembali"}
               </Button>
             )}
           </DialogFooter>
@@ -1019,7 +1121,7 @@ export function MouContent() {
       </Dialog>
       {/* ── Upload Signed Doc dialog ── */}
       <Dialog open={isUploadDocOpen} onOpenChange={(open) => {
-        if (!open) { setUploadDocFile(null); setOverwriteConfirmed(false); }
+        if (!open) { setUploadDocFile(null); setDocAnalysis(null); setOverwriteConfirmed(false); }
         setIsUploadDocOpen(open);
       }}>
         <DialogContent className="sm:max-w-[440px]">
@@ -1074,7 +1176,7 @@ export function MouContent() {
                   type="file"
                   accept=".pdf,image/*"
                   className="cursor-pointer"
-                  onChange={(e) => setUploadDocFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => handleFileSelect(e.target.files?.[0] ?? null)}
                 />
                 {uploadDocFile && (
                   <p className="text-xs text-muted-foreground">
@@ -1083,6 +1185,60 @@ export function MouContent() {
                     ({(uploadDocFile.size / 1024).toFixed(0)} KB)
                   </p>
                 )}
+
+                {/* ── Hasil analisis dokumen ── */}
+                {isAnalyzing && (
+                  <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+                    <svg className="h-4 w-4 animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                    Menganalisis dokumen…
+                  </div>
+                )}
+
+                {!isAnalyzing && docAnalysis && (
+                  <div className={`rounded-md border p-3 space-y-2 text-sm ${
+                    docAnalysis.hasSignature && docAnalysis.hasStamp
+                      ? "border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-700"
+                      : !docAnalysis.hasSignature && !docAnalysis.hasStamp
+                      ? "border-orange-200 bg-orange-50 dark:bg-orange-950 dark:border-orange-700"
+                      : "border-yellow-200 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-700"
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-foreground">🔍 Hasil Analisis Dokumen</p>
+                      {docAnalysis.pageAnalyzed && (
+                        <span className="text-xs text-muted-foreground">
+                          hal. {docAnalysis.pageAnalyzed}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-base leading-none ${docAnalysis.hasSignature ? "text-green-600" : "text-orange-500"}`}>
+                          {docAnalysis.hasSignature ? "✅" : "⚠️"}
+                        </span>
+                        <span className={docAnalysis.hasSignature ? "text-green-700 dark:text-green-400" : "text-orange-700 dark:text-orange-400"}>
+                          {docAnalysis.hasSignature ? "Tanda tangan terdeteksi" : "Tanda tangan tidak terdeteksi"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-base leading-none ${docAnalysis.hasStamp ? "text-green-600" : "text-orange-500"}`}>
+                          {docAnalysis.hasStamp ? "✅" : "⚠️"}
+                        </span>
+                        <span className={docAnalysis.hasStamp ? "text-green-700 dark:text-green-400" : "text-orange-700 dark:text-orange-400"}>
+                          {docAnalysis.hasStamp ? "Materai / stempel terdeteksi" : "Materai / stempel tidak terdeteksi"}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{docAnalysis.message}</p>
+                    {(!docAnalysis.hasSignature || !docAnalysis.hasStamp) && (
+                      <p className="text-xs text-muted-foreground italic">
+                        Deteksi bersifat estimasi — upload tetap dapat dilanjutkan.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
               <DialogFooter className="gap-2">
                 <Button
@@ -1090,6 +1246,7 @@ export function MouContent() {
                   onClick={() => {
                     setIsUploadDocOpen(false);
                     setUploadDocFile(null);
+                    setDocAnalysis(null);
                     setOverwriteConfirmed(false);
                   }}
                 >

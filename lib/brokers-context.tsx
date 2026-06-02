@@ -1,7 +1,9 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
+
+const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
 export interface Broker {
   id: string;           // BRK-0001 (customId)
@@ -22,10 +24,7 @@ interface BrokersContextType {
 
 const BrokersContext = createContext<BrokersContextType | undefined>(undefined);
 
-// Map customId → PocketBase record id
-const pbIdMap = new Map<string, string>();
-
-function recordToBroker(r: Record<string, unknown>): Broker {
+function recordToBroker(r: Record<string, unknown>, pbIdMap: Map<string, string>): Broker {
   const customId = r.customId as string;
   pbIdMap.set(customId, r.id as string);
   return {
@@ -37,6 +36,12 @@ function recordToBroker(r: Record<string, unknown>): Broker {
     accountNumber: r.accountNumber as string,
     phone:         r.phone         as string,
   };
+}
+
+function isCustomIdConflict(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const data = (err as { data?: { data?: { customId?: { code?: string } } } }).data;
+  return data?.data?.customId?.code === "validation_not_unique";
 }
 
 async function generateCustomId(): Promise<string> {
@@ -54,42 +59,58 @@ async function generateCustomId(): Promise<string> {
 
 export function BrokersProvider({ children }: { children: ReactNode }) {
   const [brokers, setBrokers] = useState<Broker[]>([]);
+  const pbIdMapRef = useRef(new Map<string, string>());
+  const map = pbIdMapRef.current;
 
   useEffect(() => {
     pb.collection("brokers")
       .getFullList({ sort: "customId" })
-      .then((records) => setBrokers(records.map(recordToBroker)))
+      .then((records) => setBrokers(records.map((r) => recordToBroker(r, map))))
       .catch(console.error);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const addBroker = async (broker: Omit<Broker, "id">) => {
-    const customId = await generateCustomId();
-    const record = await pb.collection("brokers").create({
-      customId,
-      name:          broker.name,
-      address:       broker.address,
-      idNumber:      broker.idNumber,
-      bankName:      broker.bankName,
-      accountNumber: broker.accountNumber,
-      phone:         broker.phone,
-    });
-    setBrokers((prev) => [...prev, recordToBroker(record)]);
+    let customId = await generateCustomId();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const record = await pb.collection("brokers").create({
+          customId,
+          createdBy: currentUserId(),
+          updatedBy: currentUserId(),
+          name:          broker.name,
+          address:       broker.address,
+          idNumber:      broker.idNumber,
+          bankName:      broker.bankName,
+          accountNumber: broker.accountNumber,
+          phone:         broker.phone,
+        });
+        setBrokers((prev) => [...prev, recordToBroker(record, map)]);
+        return;
+      } catch (err) {
+        if (isCustomIdConflict(err) && attempt < 4) {
+          customId = await generateCustomId();
+          continue;
+        }
+        throw err;
+      }
+    }
   };
 
   const updateBroker = async (id: string, updates: Partial<Broker>) => {
-    const pbId = pbIdMap.get(id);
+    const pbId = map.get(id);
     if (!pbId) return;
-    const record = await pb.collection("brokers").update(pbId, updates);
+    const record = await pb.collection("brokers").update(pbId, { ...updates, updatedBy: currentUserId() });
     setBrokers((prev) =>
-      prev.map((b) => (b.id === id ? recordToBroker(record) : b))
+      prev.map((b) => (b.id === id ? recordToBroker(record, map) : b))
     );
   };
 
   const deleteBroker = async (id: string) => {
-    const pbId = pbIdMap.get(id);
+    const pbId = map.get(id);
     if (!pbId) return;
     await pb.collection("brokers").delete(pbId);
-    pbIdMap.delete(id);
+    map.delete(id);
     setBrokers((prev) => prev.filter((b) => b.id !== id));
   };
 

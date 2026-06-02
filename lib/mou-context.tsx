@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
+
+const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 import { useInvestors } from "./investors-context";
 
 export interface MoU {
@@ -37,9 +39,6 @@ interface MouContextType {
 
 const MouContext = createContext<MouContextType | undefined>(undefined);
 
-// Map customId → PocketBase record id
-const pbIdMap = new Map<string, string>();
-
 const PB_BASE = process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
 
 /** Konversi base64 data URL ke File object untuk upload ke PocketBase */
@@ -61,7 +60,7 @@ function pbFileUrl(pbRecordId: string, fieldValue: unknown): string {
   return filename ? `${PB_BASE}/api/files/mous/${pbRecordId}/${filename}` : "";
 }
 
-function recordToMou(r: Record<string, unknown>): MoU {
+function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): MoU {
   const customId   = r.customId as string;
   const pbRecordId = r.id as string;
   pbIdMap.set(customId, pbRecordId);
@@ -103,6 +102,12 @@ function isMouAktif(mou: MoU): boolean {
   return end >= today;
 }
 
+function isCustomIdConflict(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const data = (err as { data?: { data?: { customId?: { code?: string } } } }).data;
+  return data?.data?.customId?.code === "validation_not_unique";
+}
+
 /**
  * Format ID: MOU-YYYYMM-NNN
  */
@@ -129,12 +134,15 @@ async function generateCustomId(date: string): Promise<string> {
 export function MouProvider({ children }: { children: ReactNode }) {
   const [mous, setMous] = useState<MoU[]>([]);
   const { investors, updateInvestor } = useInvestors();
+  const pbIdMapRef = useRef(new Map<string, string>());
+  const map = pbIdMapRef.current;
 
   useEffect(() => {
     pb.collection("mous")
       .getFullList({ sort: "customId" })
-      .then((records) => setMous(records.map(recordToMou)))
+      .then((records) => setMous(records.map((r) => recordToMou(r, map))))
       .catch(console.error);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Initial sync: jalankan sekali setelah mous & investors keduanya terisi ──
@@ -179,11 +187,13 @@ export function MouProvider({ children }: { children: ReactNode }) {
   };
 
   const addMou = async (mou: Omit<MoU, "id">) => {
-    const customId = await generateCustomId(mou.date);
+    let customId = await generateCustomId(mou.date);
 
-    // Step 1: buat record tanpa esign
-    let record = await pb.collection("mous").create({
-      customId,
+    // Step 1: buat record tanpa esign (retry jika customId conflict)
+    const createPayload = (id: string) => pb.collection("mous").create({
+      customId: id,
+      createdBy: currentUserId(),
+      updatedBy: currentUserId(),
       date:               mou.date,
       investorId:         mou.investorId,
       investorName:       mou.investorName,
@@ -198,6 +208,15 @@ export function MouProvider({ children }: { children: ReactNode }) {
       heirPhone:          mou.heirPhone,
       keterangan:         mou.keterangan || "",
       isTerminated:       false,
+    });
+
+    let record = await createPayload(customId).catch(async (err) => {
+      for (let attempt = 1; attempt < 5; attempt++) {
+        if (!isCustomIdConflict(err)) throw err;
+        customId = await generateCustomId(mou.date);
+        try { return await createPayload(customId); } catch (e) { err = e; }
+      }
+      throw err;
     });
 
     // Step 2: upload esign sebagai file jika ada (base64 data URL)
@@ -217,7 +236,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
       record = await pb.collection("mous").update(record.id, fd);
     }
 
-    const newMou    = recordToMou(record);
+    const newMou    = recordToMou(record, map);
     const updatedMous = [...mous, newMou];
     setMous(updatedMous);
 
@@ -226,7 +245,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
   };
 
   const updateMou = async (id: string, updates: Partial<MoU>) => {
-    const pbId = pbIdMap.get(id);
+    const pbId = map.get(id);
     if (!pbId) return;
 
     // Pisahkan field esign dari update reguler
@@ -239,7 +258,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
       ...regularUpdates
     } = updates;
 
-    let record = await pb.collection("mous").update(pbId, regularUpdates);
+    let record = await pb.collection("mous").update(pbId, { ...regularUpdates, updatedBy: currentUserId() });
 
     // Upload esign sebagai file jika ada base64 baru
     const esignPairs: [string, string][] = (
@@ -258,7 +277,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
       record = await pb.collection("mous").update(pbId, fd);
     }
 
-    const updatedMou  = recordToMou(record);
+    const updatedMou  = recordToMou(record, map);
     const updatedMous = mous.map((m) => (m.id === id ? updatedMou : m));
     setMous(updatedMous);
 
@@ -269,11 +288,11 @@ export function MouProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteMou = async (id: string) => {
-    const pbId       = pbIdMap.get(id);
+    const pbId       = map.get(id);
     if (!pbId) return;
     const mouToDelete = mous.find((m) => m.id === id);
     await pb.collection("mous").delete(pbId);
-    pbIdMap.delete(id);
+    map.delete(id);
     const updatedMous = mous.filter((m) => m.id !== id);
     setMous(updatedMous);
 
@@ -284,12 +303,12 @@ export function MouProvider({ children }: { children: ReactNode }) {
   };
 
   const uploadSignedDoc = async (id: string, file: File) => {
-    const pbId = pbIdMap.get(id);
+    const pbId = map.get(id);
     if (!pbId) return;
     const fd = new FormData();
     fd.append("signedDoc", file);
     const record      = await pb.collection("mous").update(pbId, fd);
-    const updatedMou  = recordToMou(record);
+    const updatedMou  = recordToMou(record, map);
     const updatedMous = mous.map((m) => (m.id === id ? updatedMou : m));
     setMous(updatedMous);
 
