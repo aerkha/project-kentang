@@ -49,7 +49,7 @@ function recordToInvestor(r: Record<string, unknown>): Investor {
     heirName:         r.heirName         as string,
     heirBankName:     r.heirBankName     as string,
     heirAccountNumber: r.heirAccountNumber as string,
-    isActive:         r.isActive !== false,
+    isActive:         r.isActive === true,
   };
 }
 
@@ -92,7 +92,7 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
       heirName:         inv.heirName,
       heirBankName:     inv.heirBankName,
       heirAccountNumber: inv.heirAccountNumber,
-      isActive:         inv.isActive !== false,
+      isActive:         inv.isActive === true,
     });
     setInvestors((prev) => [...prev, recordToInvestor(record)]);
   };
