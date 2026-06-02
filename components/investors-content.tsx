@@ -28,7 +28,6 @@ import {
 } from "@/components/ui/select";
 import {
   Plus, Pencil, Trash2, Search, Users, Briefcase, Building2,
-  PowerOff, RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 
@@ -798,17 +797,6 @@ export function InvestorsContent() {
                   </div>
                   {isAdmin && (
                   <div className="flex gap-1 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      title={isActive ? "Nonaktifkan" : "Aktifkan"}
-                      onClick={() => updateInvestor(investor.id, { isActive: !isActive })}
-                    >
-                      {isActive
-                        ? <PowerOff className="h-3.5 w-3.5 text-orange-500" />
-                        : <RotateCcw className="h-3.5 w-3.5 text-green-600" />}
-                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"

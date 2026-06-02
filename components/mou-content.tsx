@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useAuth } from "@/lib/auth-context";
@@ -10,6 +10,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -454,7 +460,7 @@ type Filter = "semua" | "pending" | "aktif" | "expired" | "nonaktif";
 
 export function MouContent() {
   const { mous, addMou, updateMou, deleteMou, uploadSignedDoc } = useMou();
-  const { investors } = useInvestors();
+  const { investors, updateInvestor } = useInvestors();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
@@ -472,6 +478,36 @@ export function MouContent() {
   const [uploadDocFile, setUploadDocFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [overwriteConfirmed, setOverwriteConfirmed] = useState(false);
+
+  // ── Sinkronisasi status investor berdasarkan status PKS ──
+  // Gunakan ref agar effect tidak re-run saat investors berubah (hindari loop)
+  const investorsRef = useRef(investors);
+  useEffect(() => { investorsRef.current = investors; }, [investors]);
+
+  useEffect(() => {
+    if (!mous.length) return;
+
+    // Hitung status aktif yang diharapkan untuk setiap investor
+    // Investor aktif jika minimal 1 PKS-nya berstatus "aktif"
+    const desired = new Map<string, boolean>();
+    for (const mou of mous) {
+      const s = getMouStatus(mou);
+      if (s === "aktif") {
+        desired.set(mou.investorId, true);
+      } else if (!desired.has(mou.investorId)) {
+        desired.set(mou.investorId, false);
+      }
+    }
+
+    // Update investor yang statusnya berbeda dari yang diharapkan
+    desired.forEach((shouldBeActive, investorId) => {
+      const investor = investorsRef.current.find((i) => i.id === investorId);
+      if (investor && investor.isActive !== shouldBeActive) {
+        updateInvestor(investorId, { isActive: shouldBeActive });
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mous]);
 
   // ── Filter ──
   const filtered = mous.filter((m) => {
@@ -800,20 +836,36 @@ export function MouContent() {
                           {formatDate(endDate(mou))}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <Badge
-                            variant="secondary"
-                            className={
-                              status === "aktif"
-                                ? "bg-green-100 text-green-800 hover:bg-green-100"
-                                : status === "pending"
-                                ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-100"
-                                : status === "nonaktif"
-                                ? "bg-red-100 text-red-700 hover:bg-red-100"
-                                : "bg-muted text-muted-foreground"
-                            }
-                          >
-                            {status}
-                          </Badge>
+                          {status === "pending" ? (
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="secondary"
+                                    className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100 cursor-help underline decoration-dotted underline-offset-2"
+                                  >
+                                    pending
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-[200px] text-center text-xs">
+                                  Aktifkan dengan mengunggah PKS final yang telah ditandatangani &amp; dibubuhi materai
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : (
+                            <Badge
+                              variant="secondary"
+                              className={
+                                status === "aktif"
+                                  ? "bg-green-100 text-green-800 hover:bg-green-100"
+                                  : status === "nonaktif"
+                                  ? "bg-red-100 text-red-700 hover:bg-red-100"
+                                  : "bg-muted text-muted-foreground"
+                              }
+                            >
+                              {status}
+                            </Badge>
+                          )}
                         </td>
                         <td className="py-3 px-4">
                           <div className="flex items-center justify-center gap-1">
