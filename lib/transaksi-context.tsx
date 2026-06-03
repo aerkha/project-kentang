@@ -150,32 +150,44 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
     } catch { return null; }
   };
 
-  // Load transaksis + investor entries secara paralel, lalu join di memory
+  // Load transaksis + investor entries secara paralel, lalu join di memory.
+  // Gunakan allSettled agar transaksis tetap ter-load meski transaksi_investors
+  // belum dibuat di PocketBase (koleksi baru, mungkin belum ada).
   useEffect(() => {
-    Promise.all([
+    Promise.allSettled([
       pb.collection("transaksis").getFullList({ sort: "customId" }),
       pb.collection("transaksi_investors").getFullList({ sort: "created" }),
-    ])
-      .then(([trxRecords, invRecords]) => {
-        // Kelompokkan investor entries by transaksi PB record ID
-        const invMap = new Map<string, TransaksiInvestorEntry[]>();
-        for (const r of invRecords) {
+    ]).then(([trxResult, invResult]) => {
+      if (trxResult.status === "rejected") {
+        console.error("[transaksi] gagal load transaksis:", trxResult.reason);
+        return;
+      }
+
+      const trxRecords = trxResult.value;
+
+      // Kelompokkan investor entries by transaksi PB record ID
+      const invMap = new Map<string, TransaksiInvestorEntry[]>();
+      if (invResult.status === "fulfilled") {
+        for (const r of invResult.value) {
           const tid = r.transaksiId as string;
           if (!invMap.has(tid)) invMap.set(tid, []);
           invMap.get(tid)!.push(recordToInvestorEntry(r as Record<string, unknown>));
         }
+      } else {
+        // transaksi_investors belum ada — transaksis tetap ditampilkan dengan investorEntries kosong
+        console.warn("[transaksi] transaksi_investors belum tersedia:", invResult.reason);
+      }
 
-        setTransaksis(
-          trxRecords.map((r) =>
-            recordToTransaksi(
-              r as Record<string, unknown>,
-              map,
-              invMap.get(r.id) ?? [],
-            ),
+      setTransaksis(
+        trxRecords.map((r) =>
+          recordToTransaksi(
+            r as Record<string, unknown>,
+            map,
+            invMap.get(r.id) ?? [],
           ),
-        );
-      })
-      .catch(console.error);
+        ),
+      );
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
