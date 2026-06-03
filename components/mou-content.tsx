@@ -65,6 +65,9 @@ interface MouFormData {
   heirName: string;
   heirRelationship: string;
   heirPhone: string;
+  bagiHasilPP1: string;
+  bagiHasilPP2: string;
+  bagiHasilPK:  string;
   esignPihakPertama1: string;
   esignPihakPertama2: string;
   esignPihakKedua: string;
@@ -84,6 +87,9 @@ const initialForm: MouFormData = {
   heirName: "",
   heirRelationship: "",
   heirPhone: "",
+  bagiHasilPP1: "50",
+  bagiHasilPP2: "15",
+  bagiHasilPK:  "35",
   esignPihakPertama1: "",
   esignPihakPertama2: "",
   esignPihakKedua: "",
@@ -383,6 +389,61 @@ function MouFormFields({
           </div>
         </div>
 
+        {/* ── Skema Bagi Hasil ── */}
+        <div className="space-y-3">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
+            Skema Bagi Hasil
+          </p>
+          {(() => {
+            const pp1   = parseFloat(formData.bagiHasilPP1) || 0;
+            const pp2   = parseFloat(formData.bagiHasilPP2) || 0;
+            const pk    = parseFloat(formData.bagiHasilPK)  || 0;
+            const total = pp1 + pp2 + pk;
+            const valid = total === 100;
+            return (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-3">
+                  {(
+                    [
+                      { key: "bagiHasilPP1" as const, label: "Pihak Pertama I",  placeholder: "50" },
+                      { key: "bagiHasilPP2" as const, label: "Pihak Pertama II", placeholder: "15" },
+                      { key: "bagiHasilPK"  as const, label: "Pihak Kedua",      placeholder: "35" },
+                    ]
+                  ).map(({ key, label, placeholder }) => (
+                    <div key={key} className="space-y-1.5">
+                      <Label htmlFor={`mou-${key}`} className="text-xs">{label}</Label>
+                      <div className="relative">
+                        <Input
+                          id={`mou-${key}`}
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="1"
+                          value={formData[key]}
+                          onChange={(e) => set(key, e.target.value)}
+                          placeholder={placeholder}
+                          className="pr-7"
+                        />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className={`flex items-center justify-between rounded-md px-3 py-2 text-sm ${
+                  valid
+                    ? "bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800"
+                    : "bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800"
+                }`}>
+                  <span className="text-muted-foreground text-xs">Total</span>
+                  <span className={`font-bold tabular-nums ${valid ? "text-green-700 dark:text-green-400" : "text-orange-600 dark:text-orange-400"}`}>
+                    {total}% {valid ? "✓" : `— kurang ${100 - total > 0 ? 100 - total : ""}${100 - total < 0 ? "lebih " + (total - 100) : ""}%`}
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+
         {/* ── E-Sign Tanda Tangan ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
@@ -557,9 +618,27 @@ export function MouContent() {
   const [isSaving, setIsSaving] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
 
+  // ── Validasi bagi hasil ──
+  const validateBagiHasil = () => {
+    const total =
+      (parseFloat(form.bagiHasilPP1) || 0) +
+      (parseFloat(form.bagiHasilPP2) || 0) +
+      (parseFloat(form.bagiHasilPK)  || 0);
+    if (total !== 100) {
+      setErrorInfo({
+        title: "Skema bagi hasil tidak valid",
+        fields: [{ field: "bagiHasil", code: "invalid_total", message: `Total persentase harus 100%. Saat ini: ${total}%.` }],
+        raw: `Bagi hasil total: ${total}%`,
+      });
+      return false;
+    }
+    return true;
+  };
+
   // ── Handlers ──
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validateBagiHasil()) return;
     setIsSaving(true);
     try {
       await addMou({
@@ -576,6 +655,9 @@ export function MouContent() {
         heirRelationship: form.heirRelationship,
         heirPhone: form.heirPhone,
         keterangan: form.keterangan,
+        bagiHasilPP1: parseFloat(form.bagiHasilPP1) || 50,
+        bagiHasilPP2: parseFloat(form.bagiHasilPP2) || 15,
+        bagiHasilPK:  parseFloat(form.bagiHasilPK)  || 35,
         esignPihakPertama1: form.esignPihakPertama1,
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
@@ -593,6 +675,7 @@ export function MouContent() {
   const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selected) return;
+    if (!validateBagiHasil()) return;
     setIsSaving(true);
     try {
       await updateMou(selected.id, {
@@ -608,6 +691,9 @@ export function MouContent() {
         heirRelationship: form.heirRelationship,
         heirPhone: form.heirPhone,
         keterangan: form.keterangan,
+        bagiHasilPP1: parseFloat(form.bagiHasilPP1) || 50,
+        bagiHasilPP2: parseFloat(form.bagiHasilPP2) || 15,
+        bagiHasilPK:  parseFloat(form.bagiHasilPK)  || 35,
         esignPihakPertama1: form.esignPihakPertama1,
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
@@ -639,6 +725,9 @@ export function MouContent() {
       heirName: mou.heirName,
       heirRelationship: mou.heirRelationship,
       heirPhone: mou.heirPhone,
+      bagiHasilPP1: String(mou.bagiHasilPP1 ?? 50),
+      bagiHasilPP2: String(mou.bagiHasilPP2 ?? 15),
+      bagiHasilPK:  String(mou.bagiHasilPK  ?? 35),
       esignPihakPertama1: mou.esignPihakPertama1 ?? "",
       esignPihakPertama2: mou.esignPihakPertama2 ?? "",
       esignPihakKedua: mou.esignPihakKedua ?? "",

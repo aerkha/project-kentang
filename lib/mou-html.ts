@@ -178,9 +178,9 @@ export function generateMouHtml(mou: MoU): string {
   <div class="section">
     <div class="ptitle">Pasal 4<br>BAGI HASIL</div>
     <p>Bagi hasil usaha diterima oleh para pihak dalam bentuk uang tunai dari hasil usaha tersebut di atas dan para pihak sepakat bahwa besaran bagi hasil sebagai berikut:</p>
-    <p class="indent">A.&nbsp; PIHAK PERTAMA I &nbsp;&nbsp;: 50 %</p>
-    <p class="indent">B.&nbsp; PIHAK PERTAMA II &nbsp;: 15 %</p>
-    <p class="indent">C.&nbsp; PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: 35 %</p>
+    <p class="indent">A.&nbsp; PIHAK PERTAMA I &nbsp;&nbsp;: ${mou.bagiHasilPP1 ?? 50} %</p>
+    <p class="indent">B.&nbsp; PIHAK PERTAMA II &nbsp;: ${mou.bagiHasilPP2 ?? 15} %</p>
+    <p class="indent">C.&nbsp; PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: ${mou.bagiHasilPK  ?? 35} %</p>
     <p>Investasi ini memiliki siklus bagi hasil empat (4) minggu sesuai ketersediaan proyek dan berlaku selama periode perjanjian kerjasama. Dana investasi digunakan untuk membiayai PO <em>All Customer</em> setiap 30 (tiga puluh) hari. Bagi hasil dibayarkan paling lambat setiap 30 (tiga puluh) hari atau sesuai tanggal jatuh tempo ke rekening <strong>Bank SMBC (Jenius) 90120410660 atas nama Parafitra Fidiasari</strong>. Jika PIHAK KEDUA hendak mengubah rekening untuk transfer bagi hasil, harap memberitahukan secara tertulis melalui <em>WhatsApp</em>.</p>
   </div>
 

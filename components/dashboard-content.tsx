@@ -60,14 +60,22 @@ function formatDate(s: string) {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+import type { MoU } from "@/lib/mou-context";
+
 function calcMouDistribution(
-  mouInvestorId: string,
-  mouDate: string,
-  contractPeriod: number,
+  mou: MoU,
   transaksis: Transaksi[],
 ) {
-  const mouStart = new Date(mouDate).getTime();
-  const mouEnd   = mouStart + contractPeriod * 86_400_000;
+  const mouStart = new Date(mou.date).getTime();
+  const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
+
+  // Ambil skema bagi hasil dari PKS (fallback ke default jika belum ada)
+  const pp1Pct = (mou.bagiHasilPP1 ?? 50) / 100;  // Pihak Pertama I  (Owner)
+  const pp2Pct = (mou.bagiHasilPP2 ?? 15) / 100;  // Pihak Pertama II (MinBun)
+  const pkPct  = (mou.bagiHasilPK  ?? 35) / 100;  // Pihak Kedua      (Investor)
+
+  // Skala sub-komponen PP2 relatif terhadap default 15%
+  const pp2Scale = pp2Pct / 0.15;
 
   let totalProfit = 0;
   let owner = 0, hasanah = 0, investor = 0, trader = 0, minbun = 0, brokerI = 0, brokerII = 0;
@@ -76,7 +84,7 @@ function calcMouDistribution(
     const tDate = new Date(t.date).getTime();
     if (tDate < mouStart || tDate > mouEnd) return;
 
-    const entry = t.investorEntries.find((e) => e.investorId === mouInvestorId);
+    const entry = t.investorEntries.find((e) => e.investorId === mou.investorId);
     if (!entry) return;
 
     const calc = calcTransaksi(t);
@@ -90,19 +98,16 @@ function calcMouDistribution(
     const hasBroker = !!t.brokerName;
     const hasBII    = !!t.hasBrokerII;
 
-    // Owner = pemilik lahan = 50% dari profit investor ini
-    owner    += profit * 0.50;
+    owner    += profit * pp1Pct;
+    investor += profit * pkPct;
 
-    // Hasanah = gabungan semua sub-komponen di bawah (total = 50%)
-    investor += profit * 0.35;
-    trader   += profit * (hasBII ? 0.05 : 0.10);
-    minbun   += profit * (hasBroker ? 0 : 0.05);
-    brokerI  += profit * (hasBroker ? 0.05 : 0);
-    brokerII += profit * (hasBII    ? 0.05 : 0);
+    // Sub-komponen PP2 (MinBun gross profit) — diskalakan sesuai pp2Pct
+    trader   += profit * pp2Scale * (hasBII ? 0.05 : 0.10);
+    minbun   += profit * pp2Scale * (hasBroker ? 0 : 0.05);
+    brokerI  += profit * pp2Scale * (hasBroker ? 0.05 : 0);
+    brokerII += profit * pp2Scale * (hasBII    ? 0.05 : 0);
   });
 
-  // Hasanah = jumlah seluruh sub-komponen (investor + trader + minbun + broker)
-  // Selalu = 50% dari totalProfit
   hasanah = investor + trader + minbun + brokerI + brokerII;
 
   return { totalProfit, owner, hasanah, investor, trader, minbun, brokerI, brokerII };
@@ -244,6 +249,35 @@ export function DashboardContent() {
     [mous, filterYear, filterMonth],
   );
 
+  // ── Rekap filter state ──
+  const [showFilter, setShowFilter] = useState(false);
+  const [filterNama, setFilterNama] = useState("");
+  const [filterPks,  setFilterPks]  = useState("");
+
+  // ── Rekap data (per MoU, difilter periode) — dideklarasikan lebih awal
+  // karena periodMetrics bergantung padanya
+  const rekapData = useMemo(() => {
+    return filteredMousByPeriod
+      .slice()
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((mou, idx) => {
+        const dist       = calcMouDistribution(mou, transaksis);
+        const modal      = mou.investmentAmount;
+        const usiaHari   = Math.max(0, Math.floor((Date.now() - new Date(mou.date).getTime()) / 86_400_000));
+        const usiaBulan  = Math.floor(usiaHari / 30);
+        const endDateStr = addDays(mou.date, mou.contractPeriod);
+        const roi = (v: number) => (modal > 0 ? (v / modal) * 100 : 0);
+        return {
+          no: idx + 1, mou, endDateStr, usiaBulan, ...dist,
+          roiTotal:          roi(dist.totalProfit),
+          roiTraderInvestor: roi(dist.trader + dist.investor),
+          roiInvestor:       roi(dist.investor),
+          roiTrader:         roi(dist.trader),
+          roiMinbun:         roi(dist.minbun),
+        };
+      });
+  }, [filteredMousByPeriod, transaksis]);
+
   // ── Period summary metrics ──
   const periodMetrics = useMemo(() => {
     let income = 0, profit = 0;
@@ -252,8 +286,9 @@ export function DashboardContent() {
       income += c.income;
       profit += c.profit;
     });
-    const bagHasil          = profit > 0 ? profit * 0.35 : 0;
-    const grossProfitMinbun = profit > 0 ? profit * 0.15 : profit;
+    // Bagi hasil dihitung per-PKS dari rekapData agar mengikuti skema masing-masing PKS
+    const bagHasil          = rekapData.reduce((s, r) => s + r.investor, 0);
+    const grossProfitMinbun = rekapData.reduce((s, r) => s + r.trader + r.minbun + r.brokerI + r.brokerII, 0);
     const periodLabel = filterYear
       ? filterMonth
         ? `${MONTHS[parseInt(filterMonth) - 1]} ${filterYear}`
@@ -268,7 +303,7 @@ export function DashboardContent() {
       periodLabel,
       isFiltered: !!(filterYear || filterMonth),
     };
-  }, [filteredTransaksis, filteredMousByPeriod, filterYear, filterMonth]);
+  }, [filteredTransaksis, filteredMousByPeriod, rekapData, filterYear, filterMonth]);
 
   // ── Chart: investasi masuk per bulan (dari MoU, terfilter) ──
   const monthlyMouData = useMemo(() => {
@@ -287,7 +322,6 @@ export function DashboardContent() {
   }, [filteredMousByPeriod]);
 
   // ── Chart: PnL per bulan (dari Transaksi, terfilter) ──
-  // cost = HPP (income - profit) → ditumpuk dengan profit menjadi stacked column
   const monthlyPnlData = useMemo(() => {
     const map = new Map<string, { month: string; income: number; profit: number; cost: number }>();
     filteredTransaksis.forEach((t) => {
@@ -298,42 +332,12 @@ export function DashboardContent() {
       const e = map.get(ym)!;
       e.income += c.income;
       e.profit += c.profit;
-      e.cost   += Math.max(0, c.income - c.profit); // HPP / biaya pokok
+      e.cost   += Math.max(0, c.income - c.profit);
     });
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([, v]) => v);
   }, [filteredTransaksis]);
-
-  // ── Rekap filter state ──
-  const [showFilter, setShowFilter] = useState(false);
-  const [filterNama, setFilterNama] = useState("");
-  const [filterPks,  setFilterPks]  = useState("");
-
-  // ── Rekap data (per MoU, difilter periode) ──
-  // filteredMousByPeriod: menentukan MoU mana yang ditampilkan
-  // transaksis (semua): distribusi dihitung dari semua transaksi dalam periode kontrak MoU
-  const rekapData = useMemo(() => {
-    return filteredMousByPeriod
-      .slice()
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map((mou, idx) => {
-        const dist       = calcMouDistribution(mou.investorId, mou.date, mou.contractPeriod, transaksis);
-        const modal      = mou.investmentAmount;
-        const usiaHari   = Math.max(0, Math.floor((Date.now() - new Date(mou.date).getTime()) / 86_400_000));
-        const usiaBulan  = Math.floor(usiaHari / 30);
-        const endDateStr = addDays(mou.date, mou.contractPeriod);
-        const roi = (v: number) => (modal > 0 ? (v / modal) * 100 : 0);
-        return {
-          no: idx + 1, mou, endDateStr, usiaBulan, ...dist,
-          roiTotal:          roi(dist.totalProfit),
-          roiTraderInvestor: roi(dist.trader + dist.investor),
-          roiInvestor:       roi(dist.investor),
-          roiTrader:         roi(dist.trader),
-          roiMinbun:         roi(dist.minbun),
-        };
-      });
-  }, [filteredMousByPeriod, transaksis]);
 
   const filteredRekap = useMemo(() => {
     return rekapData.filter((row) => {
@@ -873,10 +877,22 @@ export function DashboardContent() {
                   <th className="text-left py-3 px-4 font-medium text-muted-foreground">Pekerjaan</th>
                   <th className="text-left py-3 px-4 font-medium text-muted-foreground">No HP</th>
                   <th className="text-right py-3 px-4 font-medium text-muted-foreground">Nilai Investasi</th>
+                  <th className="text-center py-3 px-4 font-medium text-blue-600 dark:text-blue-400">Bagi Hasil (PK)</th>
+                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">No PKS Aktif</th>
                 </tr>
               </thead>
               <tbody>
-                {investors.map((investor) => (
+                {investors.map((investor) => {
+                  // Cari PKS aktif investor ini (non-terminated, bukan expired, sudah ada signed doc)
+                  const activeMou = mous
+                    .filter((m) =>
+                      m.investorId === investor.id &&
+                      !m.isTerminated &&
+                      m.hasSignedDoc,
+                    )
+                    .sort((a, b) => b.date.localeCompare(a.date))[0];
+
+                  return (
                   <tr
                     key={investor.id}
                     className="border-b border-border/50 hover:bg-muted/50 transition-colors"
@@ -889,8 +905,21 @@ export function DashboardContent() {
                     <td className="py-3 px-4 text-right font-medium">
                       {formatCurrency(investor.investmentAmount)}
                     </td>
+                    <td className="py-3 px-4 text-center">
+                      {activeMou ? (
+                        <span className="font-bold text-blue-600 dark:text-blue-400">
+                          {activeMou.bagiHasilPK ?? 35}%
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 font-mono text-xs text-muted-foreground">
+                      {activeMou ? activeMou.id : <span className="text-muted-foreground/50">—</span>}
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -976,13 +1005,13 @@ export function DashboardContent() {
                     <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">No PKS</th>
                     <th className="text-center py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Keterangan</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Total Profit</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Owner (50%)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">HASANAH (50%)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Investor (35%)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Trader (10%)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">MinBun (5%)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Broker I (5%)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Broker II (5%)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Owner (PP I)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">HASANAH</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">Investor (PK)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Trader</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-green-700 dark:text-green-400 whitespace-nowrap">MinBun (PP II)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Broker I</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Broker II</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI Total</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI Trader+Inv</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI Investor</th>
@@ -1004,11 +1033,11 @@ export function DashboardContent() {
                       <td className={`py-2.5 px-2.5 text-right font-bold whitespace-nowrap ${row.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {formatShortFloat(row.totalProfit)}
                       </td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.owner)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap" title={`PP I: ${row.mou.bagiHasilPP1 ?? 50}%`}>{formatShortFloat(row.owner)}</td>
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.hasanah)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap text-blue-600 font-medium">{formatShortFloat(row.investor)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap text-blue-600 font-medium" title={`PK: ${row.mou.bagiHasilPK ?? 35}%`}>{formatShortFloat(row.investor)}</td>
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.trader)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.minbun)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap text-green-700 dark:text-green-400 font-medium" title={`PP II: ${row.mou.bagiHasilPP2 ?? 15}%`}>{formatShortFloat(row.minbun)}</td>
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.brokerI)}</td>
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.brokerII)}</td>
                       <td className={`py-2.5 px-2.5 text-right whitespace-nowrap font-semibold ${row.roiTotal >= 0 ? "text-green-600" : "text-red-600"}`}>

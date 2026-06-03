@@ -21,6 +21,9 @@ export interface MoU {
   heirRelationship: string;
   heirPhone: string;
   keterangan?: string;
+  bagiHasilPP1: number;   // % Pihak Pertama I  (default 50)
+  bagiHasilPP2: number;   // % Pihak Pertama II (default 15)
+  bagiHasilPK:  number;   // % Pihak Kedua      (default 35)
   isTerminated?: boolean;
   esignPihakPertama1?: string;
   esignPihakPertama2?: string;
@@ -82,6 +85,9 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
     heirRelationship:   r.heirRelationship   as string,
     heirPhone:          r.heirPhone          as string,
     keterangan:         (r.keterangan        as string) || "",
+    bagiHasilPP1:       (r.bagiHasilPP1      as number) ?? 50,
+    bagiHasilPP2:       (r.bagiHasilPP2      as number) ?? 15,
+    bagiHasilPK:        (r.bagiHasilPK       as number) ?? 35,
     isTerminated:       (r.isTerminated      as boolean) || false,
     esignPihakPertama1: pbFileUrl(pbRecordId, r.esignPihakPertama1),
     esignPihakPertama2: pbFileUrl(pbRecordId, r.esignPihakPertama2),
@@ -227,6 +233,9 @@ export function MouProvider({ children }: { children: ReactNode }) {
       heirRelationship:   mou.heirRelationship,
       heirPhone:          mou.heirPhone,
       keterangan:         mou.keterangan || "",
+      bagiHasilPP1:       mou.bagiHasilPP1 ?? 50,
+      bagiHasilPP2:       mou.bagiHasilPP2 ?? 15,
+      bagiHasilPK:        mou.bagiHasilPK  ?? 35,
       isTerminated:       false,
     });
 
