@@ -22,6 +22,10 @@ export interface Transaksi {
   hargaJual: number;
   brokerName?: string;
   hasBrokerII?: boolean;
+  pctTrader?: number;
+  pctMinBun?: number;
+  pctBrokerI?: number;
+  pctBrokerII?: number;
 }
 
 /** Hitung semua nilai turunan dari sebuah Transaksi */
@@ -58,6 +62,10 @@ function recordToTransaksi(r: Record<string, unknown>, pbIdMap: Map<string, stri
     hargaJual:       r.hargaJual       as number,
     brokerName:      (r.brokerName     as string) || undefined,
     hasBrokerII:     (r.hasBrokerII    as boolean) || undefined,
+    pctTrader:       (r.pctTrader      as number)  ?? undefined,
+    pctMinBun:       (r.pctMinBun      as number)  ?? undefined,
+    pctBrokerI:      (r.pctBrokerI     as number)  ?? undefined,
+    pctBrokerII:     (r.pctBrokerII    as number)  ?? undefined,
   };
 }
 
@@ -123,6 +131,10 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
           hargaJual:       t.hargaJual,
           brokerName:      t.brokerName  || "",
           hasBrokerII:     t.hasBrokerII || false,
+          pctTrader:       t.pctTrader   ?? null,
+          pctMinBun:       t.pctMinBun   ?? null,
+          pctBrokerI:      t.pctBrokerI  ?? null,
+          pctBrokerII:     t.pctBrokerII ?? null,
         });
         setTransaksis((prev) => [...prev, recordToTransaksi(record, map)]);
         return;

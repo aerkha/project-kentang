@@ -56,9 +56,20 @@ interface TrxFormData {
   hargaJual: string;
   brokerName: string;    // "" = tidak ada broker
   hasBrokerII: string;   // "ya" | "tidak"
+  pctTrader: string;
+  pctMinBun: string;
+  pctBrokerI: string;
+  pctBrokerII: string;
 }
 
 const emptyEntry = (): InvestorEntryForm => ({ investorId: "", nilaiInvestasi: "" });
+
+// Default pct based on broker condition
+function defaultPct(brokerName: string, hasBrokerII: string) {
+  if (!brokerName)             return { pctTrader: "10", pctMinBun: "5",  pctBrokerI: "0", pctBrokerII: "0" };
+  if (hasBrokerII === "ya")    return { pctTrader: "5",  pctMinBun: "0",  pctBrokerI: "5", pctBrokerII: "5" };
+  return                              { pctTrader: "10", pctMinBun: "0",  pctBrokerI: "5", pctBrokerII: "0" };
+}
 
 const initialForm = (): TrxFormData => ({
   date: "",
@@ -70,6 +81,7 @@ const initialForm = (): TrxFormData => ({
   hargaJual: "",
   brokerName: "",
   hasBrokerII: "tidak",
+  ...defaultPct("", "tidak"),
 });
 
 // ─────────────────────────────────────────────
@@ -370,7 +382,8 @@ function TrxFormFields({
                 value={formData.brokerName || "__none"}
                 onValueChange={(v) => {
                   const val = v === "__none" ? "" : v;
-                  setFormData({ ...formData, brokerName: val, hasBrokerII: val ? formData.hasBrokerII : "tidak" });
+                  const hasBrokerIIVal = val ? formData.hasBrokerII : "tidak";
+                  setFormData({ ...formData, brokerName: val, hasBrokerII: hasBrokerIIVal, ...defaultPct(val, hasBrokerIIVal) });
                 }}
               >
                 <SelectTrigger><SelectValue placeholder="Tidak ada broker" /></SelectTrigger>
@@ -386,7 +399,7 @@ function TrxFormFields({
               <Label className="text-xs">Broker II</Label>
               <Select
                 value={formData.hasBrokerII}
-                onValueChange={(v) => set("hasBrokerII", v)}
+                onValueChange={(v) => setFormData({ ...formData, hasBrokerII: v, ...defaultPct(formData.brokerName, v) })}
                 disabled={!hasBroker}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -397,13 +410,51 @@ function TrxFormFields({
               </Select>
             </div>
           </div>
-          {hasBroker && (
-            <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-md px-3 py-2">
-              {hasBrokerII
-                ? "2 broker aktif — MinBun: 0%, Trader: 5%, Broker I: 5%, Broker II: 5%"
-                : "1 broker aktif — MinBun: 0%, Trader: 10%, Broker I: 5%"}
+
+          {/* Persentase bagi hasil */}
+          <div className="space-y-2">
+            <p className="text-[11px] text-muted-foreground">Persentase Bagi Hasil (%)</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="pct-trader" className="text-xs">Trader (%)</Label>
+                <Input
+                  id="pct-trader" type="number" min="0" max="100" step="0.5"
+                  value={formData.pctTrader}
+                  onChange={(e) => set("pctTrader", e.target.value)}
+                  placeholder="10"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pct-minbun" className="text-xs">MinBun (%)</Label>
+                <Input
+                  id="pct-minbun" type="number" min="0" max="100" step="0.5"
+                  value={formData.pctMinBun}
+                  onChange={(e) => set("pctMinBun", e.target.value)}
+                  placeholder="5"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pct-broker1" className="text-xs">Broker I (%)</Label>
+                <Input
+                  id="pct-broker1" type="number" min="0" max="100" step="0.5"
+                  value={formData.pctBrokerI}
+                  onChange={(e) => set("pctBrokerI", e.target.value)}
+                  placeholder="0"
+                  disabled={!hasBroker}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pct-broker2" className="text-xs">Broker II (%)</Label>
+                <Input
+                  id="pct-broker2" type="number" min="0" max="100" step="0.5"
+                  value={formData.pctBrokerII}
+                  onChange={(e) => set("pctBrokerII", e.target.value)}
+                  placeholder="0"
+                  disabled={!hasBrokerII}
+                />
+              </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
 
@@ -504,6 +555,10 @@ export function TransaksiContent() {
     hargaJual:   parseFloat(f.hargaJual) || 0,
     brokerName:  f.brokerName || undefined,
     hasBrokerII: f.brokerName && f.hasBrokerII === "ya" ? true : undefined,
+    pctTrader:   parseFloat(f.pctTrader)  || 0,
+    pctMinBun:   parseFloat(f.pctMinBun)  || 0,
+    pctBrokerI:  parseFloat(f.pctBrokerI) || 0,
+    pctBrokerII: parseFloat(f.pctBrokerII) || 0,
   });
 
   // ── Submit handlers ──
@@ -540,6 +595,10 @@ export function TransaksiContent() {
       hargaJual:   t.hargaJual.toString(),
       brokerName:  t.brokerName ?? "",
       hasBrokerII: t.hasBrokerII ? "ya" : "tidak",
+      pctTrader:   (t.pctTrader  ?? 10).toString(),
+      pctMinBun:   (t.pctMinBun  ?? (t.brokerName ? 0 : 5)).toString(),
+      pctBrokerI:  (t.pctBrokerI ?? (t.brokerName ? 5 : 0)).toString(),
+      pctBrokerII: (t.pctBrokerII ?? (t.hasBrokerII ? 5 : 0)).toString(),
     });
     setIsEditOpen(true);
   };
