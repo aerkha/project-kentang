@@ -221,9 +221,20 @@ export function PengeluaranContent() {
   const [isConfirming, setIsConfirming] = useState(false);
   const [errorInfo,    setErrorInfo]    = useState<PbErrorInfo | null>(null);
 
+  // ── Validasi: salah satu debet/kredit harus diisi > 0 ──
+  const validateForm = (f: FormData): string | null => {
+    const d = parseFloat(f.debet)  || 0;
+    const k = parseFloat(f.kredit) || 0;
+    if (d <= 0 && k <= 0) return "Isi minimal salah satu — Debet (pemasukan) atau Kredit (pengeluaran).";
+    if (d > 0 && k > 0)   return "Isi hanya salah satu — Debet atau Kredit, tidak keduanya.";
+    return null;
+  };
+
   // ── Handler tambah ──
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    const err = validateForm(form);
+    if (err) { toast.error(err); return; }
     setIsSaving(true);
     try {
       await addPengeluaran({
@@ -259,6 +270,8 @@ export function PengeluaranContent() {
   const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selected) return;
+    const err = validateForm(form);
+    if (err) { toast.error(err); return; }
     setIsSaving(true);
     try {
       await updatePengeluaran(selected.id, {
