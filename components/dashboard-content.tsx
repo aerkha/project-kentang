@@ -624,7 +624,7 @@ export function DashboardContent() {
               <CardHeader>
                 <CardTitle>PnL per Bulan</CardTitle>
                 <CardDescription>
-                  HPP dan laba bersih ditumpuk per bulan
+                  Total income (bagian bawah) vs profit (bagian atas)
                   {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
                 </CardDescription>
               </CardHeader>
@@ -645,8 +645,8 @@ export function DashboardContent() {
                       <Tooltip
                         formatter={(value, name) => {
                           const labels: Record<string, string> = {
-                            cost:   "HPP / Biaya",
-                            profit: "Laba Bersih",
+                            cost:   "Total Income",
+                            profit: "Profit",
                           };
                           return [formatCurrency(value as number), labels[name as string] ?? name];
                         }}
@@ -657,8 +657,8 @@ export function DashboardContent() {
                       <Legend
                         formatter={(value) => {
                           const labels: Record<string, string> = {
-                            cost:   "HPP / Biaya",
-                            profit: "Laba Bersih",
+                            cost:   "Total Income",
+                            profit: "Profit",
                           };
                           return labels[value] ?? value;
                         }}

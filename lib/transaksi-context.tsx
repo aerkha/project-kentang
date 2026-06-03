@@ -48,26 +48,42 @@ interface TransaksiContextType {
 
 const TransaksiContext = createContext<TransaksiContextType | undefined>(undefined);
 
-function recordToTransaksi(r: Record<string, unknown>, pbIdMap: Map<string, string>): Transaksi {
+// ── Record mappers ──────────────────────────────────────────────────────────
+
+function recordToTransaksi(
+  r: Record<string, unknown>,
+  pbIdMap: Map<string, string>,
+  investorEntries: TransaksiInvestorEntry[] = [],
+): Transaksi {
   const customId = r.customId as string;
   pbIdMap.set(customId, r.id as string);
   return {
     id:              customId,
-    date:            r.date            as string,
-    description:     (r.description   as string) || "",
-    hpp:             r.hpp             as number,
-    kebutuhanModal:  r.kebutuhanModal  as number,
-    investorEntries: (r.investorEntries as TransaksiInvestorEntry[]) || [],
-    ongkirPerKg:     r.ongkirPerKg     as number,
-    hargaJual:       r.hargaJual       as number,
-    brokerName:      (r.brokerName     as string) || undefined,
-    hasBrokerII:     (r.hasBrokerII    as boolean) || undefined,
-    pctTrader:       (r.pctTrader      as number)  ?? undefined,
-    pctMinBun:       (r.pctMinBun      as number)  ?? undefined,
-    pctBrokerI:      (r.pctBrokerI     as number)  ?? undefined,
-    pctBrokerII:     (r.pctBrokerII    as number)  ?? undefined,
+    date:            r.date           as string,
+    description:     (r.description  as string) || "",
+    hpp:             r.hpp            as number,
+    kebutuhanModal:  r.kebutuhanModal as number,
+    investorEntries,
+    ongkirPerKg:     r.ongkirPerKg    as number,
+    hargaJual:       r.hargaJual      as number,
+    brokerName:      (r.brokerName    as string)  || undefined,
+    hasBrokerII:     (r.hasBrokerII   as boolean) || undefined,
+    pctTrader:       (r.pctTrader     as number)  ?? undefined,
+    pctMinBun:       (r.pctMinBun     as number)  ?? undefined,
+    pctBrokerI:      (r.pctBrokerI    as number)  ?? undefined,
+    pctBrokerII:     (r.pctBrokerII   as number)  ?? undefined,
   };
 }
+
+function recordToInvestorEntry(r: Record<string, unknown>): TransaksiInvestorEntry {
+  return {
+    investorId:    r.investorId    as string,
+    investorName:  r.investorName  as string,
+    nilaiInvestasi: r.nilaiInvestasi as number,
+  };
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
 function isCustomIdConflict(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
@@ -88,6 +104,34 @@ async function generateCustomId(): Promise<string> {
   }
 }
 
+/** Buat junction records di transaksi_investors untuk satu transaksi */
+async function createInvestorEntries(
+  transaksiPbId: string,
+  entries: TransaksiInvestorEntry[],
+): Promise<void> {
+  await Promise.all(
+    entries.map((e) =>
+      pb.collection("transaksi_investors").create({
+        transaksiId:   transaksiPbId,
+        investorId:    e.investorId,
+        investorName:  e.investorName,
+        nilaiInvestasi: e.nilaiInvestasi,
+      }),
+    ),
+  );
+}
+
+/** Hapus semua junction records untuk satu transaksi */
+async function deleteInvestorEntries(transaksiPbId: string): Promise<void> {
+  const existing = await pb.collection("transaksi_investors").getFullList({
+    filter: `transaksiId = "${transaksiPbId}"`,
+    fields: "id",
+  });
+  await Promise.all(existing.map((r) => pb.collection("transaksi_investors").delete(r.id)));
+}
+
+// ── Provider ─────────────────────────────────────────────────────────────────
+
 export function TransaksiProvider({ children }: { children: ReactNode }) {
   const [transaksis, setTransaksis] = useState<Transaksi[]>([]);
   const pbIdMapRef = useRef(new Map<string, string>());
@@ -106,37 +150,67 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
     } catch { return null; }
   };
 
+  // Load transaksis + investor entries secara paralel, lalu join di memory
   useEffect(() => {
-    pb.collection("transaksis")
-      .getFullList({ sort: "customId" })
-      .then((records) => setTransaksis(records.map((r) => recordToTransaksi(r, map))))
+    Promise.all([
+      pb.collection("transaksis").getFullList({ sort: "customId" }),
+      pb.collection("transaksi_investors").getFullList({ sort: "created" }),
+    ])
+      .then(([trxRecords, invRecords]) => {
+        // Kelompokkan investor entries by transaksi PB record ID
+        const invMap = new Map<string, TransaksiInvestorEntry[]>();
+        for (const r of invRecords) {
+          const tid = r.transaksiId as string;
+          if (!invMap.has(tid)) invMap.set(tid, []);
+          invMap.get(tid)!.push(recordToInvestorEntry(r as Record<string, unknown>));
+        }
+
+        setTransaksis(
+          trxRecords.map((r) =>
+            recordToTransaksi(
+              r as Record<string, unknown>,
+              map,
+              invMap.get(r.id) ?? [],
+            ),
+          ),
+        );
+      })
       .catch(console.error);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── CRUD ──────────────────────────────────────────────────────────────────
 
   const addTransaksi = async (t: Omit<Transaksi, "id">) => {
     let customId = await generateCustomId();
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
+        // 1. Buat transaksi (tanpa investorEntries)
         const record = await pb.collection("transaksis").create({
           customId,
-          createdBy: currentUserId(),
-          updatedBy: currentUserId(),
-          date:            t.date,
-          description:     t.description || "",
-          hpp:             t.hpp,
-          kebutuhanModal:  t.kebutuhanModal,
-          investorEntries: t.investorEntries,
-          ongkirPerKg:     t.ongkirPerKg,
-          hargaJual:       t.hargaJual,
-          brokerName:      t.brokerName  || "",
-          hasBrokerII:     t.hasBrokerII || false,
-          pctTrader:       t.pctTrader   ?? null,
-          pctMinBun:       t.pctMinBun   ?? null,
-          pctBrokerI:      t.pctBrokerI  ?? null,
-          pctBrokerII:     t.pctBrokerII ?? null,
+          createdBy:      currentUserId(),
+          updatedBy:      currentUserId(),
+          date:           t.date,
+          description:    t.description || "",
+          hpp:            t.hpp,
+          kebutuhanModal: t.kebutuhanModal,
+          ongkirPerKg:    t.ongkirPerKg,
+          hargaJual:      t.hargaJual,
+          brokerName:     t.brokerName  || "",
+          hasBrokerII:    t.hasBrokerII || false,
+          pctTrader:      t.pctTrader   ?? null,
+          pctMinBun:      t.pctMinBun   ?? null,
+          pctBrokerI:     t.pctBrokerI  ?? null,
+          pctBrokerII:    t.pctBrokerII ?? null,
         });
-        setTransaksis((prev) => [...prev, recordToTransaksi(record, map)]);
+
+        // 2. Buat junction records
+        await createInvestorEntries(record.id, t.investorEntries);
+
+        setTransaksis((prev) => [
+          ...prev,
+          recordToTransaksi(record as Record<string, unknown>, map, t.investorEntries),
+        ]);
         return;
       } catch (err) {
         if (isCustomIdConflict(err) && attempt < 4) {
@@ -151,16 +225,43 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
   const updateTransaksi = async (id: string, updates: Partial<Transaksi>) => {
     const pbId = await resolvePbId(id);
     if (!pbId) return;
-    const record = await pb.collection("transaksis").update(pbId, { ...updates, updatedBy: currentUserId() });
+
+    // Pisahkan investorEntries dari payload untuk transaksis collection
+    const { investorEntries, ...trxUpdates } = updates;
+
+    const record = await pb.collection("transaksis").update(pbId, {
+      ...trxUpdates,
+      updatedBy: currentUserId(),
+    });
+
+    // Jika investorEntries ikut diupdate: hapus lama, buat baru
+    let resolvedEntries: TransaksiInvestorEntry[] | undefined;
+    if (investorEntries !== undefined) {
+      await deleteInvestorEntries(pbId);
+      await createInvestorEntries(pbId, investorEntries);
+      resolvedEntries = investorEntries;
+    }
+
     setTransaksis((prev) =>
-      prev.map((t) => (t.id === id ? recordToTransaksi(record, map) : t))
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        return recordToTransaksi(
+          record as Record<string, unknown>,
+          map,
+          resolvedEntries ?? t.investorEntries,
+        );
+      }),
     );
   };
 
   const deleteTransaksi = async (id: string) => {
     const pbId = await resolvePbId(id);
     if (!pbId) return;
+
+    // Hapus junction records dulu, baru transaksi
+    await deleteInvestorEntries(pbId);
     await pb.collection("transaksis").delete(pbId);
+
     map.delete(id);
     setTransaksis((prev) => prev.filter((t) => t.id !== id));
   };
