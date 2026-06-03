@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { toast } from "sonner";
+import { ErrorDialog } from "@/components/ui/error-dialog";
+import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
 import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
@@ -479,7 +482,9 @@ export function TransaksiContent() {
   const [isAddOpen, setIsAddOpen]       = useState(false);
   const [isEditOpen, setIsEditOpen]     = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting]     = useState(false);
   const [selected, setSelected]         = useState<Transaksi | null>(null);
+  const [errorInfo, setErrorInfo]       = useState<PbErrorInfo | null>(null);
   const [form, setForm]                 = useState<TrxFormData>(initialForm());
 
   // ── Summary metrics ──
@@ -605,10 +610,19 @@ export function TransaksiContent() {
 
   const openDelete = (t: Transaksi) => { setSelected(t); setIsDeleteOpen(true); };
 
-  const confirmDelete = () => {
-    if (selected) deleteTransaksi(selected.id);
-    setSelected(null);
-    setIsDeleteOpen(false);
+  const confirmDelete = async () => {
+    if (!selected) return;
+    setIsDeleting(true);
+    try {
+      await deleteTransaksi(selected.id);
+      toast.success("Transaksi berhasil dihapus");
+      setSelected(null);
+      setIsDeleteOpen(false);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal menghapus transaksi"));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const sharedFormProps = {
@@ -820,11 +834,20 @@ export function TransaksiContent() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setIsDeleteOpen(false)}>Batal</Button>
-            <Button variant="destructive" onClick={confirmDelete}>Hapus</Button>
+            <Button variant="outline" onClick={() => setIsDeleteOpen(false)} disabled={isDeleting}>Batal</Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={isDeleting}>
+              {isDeleting ? "Menghapus…" : "Hapus"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Error Dialog ── */}
+      <ErrorDialog
+        open={!!errorInfo}
+        onClose={() => setErrorInfo(null)}
+        error={errorInfo}
+      />
     </div>
   );
 }
