@@ -322,17 +322,28 @@ export function DashboardContent() {
   }, [filteredMousByPeriod]);
 
   // ── Chart: PnL per bulan (dari Transaksi, terfilter) ──
+  // Stacked bar: cost (bawah) + profit (atas) = total income (tinggi bar)
+  // profit di-clamp ke 0 untuk display agar stack tidak rusak saat rugi;
+  // nilai aktual tetap disimpan di actualProfit untuk tooltip.
   const monthlyPnlData = useMemo(() => {
-    const map = new Map<string, { month: string; income: number; profit: number; cost: number }>();
+    const map = new Map<string, {
+      month: string;
+      income: number;
+      profit: number;      // display: max(0, profit) — untuk stack
+      cost: number;        // display: income - displayProfit
+      actualProfit: number; // nilai asli untuk tooltip
+    }>();
     filteredTransaksis.forEach((t) => {
-      const c     = calcTransaksi(t);
-      const ym    = t.date.slice(0, 7);
-      const label = monthLabel(ym);
-      if (!map.has(ym)) map.set(ym, { month: label, income: 0, profit: 0, cost: 0 });
-      const e = map.get(ym)!;
-      e.income += c.income;
-      e.profit += c.profit;
-      e.cost   += Math.max(0, c.income - c.profit);
+      const c            = calcTransaksi(t);
+      const ym           = t.date.slice(0, 7);
+      const label        = monthLabel(ym);
+      if (!map.has(ym)) map.set(ym, { month: label, income: 0, profit: 0, cost: 0, actualProfit: 0 });
+      const e            = map.get(ym)!;
+      const displayProfit = Math.max(0, c.profit);
+      e.income       += c.income;
+      e.actualProfit += c.profit;
+      e.profit       += displayProfit;
+      e.cost         += Math.max(0, c.income - displayProfit);
     });
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
@@ -618,13 +629,13 @@ export function DashboardContent() {
             </Card>
           )}
 
-          {/* PnL per bulan — grouped bar */}
+          {/* PnL per bulan — stacked bar */}
           {monthlyPnlData.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle>PnL per Bulan</CardTitle>
                 <CardDescription>
-                  Total income vs profit per bulan
+                  Profit (hijau) adalah bagian dari Total Income (tinggi bar)
                   {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
                 </CardDescription>
               </CardHeader>
@@ -634,8 +645,6 @@ export function DashboardContent() {
                     <BarChart
                       data={monthlyPnlData}
                       margin={{ top: 20, right: 20, left: 8, bottom: 4 }}
-                      barCategoryGap="20%"
-                      barGap={4}
                     >
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                       <XAxis dataKey="month" tick={{ fontSize: 11 }} />
@@ -645,53 +654,34 @@ export function DashboardContent() {
                         width={52}
                       />
                       <Tooltip
-                        formatter={(value, name) => {
-                          const labels: Record<string, string> = {
-                            income: "Total Income",
-                            profit: "Profit",
-                          };
-                          return [formatCurrency(value as number), labels[name as string] ?? name];
+                        formatter={(value, name, props) => {
+                          if (name === "cost") {
+                            return [formatCurrency(props.payload.income as number), "Total Income"];
+                          }
+                          if (name === "profit") {
+                            return [formatCurrency(props.payload.actualProfit as number), "Profit"];
+                          }
+                          return [formatCurrency(value as number), name];
                         }}
                         contentStyle={tooltipStyle}
                         labelStyle={{ color: "hsl(var(--card-foreground))", fontWeight: 600 }}
                         itemStyle={{ color: "#000000" }}
                       />
                       <Legend
-                        formatter={(value) => {
-                          const labels: Record<string, string> = {
-                            income: "Total Income",
-                            profit: "Profit",
-                          };
-                          return labels[value] ?? value;
-                        }}
+                        formatter={(value) =>
+                          value === "cost" ? "Total Income" : value === "profit" ? "Profit" : value
+                        }
                         wrapperStyle={{ fontSize: "11px" }}
                       />
-                      {/* Total Income */}
-                      <Bar
-                        dataKey="income"
-                        fill="#93c5fd"
-                        name="income"
-                        radius={[4, 4, 0, 0]}
-                      >
+                      {/* Biaya — segmen bawah (income − profit) */}
+                      <Bar dataKey="cost" stackId="pnl" fill="#93c5fd" name="cost" radius={[0, 0, 0, 0]} />
+                      {/* Profit — segmen atas */}
+                      <Bar dataKey="profit" stackId="pnl" fill="#4ade80" name="profit" radius={[4, 4, 0, 0]}>
                         <LabelList
                           dataKey="income"
                           position="top"
                           formatter={(v: number) => formatShort(v)}
-                          style={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
-                        />
-                      </Bar>
-                      {/* Profit */}
-                      <Bar
-                        dataKey="profit"
-                        fill="#4ade80"
-                        name="profit"
-                        radius={[4, 4, 0, 0]}
-                      >
-                        <LabelList
-                          dataKey="profit"
-                          position="top"
-                          formatter={(v: number) => formatShort(v)}
-                          style={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
+                          style={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                         />
                       </Bar>
                     </BarChart>
