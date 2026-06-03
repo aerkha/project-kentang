@@ -6,14 +6,15 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Sprout, Users, BarChart3, LogOut, User, FileText, Receipt, UserCog, Menu, X } from "lucide-react";
+import { Sprout, Users, BarChart3, LogOut, User, FileText, Receipt, UserCog, Menu, X, Wallet } from "lucide-react";
 
 const allNavigation = [
   { name: "Dashboard Analitik",  href: "/dashboard",           icon: BarChart3, adminOnly: true  },
   { name: "Investor",            href: "/dashboard/investors", icon: Users,     adminOnly: false },
   { name: "Perjanjian Kerjasama",href: "/dashboard/mou",       icon: FileText,  adminOnly: false },
-  { name: "Transaksi",           href: "/dashboard/transaksi", icon: Receipt,   adminOnly: false },
-  { name: "Manajemen User",      href: "/dashboard/users",     icon: UserCog,   adminOnly: true  },
+  { name: "Transaksi",           href: "/dashboard/transaksi",    icon: Receipt,   adminOnly: false },
+  { name: "Pengeluaran",         href: "/dashboard/pengeluaran",  icon: Wallet,    adminOnly: false },
+  { name: "Manajemen User",      href: "/dashboard/users",         icon: UserCog,   adminOnly: true  },
 ];
 
 export function AppSidebar() {
