@@ -618,13 +618,13 @@ export function DashboardContent() {
             </Card>
           )}
 
-          {/* PnL per bulan — stacked column */}
+          {/* PnL per bulan — grouped bar */}
           {monthlyPnlData.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle>PnL per Bulan</CardTitle>
                 <CardDescription>
-                  Total income (bagian bawah) vs profit (bagian atas)
+                  Total income vs profit per bulan
                   {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
                 </CardDescription>
               </CardHeader>
@@ -633,7 +633,9 @@ export function DashboardContent() {
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={monthlyPnlData}
-                      margin={{ top: 8, right: 20, left: 8, bottom: 4 }}
+                      margin={{ top: 20, right: 20, left: 8, bottom: 4 }}
+                      barCategoryGap="20%"
+                      barGap={4}
                     >
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                       <XAxis dataKey="month" tick={{ fontSize: 11 }} />
@@ -645,7 +647,7 @@ export function DashboardContent() {
                       <Tooltip
                         formatter={(value, name) => {
                           const labels: Record<string, string> = {
-                            cost:   "Total Income",
+                            income: "Total Income",
                             profit: "Profit",
                           };
                           return [formatCurrency(value as number), labels[name as string] ?? name];
@@ -657,34 +659,39 @@ export function DashboardContent() {
                       <Legend
                         formatter={(value) => {
                           const labels: Record<string, string> = {
-                            cost:   "Total Income",
+                            income: "Total Income",
                             profit: "Profit",
                           };
                           return labels[value] ?? value;
                         }}
                         wrapperStyle={{ fontSize: "11px" }}
                       />
-                      {/* HPP — segmen bawah */}
+                      {/* Total Income */}
                       <Bar
-                        dataKey="cost"
-                        stackId="pnl"
+                        dataKey="income"
                         fill="#93c5fd"
-                        name="cost"
-                        radius={[0, 0, 0, 0]}
-                      />
-                      {/* Laba Bersih — segmen atas */}
-                      <Bar
-                        dataKey="profit"
-                        stackId="pnl"
-                        fill="#4ade80"
-                        name="profit"
+                        name="income"
                         radius={[4, 4, 0, 0]}
                       >
                         <LabelList
                           dataKey="income"
                           position="top"
                           formatter={(v: number) => formatShort(v)}
-                          style={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                          style={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
+                        />
+                      </Bar>
+                      {/* Profit */}
+                      <Bar
+                        dataKey="profit"
+                        fill="#4ade80"
+                        name="profit"
+                        radius={[4, 4, 0, 0]}
+                      >
+                        <LabelList
+                          dataKey="profit"
+                          position="top"
+                          formatter={(v: number) => formatShort(v)}
+                          style={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
                         />
                       </Bar>
                     </BarChart>
