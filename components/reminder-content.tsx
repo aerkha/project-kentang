@@ -237,15 +237,19 @@ export function ReminderContent() {
                     const days     = daysUntil(task.endDateStr);
                     const isLoading = toggling === task.mou.id;
 
-                    let deadlineBadge: React.ReactNode;
+                    let dayLabel: React.ReactNode;
                     if (done) {
-                      deadlineBadge = null;
+                      dayLabel = <span className="text-muted-foreground text-xs">Selesai</span>;
                     } else if (days < 0) {
-                      deadlineBadge = <Badge variant="destructive" className="ml-2 text-[10px] py-0">Lewat {Math.abs(days)}h</Badge>;
+                      dayLabel = <Badge variant="destructive" className="text-xs py-0.5">Lewat {Math.abs(days)} hari</Badge>;
+                    } else if (days === 0) {
+                      dayLabel = <Badge className="text-xs py-0.5 bg-red-500 hover:bg-red-500">Hari ini</Badge>;
                     } else if (days <= 7) {
-                      deadlineBadge = <Badge className="ml-2 text-[10px] py-0 bg-orange-500 hover:bg-orange-500">{days}h lagi</Badge>;
+                      dayLabel = <Badge className="text-xs py-0.5 bg-orange-500 hover:bg-orange-500">{days} hari lagi</Badge>;
                     } else if (days <= 30) {
-                      deadlineBadge = <Badge variant="outline" className="ml-2 text-[10px] py-0 text-yellow-600 border-yellow-400">{days}h lagi</Badge>;
+                      dayLabel = <Badge variant="outline" className="text-xs py-0.5 text-yellow-600 border-yellow-400">{days} hari lagi</Badge>;
+                    } else {
+                      dayLabel = <span className="text-sm text-muted-foreground">{days} hari lagi</span>;
                     }
 
                     return (
@@ -264,10 +268,10 @@ export function ReminderContent() {
                           {task.mou.id}
                         </td>
                         <td className="py-3 px-4 whitespace-nowrap">
-                          <span className={done ? "text-muted-foreground" : ""}>
+                          {dayLabel}
+                          <div className="text-[10px] text-muted-foreground mt-0.5">
                             {formatDate(task.endDateStr)}
-                          </span>
-                          {deadlineBadge}
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap font-medium text-orange-500">
                           {formatShort(task.investor)}
