@@ -622,9 +622,9 @@ export function MouContent() {
 
   const keteranganSuggestions = React.useMemo(() => {
     const set = new Set<string>();
-    mous.forEach((m) => { if (m.keterangan?.trim()) set.add(m.keterangan.trim()); });
+    transaksis.forEach((t) => { if (t.description?.trim()) set.add(t.description.trim()); });
     return Array.from(set).sort();
-  }, [mous]);
+  }, [transaksis]);
 
   const [filter, setFilter] = useState<Filter>("semua");
   const changeFilter = (f: Filter) => { setFilter(f); setPage(1); };
