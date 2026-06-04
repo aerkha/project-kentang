@@ -184,6 +184,86 @@ export function generateMouHtml(mou: MoU): string {
     <p>Investasi ini memiliki siklus bagi hasil empat (4) minggu sesuai ketersediaan proyek dan berlaku selama periode perjanjian kerjasama. Dana investasi digunakan untuk membiayai PO <em>All Customer</em> setiap 30 (tiga puluh) hari. Bagi hasil dibayarkan paling lambat setiap 30 (tiga puluh) hari atau sesuai tanggal jatuh tempo ke rekening <strong>Bank SMBC (Jenius) 90120410660 atas nama Parafitra Fidiasari</strong>. Jika PIHAK KEDUA hendak mengubah rekening untuk transfer bagi hasil, harap memberitahukan secara tertulis melalui <em>WhatsApp</em>.</p>
   </div>
 
+  <!-- TABEL SIMULASI BAGI HASIL -->
+  <div class="section" style="page-break-inside:avoid;">
+    <div class="ptitle">TABEL SIMULASI BAGI HASIL</div>
+
+    <!-- Tabel simulasi transaksi -->
+    <table style="width:100%;border-collapse:collapse;font-size:9.5pt;margin-bottom:.6em;">
+      <thead>
+        <tr style="background:#f0f0f0;">
+          <th style="border:1px solid #000;padding:4px 5px;text-align:center;white-space:nowrap;">Pengiriman<br>ke</th>
+          <th style="border:1px solid #000;padding:4px 5px;text-align:center;">Qty<br>(Kg)</th>
+          <th style="border:1px solid #000;padding:4px 5px;text-align:center;">HPP<br>(Rp/Kg)</th>
+          <th style="border:1px solid #000;padding:4px 5px;text-align:center;">Modal /<br>Pengiriman (Rp)</th>
+          <th style="border:1px solid #000;padding:4px 5px;text-align:center;">Ongkos<br>Kirim (Rp)</th>
+          <th style="border:1px solid #000;padding:4px 5px;text-align:center;">Harga Jual<br>(Rp/Kg)</th>
+          <th style="border:1px solid #000;padding:4px 5px;text-align:center;">Income<br>(Rp)</th>
+          <th style="border:1px solid #000;padding:4px 5px;text-align:center;">Profit<br>(Rp)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:center;">1</td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:center;"></td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:center;"></td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:right;">${fmtRp(mou.investmentAmount)}</td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:center;"></td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:center;"></td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:center;"></td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:center;"></td>
+        </tr>
+        <tr style="background:#f9f9f9;">
+          <td colspan="3" style="border:1px solid #000;padding:4px 5px;text-align:left;font-weight:bold;">Modal berputar</td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:right;font-weight:bold;">${fmtRp(mou.investmentAmount)}</td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:left;font-weight:bold;">Keuntungan</td>
+          <td colspan="2" style="border:1px solid #000;padding:4px 5px;"></td>
+          <td style="border:1px solid #000;padding:4px 5px;"></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Ringkasan -->
+    <table style="width:60%;border-collapse:collapse;font-size:9.5pt;margin-bottom:.6em;">
+      <tr>
+        <td style="border:1px solid #000;padding:4px 8px;white-space:nowrap;">Modal</td>
+        <td style="border:1px solid #000;padding:4px 8px;text-align:right;font-weight:bold;">${fmtRp(mou.investmentAmount)}</td>
+      </tr>
+      <tr>
+        <td style="border:1px solid #000;padding:4px 8px;white-space:nowrap;">Estimasi Keuntungan Per Bulan</td>
+        <td style="border:1px solid #000;padding:4px 8px;"></td>
+      </tr>
+      <tr>
+        <td style="border:1px solid #000;padding:4px 8px;white-space:nowrap;">ROI per bulan</td>
+        <td style="border:1px solid #000;padding:4px 8px;"></td>
+      </tr>
+      <tr>
+        <td style="border:1px solid #000;padding:4px 8px;white-space:nowrap;">ROI setelah Bagi Hasil (${mou.bagiHasilPP1 ?? 50}%)</td>
+        <td style="border:1px solid #000;padding:4px 8px;"></td>
+      </tr>
+    </table>
+
+    <!-- Distribusi bagi hasil -->
+    <table style="width:100%;border-collapse:collapse;font-size:9.5pt;">
+      <thead>
+        <tr style="background:#f0f0f0;">
+          <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Profit (Rp)</th>
+          <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama I<br>${mou.bagiHasilPP1 ?? 50}% (Owner)</th>
+          <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama II<br>${mou.bagiHasilPP2 ?? 15}% (Mimin Berkebun)</th>
+          <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Kedua<br>${mou.bagiHasilPK ?? 35}% (Investor)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="border:1px solid #000;padding:6px 8px;height:24px;"></td>
+          <td style="border:1px solid #000;padding:6px 8px;"></td>
+          <td style="border:1px solid #000;padding:6px 8px;"></td>
+          <td style="border:1px solid #000;padding:6px 8px;"></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
   <!-- PASAL 5 -->
   <div class="section">
     <div class="ptitle">Pasal 5<br>HAK DAN KEWAJIBAN PARA PIHAK</div>
