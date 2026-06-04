@@ -1,4 +1,5 @@
 import type { MoU } from "./mou-context";
+import { type Transaksi, calcTransaksi } from "./transaksi-context";
 import { angkaTerbilang, terbilang } from "./terbilang";
 
 const MONTHS = [
@@ -37,11 +38,52 @@ function row(label: string, value: string, wide = false) {
   </div>`;
 }
 
-export function generateMouHtml(mou: MoU): string {
+export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string {
   const date     = fmtDate(mou.date);
   const amount   = fmtRp(mou.investmentAmount);
   const words    = esc(cap(terbilang(mou.investmentAmount)));
   const period   = `${cap(angkaTerbilang(mou.contractPeriod))} (${mou.contractPeriod}) hari`;
+
+  // Cari transaksi yang cocok: investorId sama, tanggal dalam periode PKS
+  const mouStart = new Date(mou.date).getTime();
+  const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
+  const trx = transaksis.find((t) => {
+    const tDate = new Date(t.date).getTime();
+    return tDate >= mouStart && tDate <= mouEnd &&
+      t.investorEntries.some((e) => e.investorId === mou.investorId);
+  });
+
+  // Kalkulasi nilai tabel dari transaksi yang ditemukan
+  let trxQty = "", trxHpp = "", trxModal = fmtRp(mou.investmentAmount);
+  let trxOngkir = "", trxHargaJual = "", trxIncome = "", trxProfit = "";
+  let bhOwner = "", bhMinbun = "", bhInvestor = "";
+  let estKeuntungan = "", roiPerBulan = "", roiSetelahBH = "";
+
+  if (trx) {
+    const calc    = calcTransaksi(trx);
+    const entry   = trx.investorEntries.find((e) => e.investorId === mou.investorId);
+    const ratio   = entry && calc.totalInvestasi > 0
+      ? entry.nilaiInvestasi / calc.totalInvestasi : 1;
+    const profit  = calc.profit * ratio;
+    const pp1Pct  = (mou.bagiHasilPP1 ?? 50) / 100;
+    const pp2Pct  = (mou.bagiHasilPP2 ?? 15) / 100;
+    const pkPct   = (mou.bagiHasilPK  ?? 35) / 100;
+
+    trxQty       = trx.hpp > 0 ? String(Math.round(trx.kebutuhanModal / trx.hpp)) : "";
+    trxHpp       = fmtRp(trx.hpp);
+    trxModal     = fmtRp(entry ? entry.nilaiInvestasi : mou.investmentAmount);
+    trxOngkir    = fmtRp(calc.totalOngkir * ratio);
+    trxHargaJual = fmtRp(trx.hargaJual);
+    trxIncome    = fmtRp(calc.income * ratio);
+    trxProfit    = fmtRp(profit);
+    bhOwner      = fmtRp(profit * pp1Pct);
+    bhMinbun     = fmtRp(profit * pp2Pct);
+    bhInvestor   = fmtRp(profit * pkPct);
+    estKeuntungan = fmtRp(profit);
+    const roiRaw = mou.investmentAmount > 0 ? profit / mou.investmentAmount : 0;
+    roiPerBulan  = `${(roiRaw * 100).toFixed(2)}%`;
+    roiSetelahBH = `${(roiRaw * pkPct * 100 / (pkPct)).toFixed(2)}% → Rp ${fmtRp(profit * pkPct)}`;
+  }
 
   return `<!DOCTYPE html>
 <html lang="id">
@@ -205,20 +247,20 @@ export function generateMouHtml(mou: MoU): string {
       <tbody>
         <tr>
           <td style="border:1px solid #000;padding:4px 5px;text-align:center;">1</td>
-          <td style="border:1px solid #000;padding:4px 5px;text-align:center;"></td>
-          <td style="border:1px solid #000;padding:4px 5px;text-align:center;"></td>
-          <td style="border:1px solid #000;padding:4px 5px;text-align:right;">${fmtRp(mou.investmentAmount)}</td>
-          <td style="border:1px solid #000;padding:4px 5px;text-align:center;"></td>
-          <td style="border:1px solid #000;padding:4px 5px;text-align:center;"></td>
-          <td style="border:1px solid #000;padding:4px 5px;text-align:center;"></td>
-          <td style="border:1px solid #000;padding:4px 5px;text-align:center;"></td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:right;">${trxQty}</td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:right;">${trxHpp}</td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:right;">${trxModal}</td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:right;">${trxOngkir}</td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:right;">${trxHargaJual}</td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:right;">${trxIncome}</td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:right;">${trxProfit}</td>
         </tr>
         <tr style="background:#f9f9f9;">
           <td colspan="3" style="border:1px solid #000;padding:4px 5px;text-align:left;font-weight:bold;">Modal berputar</td>
-          <td style="border:1px solid #000;padding:4px 5px;text-align:right;font-weight:bold;">${fmtRp(mou.investmentAmount)}</td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:right;font-weight:bold;">${trxModal}</td>
           <td style="border:1px solid #000;padding:4px 5px;text-align:left;font-weight:bold;">Keuntungan</td>
           <td colspan="2" style="border:1px solid #000;padding:4px 5px;"></td>
-          <td style="border:1px solid #000;padding:4px 5px;"></td>
+          <td style="border:1px solid #000;padding:4px 5px;text-align:right;font-weight:bold;">${trxProfit}</td>
         </tr>
       </tbody>
     </table>
@@ -227,19 +269,19 @@ export function generateMouHtml(mou: MoU): string {
     <table style="width:60%;border-collapse:collapse;font-size:9.5pt;margin-bottom:.6em;">
       <tr>
         <td style="border:1px solid #000;padding:4px 8px;white-space:nowrap;">Modal</td>
-        <td style="border:1px solid #000;padding:4px 8px;text-align:right;font-weight:bold;">${fmtRp(mou.investmentAmount)}</td>
+        <td style="border:1px solid #000;padding:4px 8px;text-align:right;font-weight:bold;">${trxModal}</td>
       </tr>
       <tr>
         <td style="border:1px solid #000;padding:4px 8px;white-space:nowrap;">Estimasi Keuntungan Per Bulan</td>
-        <td style="border:1px solid #000;padding:4px 8px;"></td>
+        <td style="border:1px solid #000;padding:4px 8px;text-align:right;">${estKeuntungan}</td>
       </tr>
       <tr>
         <td style="border:1px solid #000;padding:4px 8px;white-space:nowrap;">ROI per bulan</td>
-        <td style="border:1px solid #000;padding:4px 8px;"></td>
+        <td style="border:1px solid #000;padding:4px 8px;text-align:right;">${roiPerBulan}</td>
       </tr>
       <tr>
-        <td style="border:1px solid #000;padding:4px 8px;white-space:nowrap;">ROI setelah Bagi Hasil (${mou.bagiHasilPP1 ?? 50}%)</td>
-        <td style="border:1px solid #000;padding:4px 8px;"></td>
+        <td style="border:1px solid #000;padding:4px 8px;white-space:nowrap;">ROI setelah Bagi Hasil (${mou.bagiHasilPK ?? 35}%)</td>
+        <td style="border:1px solid #000;padding:4px 8px;text-align:right;">${roiSetelahBH}</td>
       </tr>
     </table>
 
@@ -255,10 +297,10 @@ export function generateMouHtml(mou: MoU): string {
       </thead>
       <tbody>
         <tr>
-          <td style="border:1px solid #000;padding:6px 8px;height:24px;"></td>
-          <td style="border:1px solid #000;padding:6px 8px;"></td>
-          <td style="border:1px solid #000;padding:6px 8px;"></td>
-          <td style="border:1px solid #000;padding:6px 8px;"></td>
+          <td style="border:1px solid #000;padding:6px 8px;text-align:right;">${trxProfit}</td>
+          <td style="border:1px solid #000;padding:6px 8px;text-align:right;">${bhOwner}</td>
+          <td style="border:1px solid #000;padding:6px 8px;text-align:right;">${bhMinbun}</td>
+          <td style="border:1px solid #000;padding:6px 8px;text-align:right;">${bhInvestor}</td>
         </tr>
       </tbody>
     </table>

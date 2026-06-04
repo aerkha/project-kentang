@@ -7,6 +7,7 @@ import { useMou, type MoU } from "@/lib/mou-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useAuth } from "@/lib/auth-context";
 import { generateMouHtml } from "@/lib/mou-html";
+import { useTransaksi } from "@/lib/transaksi-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -615,6 +616,7 @@ type Filter = "semua" | "pending" | "aktif" | "expired" | "nonaktif";
 export function MouContent() {
   const { mous, addMou, updateMou, deleteMou, uploadSignedDoc } = useMou();
   const { investors } = useInvestors();
+  const { transaksis } = useTransaksi();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
@@ -895,7 +897,7 @@ export function MouContent() {
       window.open(mou.signedDocUrl, "_blank");
       return;
     }
-    const html = generateMouHtml(mou);
+    const html = generateMouHtml(mou, transaksis);
     const w = window.open("", "_blank");
     if (w) {
       w.document.write(html);
