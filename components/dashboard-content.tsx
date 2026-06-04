@@ -9,6 +9,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format } from "date-fns";
+import { id as localeId } from "date-fns/locale";
+import type { DateRange } from "react-day-picker";
 import {
   DollarSign,
   Users,
@@ -225,18 +230,9 @@ export function DashboardContent() {
   }, [investors]);
 
   // ── Filter state ──
-  const [filterYear,     setFilterYear]     = useState<string>("");
-  const [filterMonth,    setFilterMonth]    = useState<string>("");
+  const [dateRange,      setDateRange]      = useState<DateRange | undefined>(undefined);
   const [filterBroker,   setFilterBroker]   = useState<string>("");
   const [filterInvestor, setFilterInvestor] = useState<string>("");
-
-  // ── Available years from data ──
-  const availableYears = useMemo(() => {
-    const years = new Set<string>();
-    transaksis.forEach((t) => years.add(t.date.slice(0, 4)));
-    mous.forEach((m) => years.add(m.date.slice(0, 4)));
-    return Array.from(years).sort((a, b) => b.localeCompare(a));
-  }, [transaksis, mous]);
 
   // ── Available brokers from investor data ──
   const availableBrokers = useMemo(() => {
@@ -260,10 +256,13 @@ export function DashboardContent() {
   }, [investors, filterBroker]);
 
   // ── Filtered collections ──
+  const fromStr = dateRange?.from ? format(dateRange.from, "yyyy-MM-dd") : "";
+  const toStr   = dateRange?.to   ? format(dateRange.to,   "yyyy-MM-dd") : "";
+
   const filteredTransaksis = useMemo(
     () => transaksis.filter((t) => {
-      if (filterYear  && t.date.slice(0, 4) !== filterYear)  return false;
-      if (filterMonth && t.date.slice(5, 7) !== filterMonth) return false;
+      if (fromStr && t.date < fromStr) return false;
+      if (toStr   && t.date > toStr)   return false;
       if (filterInvestor && !t.investorEntries.some((e) => e.investorId === filterInvestor)) return false;
       if (filterBroker && !filterInvestor) {
         const hasMatch = t.investorEntries.some((e) => {
@@ -274,21 +273,21 @@ export function DashboardContent() {
       }
       return true;
     }),
-    [transaksis, filterYear, filterMonth, filterInvestor, filterBroker, investors],
+    [transaksis, fromStr, toStr, filterInvestor, filterBroker, investors],
   );
 
   const filteredMousByPeriod = useMemo(
     () => mous.filter((m) => {
-      if (filterYear     && m.date.slice(0, 4) !== filterYear)  return false;
-      if (filterMonth    && m.date.slice(5, 7) !== filterMonth) return false;
-      if (filterInvestor && m.investorId !== filterInvestor)    return false;
+      if (fromStr && m.date < fromStr) return false;
+      if (toStr   && m.date > toStr)   return false;
+      if (filterInvestor && m.investorId !== filterInvestor) return false;
       if (filterBroker && !filterInvestor) {
         const inv = investors.find((i) => i.id === m.investorId);
         if ((inv?.brokerName?.trim() || "Tanpa Broker") !== filterBroker) return false;
       }
       return true;
     }),
-    [mous, filterYear, filterMonth, filterInvestor, filterBroker, investors],
+    [mous, fromStr, toStr, filterInvestor, filterBroker, investors],
   );
 
   // ── Investors filtered for detail table ──
@@ -360,21 +359,22 @@ export function DashboardContent() {
         grossProfitMinbun += profit * (pT + pM + pBI + pBII) / 100;
       });
     });
-    const periodLabel = filterYear
-      ? filterMonth
-        ? `${MONTHS[parseInt(filterMonth) - 1]} ${filterYear}`
-        : `Tahun ${filterYear}`
-      : filterMonth
-        ? MONTHS[parseInt(filterMonth) - 1]
-        : "Semua Periode";
+    let periodLabel = "Semua Periode";
+    if (dateRange?.from && dateRange?.to) {
+      periodLabel = `${format(dateRange.from, "d MMM yyyy", { locale: localeId })} – ${format(dateRange.to, "d MMM yyyy", { locale: localeId })}`;
+    } else if (dateRange?.from) {
+      periodLabel = `Mulai ${format(dateRange.from, "d MMM yyyy", { locale: localeId })}`;
+    } else if (dateRange?.to) {
+      periodLabel = `Sampai ${format(dateRange.to, "d MMM yyyy", { locale: localeId })}`;
+    }
     return {
       income, profit, bagHasil, grossProfitMinbun, bagHasilTrader, bagHasilMinbun, bagHasilBroker,
       trxCount:   filteredTransaksis.length,
       mouCount:   filteredMousByPeriod.length,
       periodLabel,
-      isFiltered: !!(filterYear || filterMonth || filterBroker || filterInvestor),
+      isFiltered: !!(dateRange?.from || dateRange?.to || filterBroker || filterInvestor),
     };
-  }, [filteredTransaksis, filteredMousByPeriod, rekapData, filterYear, filterMonth, filterBroker, filterInvestor]);
+  }, [filteredTransaksis, filteredMousByPeriod, rekapData, dateRange, filterBroker, filterInvestor]);
 
   // ── Chart: modal per bulan stacked by keterangan ──
   const modalByKeteranganData = useMemo(() => {
@@ -489,38 +489,42 @@ export function DashboardContent() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
-          <Select
-            value={filterYear || "__all"}
-            onValueChange={(v) => setFilterYear(v === "__all" ? "" : v)}
-          >
-            <SelectTrigger className="w-[120px] h-8 text-sm">
-              <SelectValue placeholder="Semua Tahun" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all">Semua Tahun</SelectItem>
-              {availableYears.length === 0 && (
-                <SelectItem value="__none" disabled>Belum ada data</SelectItem>
+          {/* Date range picker */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className={`inline-flex items-center gap-1.5 h-8 px-3 text-sm rounded-md border transition-colors whitespace-nowrap ${
+                dateRange?.from
+                  ? "border-primary/50 bg-primary/5 text-foreground"
+                  : "border-input bg-background text-muted-foreground hover:bg-accent"
+              }`}>
+                <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                {dateRange?.from
+                  ? dateRange.to
+                    ? `${format(dateRange.from, "d MMM yy")} – ${format(dateRange.to, "d MMM yy")}`
+                    : format(dateRange.from, "d MMM yyyy")
+                  : "Semua Periode"}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="range"
+                selected={dateRange}
+                onSelect={setDateRange}
+                numberOfMonths={2}
+                captionLayout="dropdown"
+              />
+              {dateRange?.from && (
+                <div className="border-t px-3 py-2 flex justify-end">
+                  <button
+                    onClick={() => setDateRange(undefined)}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Hapus filter tanggal
+                  </button>
+                </div>
               )}
-              {availableYears.map((y) => (
-                <SelectItem key={y} value={y}>{y}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={filterMonth || "__all"}
-            onValueChange={(v) => setFilterMonth(v === "__all" ? "" : v)}
-          >
-            <SelectTrigger className="w-[136px] h-8 text-sm">
-              <SelectValue placeholder="Semua Bulan" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all">Semua Bulan</SelectItem>
-              {MONTHS.map((name, i) => (
-                <SelectItem key={i} value={String(i + 1).padStart(2, "0")}>{name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            </PopoverContent>
+          </Popover>
 
           <Select
             value={filterBroker || "__all"}
@@ -557,7 +561,7 @@ export function DashboardContent() {
 
           {periodMetrics.isFiltered && (
             <button
-              onClick={() => { setFilterYear(""); setFilterMonth(""); setFilterBroker(""); setFilterInvestor(""); }}
+              onClick={() => { setDateRange(undefined); setFilterBroker(""); setFilterInvestor(""); }}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md text-muted-foreground hover:bg-muted transition-colors"
             >
               <X className="h-3.5 w-3.5" />
