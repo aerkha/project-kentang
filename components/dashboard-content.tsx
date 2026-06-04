@@ -703,23 +703,28 @@ export function DashboardContent() {
             </CardContent>
           </Card>
 
-          <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
+          <Card className={`md:col-span-2 ${periodMetrics.isFiltered ? "border-primary/30" : ""}`}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Rincian Bagi Hasil PP II</CardTitle>
+              <CardTitle className="text-sm font-medium">Bagi Hasil MinBun</CardTitle>
               <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
-            <CardContent className="space-y-1.5">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Trader</span>
-                <span className="font-semibold">{formatShort(periodMetrics.bagHasilTrader)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">MinBun</span>
-                <span className="font-semibold text-green-600">{formatShort(periodMetrics.bagHasilMinbun)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Broker</span>
-                <span className="font-semibold">{formatShort(periodMetrics.bagHasilBroker)}</span>
+            <CardContent>
+              <div className="flex items-center divide-x divide-border">
+                <div className="flex-1 pr-4">
+                  <p className="text-xs text-muted-foreground mb-1">Trader</p>
+                  <p className="text-xl font-bold">{formatShort(periodMetrics.bagHasilTrader)}</p>
+                  <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasilTrader)}</p>
+                </div>
+                <div className="flex-1 px-4">
+                  <p className="text-xs text-muted-foreground mb-1">MinBun</p>
+                  <p className="text-xl font-bold text-green-600">{formatShort(periodMetrics.bagHasilMinbun)}</p>
+                  <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasilMinbun)}</p>
+                </div>
+                <div className="flex-1 pl-4">
+                  <p className="text-xs text-muted-foreground mb-1">Broker</p>
+                  <p className="text-xl font-bold">{formatShort(periodMetrics.bagHasilBroker)}</p>
+                  <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasilBroker)}</p>
+                </div>
               </div>
             </CardContent>
           </Card>
