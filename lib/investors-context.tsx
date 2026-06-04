@@ -14,6 +14,7 @@ export interface Investor {
   bankName: string;
   accountNumber: string;
   phone: string;
+  email: string;
   occupation: string;
   investmentAmount: number;
   heirName: string;
@@ -43,6 +44,7 @@ function recordToInvestor(r: Record<string, unknown>, pbIdMap: Map<string, strin
     bankName:         r.bankName         as string,
     accountNumber:    r.accountNumber    as string,
     phone:            r.phone            as string,
+    email:            (r.email           as string) || "",
     occupation:       (r.occupation      as string) || "",
     investmentAmount: r.investmentAmount as number,
     heirName:         r.heirName         as string,
@@ -112,6 +114,7 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
           bankName:         inv.bankName,
           accountNumber:    inv.accountNumber,
           phone:            inv.phone,
+          email:            inv.email || "",
           occupation:       inv.occupation || "",
           investmentAmount: inv.investmentAmount,
           heirName:         inv.heirName,

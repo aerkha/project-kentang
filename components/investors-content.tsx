@@ -47,6 +47,7 @@ interface InvestorFormData {
   bankName: string;
   accountNumber: string;
   phone: string;
+  email: string;
   occupation: string;
   investmentAmount: string;
   heirName: string;
@@ -71,6 +72,7 @@ const initialInvestorForm: InvestorFormData = {
   bankName: "",
   accountNumber: "",
   phone: "",
+  email: "",
   occupation: "",
   investmentAmount: "",
   heirName: "",
@@ -176,6 +178,17 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
                 required
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="inv-email" className="text-xs">Email</Label>
+            <Input
+              id="inv-email"
+              type="email"
+              value={formData.email}
+              onChange={(e) => set("email", e.target.value)}
+              placeholder="contoh@email.com"
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -576,6 +589,7 @@ export function InvestorsContent() {
         bankName: investorForm.bankName,
         accountNumber: investorForm.accountNumber,
         phone: investorForm.phone,
+        email: investorForm.email,
         occupation: investorForm.occupation,
         investmentAmount: parseFloat(investorForm.investmentAmount),
         heirName: investorForm.heirName,
@@ -605,6 +619,7 @@ export function InvestorsContent() {
         bankName: investorForm.bankName,
         accountNumber: investorForm.accountNumber,
         phone: investorForm.phone,
+        email: investorForm.email,
         occupation: investorForm.occupation,
         investmentAmount: parseFloat(investorForm.investmentAmount),
         heirName: investorForm.heirName,
@@ -632,6 +647,7 @@ export function InvestorsContent() {
       bankName: investor.bankName,
       accountNumber: investor.accountNumber,
       phone: investor.phone,
+      email: investor.email ?? "",
       occupation: investor.occupation,
       investmentAmount: investor.investmentAmount.toString(),
       heirName: investor.heirName,
