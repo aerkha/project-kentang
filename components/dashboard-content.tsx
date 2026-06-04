@@ -340,18 +340,26 @@ export function DashboardContent() {
     // Bagi hasil dihitung per-PKS dari rekapData agar mengikuti skema masing-masing PKS
     const bagHasil = rekapData.reduce((s, r) => s + r.investor, 0);
 
-    // Gross Profit MinBun = langsung dari pctMinBun per entry transaksi
-    const grossProfitMinbun = filteredTransaksis.reduce((total, t) => {
+    // Bagi hasil Trader, MinBun, Broker — langsung dari pct per entry transaksi
+    let bagHasilTrader = 0, bagHasilMinbun = 0, bagHasilBroker = 0, grossProfitMinbun = 0;
+    filteredTransaksis.forEach((t) => {
       const calc = calcTransaksi(t);
-      if (calc.totalInvestasi === 0) return total;
-      return total + t.investorEntries.reduce((s, e) => {
-        const ratio    = e.nilaiInvestasi / calc.totalInvestasi;
-        const sumPct   = e.pctTrader + e.pctMinBun + e.pctBrokerI + e.pctBrokerII;
-        // Fallback 15% untuk data lama yang tersimpan dengan semua pct = 0
-        const totalPct = (sumPct || 15) / 100;
-        return s + calc.profit * ratio * totalPct;
-      }, 0);
-    }, 0);
+      if (calc.totalInvestasi === 0) return;
+      t.investorEntries.forEach((e) => {
+        const ratio     = e.nilaiInvestasi / calc.totalInvestasi;
+        const profit    = calc.profit * ratio;
+        const allZero   = e.pctTrader === 0 && e.pctMinBun === 0 && e.pctBrokerI === 0 && e.pctBrokerII === 0;
+        const hasBroker = !!e.investorBrokerName;
+        const pT  = allZero ? 10                   : e.pctTrader;
+        const pM  = allZero ? (hasBroker ? 0 : 5)  : e.pctMinBun;
+        const pBI = allZero ? (hasBroker ? 5 : 0)  : e.pctBrokerI;
+        const pBII= allZero ? 0                    : e.pctBrokerII;
+        bagHasilTrader += profit * pT   / 100;
+        bagHasilMinbun += profit * pM   / 100;
+        bagHasilBroker += profit * (pBI + pBII) / 100;
+        grossProfitMinbun += profit * (pT + pM + pBI + pBII) / 100;
+      });
+    });
     const periodLabel = filterYear
       ? filterMonth
         ? `${MONTHS[parseInt(filterMonth) - 1]} ${filterYear}`
@@ -360,7 +368,7 @@ export function DashboardContent() {
         ? MONTHS[parseInt(filterMonth) - 1]
         : "Semua Periode";
     return {
-      income, profit, bagHasil, grossProfitMinbun,
+      income, profit, bagHasil, grossProfitMinbun, bagHasilTrader, bagHasilMinbun, bagHasilBroker,
       trxCount:   filteredTransaksis.length,
       mouCount:   filteredMousByPeriod.length,
       periodLabel,
@@ -582,6 +590,17 @@ export function DashboardContent() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Jumlah Broker</CardTitle>
+            <Briefcase className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{metrics.totalBrokers}</div>
+            <p className="text-xs text-muted-foreground">broker terdaftar</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Investasi</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
@@ -599,17 +618,6 @@ export function DashboardContent() {
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(metrics.avgInvestment)}</div>
             <p className="text-xs text-muted-foreground">per investor</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Jumlah Broker</CardTitle>
-            <Briefcase className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{metrics.totalBrokers}</div>
-            <p className="text-xs text-muted-foreground">broker terdaftar</p>
           </CardContent>
         </Card>
       </div>
@@ -692,6 +700,27 @@ export function DashboardContent() {
                 {formatShort(periodMetrics.grossProfitMinbun)}
               </div>
               <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.grossProfitMinbun)}</p>
+            </CardContent>
+          </Card>
+
+          <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Rincian Bagi Hasil PP II</CardTitle>
+              <Wallet className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent className="space-y-1.5">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Trader</span>
+                <span className="font-semibold">{formatShort(periodMetrics.bagHasilTrader)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">MinBun</span>
+                <span className="font-semibold text-green-600">{formatShort(periodMetrics.bagHasilMinbun)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Broker</span>
+                <span className="font-semibold">{formatShort(periodMetrics.bagHasilBroker)}</span>
+              </div>
             </CardContent>
           </Card>
         </div>
