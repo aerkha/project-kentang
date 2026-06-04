@@ -69,16 +69,15 @@ function calcMouDistribution(
   const mouStart = new Date(mou.date).getTime();
   const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
 
-  // Ambil skema bagi hasil dari PKS (fallback ke default jika belum ada)
-  const pp1Pct = (mou.bagiHasilPP1 ?? 50) / 100;  // Pihak Pertama I  (Owner)
-  const pp2Pct = (mou.bagiHasilPP2 ?? 15) / 100;  // Pihak Pertama II (MinBun)
-  const pkPct  = (mou.bagiHasilPK  ?? 35) / 100;  // Pihak Kedua      (Investor)
-
-  // Skala sub-komponen PP2 relatif terhadap default 15%
-  const pp2Scale = pp2Pct / 0.15;
+  const pp1Pct = (mou.bagiHasilPP1 ?? 50) / 100;
+  const pkPct  = (mou.bagiHasilPK  ?? 35) / 100;
 
   let totalProfit = 0;
   let owner = 0, hasanah = 0, investor = 0, trader = 0, minbun = 0, brokerI = 0, brokerII = 0;
+
+  // Pct efektif dari entry pertama yang ditemukan — untuk ditampilkan di tabel
+  let effectivePct = { pctTrader: 10, pctMinBun: 5, pctBrokerI: 0, pctBrokerII: 0 };
+  let pctSet = false;
 
   transaksis.forEach((t) => {
     const tDate = new Date(t.date).getTime();
@@ -92,27 +91,32 @@ function calcMouDistribution(
 
     const ratio  = entry.nilaiInvestasi / calc.totalInvestasi;
     const profit = calc.profit * ratio;
-
     totalProfit += profit;
 
-    // Pct sudah tersimpan per-investor di entry — langsung pakai
-    const rTrader  = (entry.pctTrader  ?? 10) / 100;
-    const rMinBun  = (entry.pctMinBun  ?? 5)  / 100;
-    const rBrokerI = (entry.pctBrokerI ?? 0)  / 100;
-    const rBrokerII= (entry.pctBrokerII ?? 0) / 100;
+    // Jika data lama semua pct=0, fallback ke default berdasarkan ada/tidaknya broker
+    const allZero  = entry.pctTrader === 0 && entry.pctMinBun === 0 && entry.pctBrokerI === 0 && entry.pctBrokerII === 0;
+    const hasBroker = !!entry.investorBrokerName;
+    const ePctTrader  = allZero ? 10                    : entry.pctTrader;
+    const ePctMinBun  = allZero ? (hasBroker ? 0 : 5)  : entry.pctMinBun;
+    const ePctBrokerI = allZero ? (hasBroker ? 5 : 0)  : entry.pctBrokerI;
+    const ePctBrokerII= allZero ? 0                     : entry.pctBrokerII;
+
+    if (!pctSet) {
+      effectivePct = { pctTrader: ePctTrader, pctMinBun: ePctMinBun, pctBrokerI: ePctBrokerI, pctBrokerII: ePctBrokerII };
+      pctSet = true;
+    }
 
     owner    += profit * pp1Pct;
     investor += profit * pkPct;
-
-    trader   += profit * pp2Scale * rTrader;
-    minbun   += profit * pp2Scale * rMinBun;
-    brokerI  += profit * pp2Scale * rBrokerI;
-    brokerII += profit * pp2Scale * rBrokerII;
+    trader   += profit * ePctTrader   / 100;
+    minbun   += profit * ePctMinBun   / 100;
+    brokerI  += profit * ePctBrokerI  / 100;
+    brokerII += profit * ePctBrokerII / 100;
   });
 
   hasanah = investor + trader + minbun + brokerI + brokerII;
 
-  return { totalProfit, owner, hasanah, investor, trader, minbun, brokerI, brokerII };
+  return { totalProfit, owner, hasanah, investor, trader, minbun, brokerI, brokerII, effectivePct };
 }
 const MONTHS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
 
@@ -1216,10 +1220,22 @@ export function DashboardContent() {
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap" title={`PP I: ${row.mou.bagiHasilPP1 ?? 50}%`}>{formatShortFloat(row.owner)}</td>
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.hasanah)}</td>
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap text-blue-600 font-medium" title={`PK: ${row.mou.bagiHasilPK ?? 35}%`}>{formatShortFloat(row.investor)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.trader)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap text-green-700 dark:text-green-400 font-medium" title={`PP II: ${row.mou.bagiHasilPP2 ?? 15}%`}>{formatShortFloat(row.minbun)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.brokerI)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.brokerII)}</td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">
+                        <div>{formatShortFloat(row.trader)}</div>
+                        <div className="text-[9px] text-muted-foreground">{row.effectivePct.pctTrader}%</div>
+                      </td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap text-green-700 dark:text-green-400 font-medium">
+                        <div>{formatShortFloat(row.minbun)}</div>
+                        <div className="text-[9px] text-muted-foreground">{row.effectivePct.pctMinBun}%</div>
+                      </td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">
+                        <div>{formatShortFloat(row.brokerI)}</div>
+                        <div className="text-[9px] text-muted-foreground">{row.effectivePct.pctBrokerI}%</div>
+                      </td>
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">
+                        <div>{formatShortFloat(row.brokerII)}</div>
+                        <div className="text-[9px] text-muted-foreground">{row.effectivePct.pctBrokerII}%</div>
+                      </td>
                       <td className={`py-2.5 px-2.5 text-right whitespace-nowrap font-semibold ${row.roiTotal >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {pct(row.roiTotal)}
                       </td>
