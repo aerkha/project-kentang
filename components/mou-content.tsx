@@ -105,12 +105,14 @@ type MouStatus = "pending" | "aktif" | "expired" | "nonaktif";
 
 function getMouStatus(mou: MoU): MouStatus {
   if (mou.isTerminated) return "nonaktif";
-  const end = new Date(mou.date);
-  end.setDate(end.getDate() + mou.contractPeriod);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const end = new Date(mou.date);
+  end.setDate(end.getDate() + mou.contractPeriod);
   if (end < today) return "expired";
-  if (!mou.hasSignedDoc) return "pending";
+  // PKS backdate (tanggal mulai sebelum hari ini) langsung aktif tanpa perlu signedDoc
+  const isBackdate = new Date(mou.date) < today;
+  if (!isBackdate && !mou.hasSignedDoc) return "pending";
   return "aktif";
 }
 

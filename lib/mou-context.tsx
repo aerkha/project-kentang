@@ -100,11 +100,14 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
 /** Apakah sebuah MoU berstatus "aktif" (bukan expired, terminated, atau pending) */
 function isMouAktif(mou: MoU): boolean {
   if (mou.isTerminated) return false;
-  if (!mou.hasSignedDoc) return false;
-  const end = new Date(mou.date);
-  end.setDate(end.getDate() + mou.contractPeriod);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const start = new Date(mou.date);
+  // PKS backdate (tanggal mulai sebelum hari ini) langsung aktif tanpa perlu signedDoc
+  const isBackdate = start < today;
+  if (!isBackdate && !mou.hasSignedDoc) return false;
+  const end = new Date(mou.date);
+  end.setDate(end.getDate() + mou.contractPeriod);
   return end >= today;
 }
 
