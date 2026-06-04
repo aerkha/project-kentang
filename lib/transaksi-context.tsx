@@ -9,6 +9,10 @@ export interface TransaksiInvestorEntry {
   investorId: string;
   investorName: string;
   nilaiInvestasi: number;
+  pctTrader:  number;   // % dari PP2 untuk Trader
+  pctMinBun:  number;   // % dari PP2 untuk MinBun
+  pctBrokerI: number;   // % dari PP2 untuk Broker I
+  pctBrokerII: number;  // % dari PP2 untuk Broker II
 }
 
 export interface Transaksi {
@@ -22,10 +26,6 @@ export interface Transaksi {
   hargaJual: number;
   brokerName?: string;
   hasBrokerII?: boolean;
-  pctTrader?: number;
-  pctMinBun?: number;
-  pctBrokerI?: number;
-  pctBrokerII?: number;
 }
 
 /** Hitung semua nilai turunan dari sebuah Transaksi */
@@ -68,18 +68,18 @@ function recordToTransaksi(
     hargaJual:       r.hargaJual      as number,
     brokerName:      (r.brokerName    as string)  || undefined,
     hasBrokerII:     (r.hasBrokerII   as boolean) || undefined,
-    pctTrader:       (r.pctTrader     as number)  ?? undefined,
-    pctMinBun:       (r.pctMinBun     as number)  ?? undefined,
-    pctBrokerI:      (r.pctBrokerI    as number)  ?? undefined,
-    pctBrokerII:     (r.pctBrokerII   as number)  ?? undefined,
   };
 }
 
 function recordToInvestorEntry(r: Record<string, unknown>): TransaksiInvestorEntry {
   return {
-    investorId:    r.investorId    as string,
-    investorName:  r.investorName  as string,
+    investorId:    r.investorId     as string,
+    investorName:  r.investorName   as string,
     nilaiInvestasi: r.nilaiInvestasi as number,
+    pctTrader:     (r.pctTrader     as number) ?? 10,
+    pctMinBun:     (r.pctMinBun     as number) ?? 5,
+    pctBrokerI:    (r.pctBrokerI    as number) ?? 0,
+    pctBrokerII:   (r.pctBrokerII   as number) ?? 0,
   };
 }
 
@@ -112,10 +112,14 @@ async function createInvestorEntries(
   await Promise.all(
     entries.map((e) =>
       pb.collection("transaksi_investors").create({
-        transaksiId:   transaksiPbId,
-        investorId:    e.investorId,
-        investorName:  e.investorName,
+        transaksiId:    transaksiPbId,
+        investorId:     e.investorId,
+        investorName:   e.investorName,
         nilaiInvestasi: e.nilaiInvestasi,
+        pctTrader:      e.pctTrader,
+        pctMinBun:      e.pctMinBun,
+        pctBrokerI:     e.pctBrokerI,
+        pctBrokerII:    e.pctBrokerII,
       }),
     ),
   );
@@ -210,10 +214,6 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
           hargaJual:      t.hargaJual,
           brokerName:     t.brokerName  || "",
           hasBrokerII:    t.hasBrokerII || false,
-          pctTrader:      t.pctTrader   ?? null,
-          pctMinBun:      t.pctMinBun   ?? null,
-          pctBrokerI:     t.pctBrokerI  ?? null,
-          pctBrokerII:    t.pctBrokerII ?? null,
         });
 
         // 2. Buat junction records

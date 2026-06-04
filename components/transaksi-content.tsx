@@ -47,6 +47,10 @@ import {
 interface InvestorEntryForm {
   investorId: string;
   nilaiInvestasi: string;
+  pctTrader: string;
+  pctMinBun: string;
+  pctBrokerI: string;
+  pctBrokerII: string;
 }
 
 interface TrxFormData {
@@ -59,20 +63,28 @@ interface TrxFormData {
   hargaJual: string;
   brokerName: string;    // "" = tidak ada broker
   hasBrokerII: string;   // "ya" | "tidak"
-  pctTrader: string;
-  pctMinBun: string;
-  pctBrokerI: string;
-  pctBrokerII: string;
 }
 
-const emptyEntry = (): InvestorEntryForm => ({ investorId: "", nilaiInvestasi: "" });
-
-// Default pct based on broker condition
-function defaultPct(brokerName: string, hasBrokerII: string) {
-  if (!brokerName)             return { pctTrader: "10", pctMinBun: "5",  pctBrokerI: "0", pctBrokerII: "0" };
-  if (hasBrokerII === "ya")    return { pctTrader: "5",  pctMinBun: "0",  pctBrokerI: "5", pctBrokerII: "5" };
-  return                              { pctTrader: "10", pctMinBun: "0",  pctBrokerI: "5", pctBrokerII: "0" };
+/** Hitung default pct per investor berdasarkan apakah investor via broker transaksi */
+function investorPct(
+  investorBrokerName: string,
+  trxBrokerName: string,
+  hasBrokerII: string,
+): Pick<InvestorEntryForm, "pctTrader" | "pctMinBun" | "pctBrokerI" | "pctBrokerII"> {
+  const viaB  = !!trxBrokerName && !!investorBrokerName && investorBrokerName === trxBrokerName;
+  const viaB2 = viaB && hasBrokerII === "ya";
+  return {
+    pctTrader:  viaB2 ? "5"  : "10",
+    pctMinBun:  viaB  ? "0"  : "5",
+    pctBrokerI: viaB  ? "5"  : "0",
+    pctBrokerII: viaB2 ? "5" : "0",
+  };
 }
+
+const emptyEntry = (): InvestorEntryForm => ({
+  investorId: "", nilaiInvestasi: "",
+  pctTrader: "10", pctMinBun: "5", pctBrokerI: "0", pctBrokerII: "0",
+});
 
 const initialForm = (): TrxFormData => ({
   date: "",
@@ -84,7 +96,6 @@ const initialForm = (): TrxFormData => ({
   hargaJual: "",
   brokerName: "",
   hasBrokerII: "tidak",
-  ...defaultPct("", "tidak"),
 });
 
 // ─────────────────────────────────────────────
@@ -144,12 +155,13 @@ interface TrxFormProps {
   onRemoveEntry: (i: number) => void;
   onUpdateEntry: (i: number, field: keyof InvestorEntryForm, v: string) => void;
   onInvestorSelect: (i: number, investorId: string) => void;
+  onBrokerChange: (brokerName: string, hasBrokerII: string) => void;
 }
 
 function TrxFormFields({
   formData, setFormData, onSubmit, submitLabel, previewId,
   investors, brokers,
-  onAddEntry, onRemoveEntry, onUpdateEntry, onInvestorSelect,
+  onAddEntry, onRemoveEntry, onUpdateEntry, onInvestorSelect, onBrokerChange,
 }: TrxFormProps) {
   const set = (k: keyof Omit<TrxFormData, "investorEntries">, v: string) =>
     setFormData({ ...formData, [k]: v });
@@ -252,50 +264,101 @@ function TrxFormFields({
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Kontribusi Investor
           </p>
-          <div className="space-y-2">
-            {formData.investorEntries.map((entry, i) => (
-              <div key={i} className="flex gap-2 items-end">
-                <div className="flex-1 space-y-1.5">
-                  {i === 0 && (
-                    <Label className="text-xs">
-                      Investor <span className="text-destructive">*</span>
-                    </Label>
+          <div className="space-y-3">
+            {formData.investorEntries.map((entry, i) => {
+              const inv = investors.find((x) => x.id === entry.investorId);
+              const viaB = !!formData.brokerName && !!inv?.brokerName && inv.brokerName === formData.brokerName;
+              return (
+                <div key={i} className="rounded-md border border-border p-3 space-y-2.5 bg-muted/20">
+                  {/* Baris utama: investor + nilai investasi */}
+                  <div className="flex gap-2 items-end">
+                    <div className="flex-1 space-y-1.5">
+                      {i === 0 && (
+                        <Label className="text-xs">
+                          Investor <span className="text-destructive">*</span>
+                        </Label>
+                      )}
+                      <Select value={entry.investorId} onValueChange={(v) => onInvestorSelect(i, v)}>
+                        <SelectTrigger><SelectValue placeholder="Pilih investor..." /></SelectTrigger>
+                        <SelectContent>
+                          {investors.map((inv) => (
+                            <SelectItem key={inv.id} value={inv.id}>
+                              {inv.name}
+                              {inv.brokerName ? ` · ${inv.brokerName}` : " · Langsung"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="w-40 space-y-1.5">
+                      {i === 0 && (
+                        <Label className="text-xs">
+                          Nilai Investasi (Rp) <span className="text-destructive">*</span>
+                        </Label>
+                      )}
+                      <Input
+                        type="number" min="0" step="100000"
+                        value={entry.nilaiInvestasi}
+                        onChange={(e) => onUpdateEntry(i, "nilaiInvestasi", e.target.value)}
+                        placeholder="0" required
+                      />
+                    </div>
+                    {formData.investorEntries.length > 1 && (
+                      <Button
+                        type="button" variant="ghost" size="icon"
+                        className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => onRemoveEntry(i)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Baris pct — tampil setelah investor dipilih */}
+                  {entry.investorId && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                          Bagi Hasil PP2 (%)
+                        </p>
+                        {viaB ? (
+                          <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                            via {formData.brokerName}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                            langsung
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-4 gap-2">
+                        {(["pctTrader","pctMinBun","pctBrokerI","pctBrokerII"] as const).map((field) => {
+                          const labels: Record<string, string> = {
+                            pctTrader: "Trader", pctMinBun: "MinBun",
+                            pctBrokerI: "Broker I", pctBrokerII: "Broker II",
+                          };
+                          const disabled =
+                            (field === "pctBrokerI"  && !formData.brokerName) ||
+                            (field === "pctBrokerII" && formData.hasBrokerII !== "ya");
+                          return (
+                            <div key={field} className="space-y-1">
+                              <Label className="text-[10px] text-muted-foreground">{labels[field]}</Label>
+                              <Input
+                                type="number" min="0" max="100" step="0.5"
+                                value={entry[field]}
+                                onChange={(e) => onUpdateEntry(i, field, e.target.value)}
+                                disabled={disabled}
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   )}
-                  <Select value={entry.investorId} onValueChange={(v) => onInvestorSelect(i, v)}>
-                    <SelectTrigger><SelectValue placeholder="Pilih investor..." /></SelectTrigger>
-                    <SelectContent>
-                      {investors.map((inv) => (
-                        <SelectItem key={inv.id} value={inv.id}>
-                          {inv.name} — {inv.id}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
-                <div className="w-40 space-y-1.5">
-                  {i === 0 && (
-                    <Label className="text-xs">
-                      Nilai Investasi (Rp) <span className="text-destructive">*</span>
-                    </Label>
-                  )}
-                  <Input
-                    type="number" min="0" step="100000"
-                    value={entry.nilaiInvestasi}
-                    onChange={(e) => onUpdateEntry(i, "nilaiInvestasi", e.target.value)}
-                    placeholder="0" required
-                  />
-                </div>
-                {formData.investorEntries.length > 1 && (
-                  <Button
-                    type="button" variant="ghost" size="icon"
-                    className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
-                    onClick={() => onRemoveEntry(i)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="grid grid-cols-2 gap-3 pt-1">
@@ -386,7 +449,7 @@ function TrxFormFields({
                 onValueChange={(v) => {
                   const val = v === "__none" ? "" : v;
                   const hasBrokerIIVal = val ? formData.hasBrokerII : "tidak";
-                  setFormData({ ...formData, brokerName: val, hasBrokerII: hasBrokerIIVal, ...defaultPct(val, hasBrokerIIVal) });
+                  onBrokerChange(val, hasBrokerIIVal);
                 }}
               >
                 <SelectTrigger><SelectValue placeholder="Tidak ada broker" /></SelectTrigger>
@@ -402,7 +465,7 @@ function TrxFormFields({
               <Label className="text-xs">Broker II</Label>
               <Select
                 value={formData.hasBrokerII}
-                onValueChange={(v) => setFormData({ ...formData, hasBrokerII: v, ...defaultPct(formData.brokerName, v) })}
+                onValueChange={(v) => onBrokerChange(formData.brokerName, v)}
                 disabled={!hasBroker}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -413,51 +476,11 @@ function TrxFormFields({
               </Select>
             </div>
           </div>
-
-          {/* Persentase bagi hasil */}
-          <div className="space-y-2">
-            <p className="text-[11px] text-muted-foreground">Persentase Bagi Hasil (%)</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="pct-trader" className="text-xs">Trader (%)</Label>
-                <Input
-                  id="pct-trader" type="number" min="0" max="100" step="0.5"
-                  value={formData.pctTrader}
-                  onChange={(e) => set("pctTrader", e.target.value)}
-                  placeholder="10"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="pct-minbun" className="text-xs">MinBun (%)</Label>
-                <Input
-                  id="pct-minbun" type="number" min="0" max="100" step="0.5"
-                  value={formData.pctMinBun}
-                  onChange={(e) => set("pctMinBun", e.target.value)}
-                  placeholder="5"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="pct-broker1" className="text-xs">Broker I (%)</Label>
-                <Input
-                  id="pct-broker1" type="number" min="0" max="100" step="0.5"
-                  value={formData.pctBrokerI}
-                  onChange={(e) => set("pctBrokerI", e.target.value)}
-                  placeholder="0"
-                  disabled={!hasBroker}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="pct-broker2" className="text-xs">Broker II (%)</Label>
-                <Input
-                  id="pct-broker2" type="number" min="0" max="100" step="0.5"
-                  value={formData.pctBrokerII}
-                  onChange={(e) => set("pctBrokerII", e.target.value)}
-                  placeholder="0"
-                  disabled={!hasBrokerII}
-                />
-              </div>
-            </div>
-          </div>
+          {hasBroker && (
+            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+              Persentase fee broker dihitung otomatis per investor berdasarkan afiliasi broker masing-masing.
+            </p>
+          )}
         </div>
       </div>
 
@@ -535,9 +558,26 @@ export function TransaksiContent() {
     const inv = investors.find((x) => x.id === investorId);
     setForm((prev) => {
       const updated = [...prev.investorEntries];
-      updated[i] = { investorId, nilaiInvestasi: inv ? inv.investmentAmount.toString() : "" };
+      updated[i] = {
+        investorId,
+        nilaiInvestasi: inv ? inv.investmentAmount.toString() : "",
+        ...investorPct(inv?.brokerName ?? "", prev.brokerName, prev.hasBrokerII),
+      };
       return { ...prev, investorEntries: updated };
     });
+  };
+
+  // Saat broker berubah: update pct semua investor entries sesuai afiliasi masing-masing
+  const handleBrokerChange = (brokerName: string, hasBrokerII: string) => {
+    setForm((prev) => ({
+      ...prev,
+      brokerName,
+      hasBrokerII,
+      investorEntries: prev.investorEntries.map((e) => {
+        const inv = investors.find((x) => x.id === e.investorId);
+        return { ...e, ...investorPct(inv?.brokerName ?? "", brokerName, hasBrokerII) };
+      }),
+    }));
   };
 
   // ── Form → Transaksi ──
@@ -554,16 +594,16 @@ export function TransaksiContent() {
           investorId:    e.investorId,
           investorName:  inv?.name ?? e.investorId,
           nilaiInvestasi: parseFloat(e.nilaiInvestasi) || 0,
+          pctTrader:  parseFloat(e.pctTrader)  || 0,
+          pctMinBun:  parseFloat(e.pctMinBun)  || 0,
+          pctBrokerI: parseFloat(e.pctBrokerI) || 0,
+          pctBrokerII: parseFloat(e.pctBrokerII) || 0,
         };
       }),
     ongkirPerKg: parseFloat(f.ongkirPerKg) || 0,
     hargaJual:   parseFloat(f.hargaJual) || 0,
     brokerName:  f.brokerName || undefined,
     hasBrokerII: f.brokerName && f.hasBrokerII === "ya" ? true : undefined,
-    pctTrader:   parseFloat(f.pctTrader)  || 0,
-    pctMinBun:   parseFloat(f.pctMinBun)  || 0,
-    pctBrokerI:  parseFloat(f.pctBrokerI) || 0,
-    pctBrokerII: parseFloat(f.pctBrokerII) || 0,
   });
 
   // ── Submit handlers ──
@@ -592,18 +632,18 @@ export function TransaksiContent() {
       kebutuhanModal: t.kebutuhanModal.toString(),
       investorEntries: t.investorEntries.length > 0
         ? t.investorEntries.map((e) => ({
-            investorId:   e.investorId,
+            investorId:    e.investorId,
             nilaiInvestasi: e.nilaiInvestasi.toString(),
+            pctTrader:     e.pctTrader.toString(),
+            pctMinBun:     e.pctMinBun.toString(),
+            pctBrokerI:    e.pctBrokerI.toString(),
+            pctBrokerII:   e.pctBrokerII.toString(),
           }))
         : [emptyEntry()],
       ongkirPerKg: t.ongkirPerKg.toString(),
       hargaJual:   t.hargaJual.toString(),
       brokerName:  t.brokerName ?? "",
       hasBrokerII: t.hasBrokerII ? "ya" : "tidak",
-      pctTrader:   (t.pctTrader  ?? 10).toString(),
-      pctMinBun:   (t.pctMinBun  ?? (t.brokerName ? 0 : 5)).toString(),
-      pctBrokerI:  (t.pctBrokerI ?? (t.brokerName ? 5 : 0)).toString(),
-      pctBrokerII: (t.pctBrokerII ?? (t.hasBrokerII ? 5 : 0)).toString(),
     });
     setIsEditOpen(true);
   };
@@ -632,6 +672,7 @@ export function TransaksiContent() {
     onRemoveEntry:    handleRemoveEntry,
     onUpdateEntry:    handleUpdateEntry,
     onInvestorSelect: handleInvestorSelect,
+    onBrokerChange:   handleBrokerChange,
   };
 
   return (

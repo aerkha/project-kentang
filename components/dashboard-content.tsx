@@ -95,17 +95,19 @@ function calcMouDistribution(
 
     totalProfit += profit;
 
-    const hasBroker = !!t.brokerName;
-    const hasBII    = !!t.hasBrokerII;
+    // Pct sudah tersimpan per-investor di entry — langsung pakai
+    const rTrader  = (entry.pctTrader  ?? 10) / 100;
+    const rMinBun  = (entry.pctMinBun  ?? 5)  / 100;
+    const rBrokerI = (entry.pctBrokerI ?? 0)  / 100;
+    const rBrokerII= (entry.pctBrokerII ?? 0) / 100;
 
     owner    += profit * pp1Pct;
     investor += profit * pkPct;
 
-    // Sub-komponen PP2 (MinBun gross profit) — diskalakan sesuai pp2Pct
-    trader   += profit * pp2Scale * (hasBII ? 0.05 : 0.10);
-    minbun   += profit * pp2Scale * (hasBroker ? 0 : 0.05);
-    brokerI  += profit * pp2Scale * (hasBroker ? 0.05 : 0);
-    brokerII += profit * pp2Scale * (hasBII    ? 0.05 : 0);
+    trader   += profit * pp2Scale * rTrader;
+    minbun   += profit * pp2Scale * rMinBun;
+    brokerI  += profit * pp2Scale * rBrokerI;
+    brokerII += profit * pp2Scale * rBrokerII;
   });
 
   hasanah = investor + trader + minbun + brokerI + brokerII;
