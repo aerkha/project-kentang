@@ -334,8 +334,17 @@ export function DashboardContent() {
       profit += c.profit;
     });
     // Bagi hasil dihitung per-PKS dari rekapData agar mengikuti skema masing-masing PKS
-    const bagHasil          = rekapData.reduce((s, r) => s + r.investor, 0);
-    const grossProfitMinbun = rekapData.reduce((s, r) => s + r.trader + r.minbun + r.brokerI + r.brokerII, 0);
+    const bagHasil = rekapData.reduce((s, r) => s + r.investor, 0);
+
+    // Gross Profit MinBun = langsung dari pctMinBun per entry transaksi
+    const grossProfitMinbun = filteredTransaksis.reduce((total, t) => {
+      const calc = calcTransaksi(t);
+      if (calc.totalInvestasi === 0) return total;
+      return total + t.investorEntries.reduce((s, e) => {
+        const ratio = e.nilaiInvestasi / calc.totalInvestasi;
+        return s + calc.profit * ratio * (e.pctMinBun / 100);
+      }, 0);
+    }, 0);
     const periodLabel = filterYear
       ? filterMonth
         ? `${MONTHS[parseInt(filterMonth) - 1]} ${filterYear}`
@@ -807,9 +816,9 @@ export function DashboardContent() {
       {modalByKeteranganData.data.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Modal per Bulan berdasarkan Keterangan</CardTitle>
+            <CardTitle>Total Investasi per Bulan</CardTitle>
             <CardDescription>
-              Total nilai investasi tiap bulan, dibagi per porsi keterangan PKS
+              Total nilai investasi per bulan dan penggunaannya
               {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
             </CardDescription>
           </CardHeader>
