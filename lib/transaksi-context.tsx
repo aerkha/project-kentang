@@ -213,8 +213,13 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
           hargaJual:      t.hargaJual,
         });
 
-        // 2. Buat junction records
-        await createInvestorEntries(record.id, t.investorEntries);
+        // 2. Buat junction records — hapus induk jika gagal agar tidak orphan
+        try {
+          await createInvestorEntries(record.id, t.investorEntries);
+        } catch (entryErr) {
+          await pb.collection("transaksis").delete(record.id).catch(() => null);
+          throw entryErr;
+        }
 
         setTransaksis((prev) => [
           ...prev,

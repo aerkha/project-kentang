@@ -319,7 +319,7 @@ function MouFormFields({
               <Input
                 id="mou-period"
                 type="number"
-                min="1"
+                min="30"
                 value={formData.contractPeriod}
                 onChange={(e) => set("contractPeriod", e.target.value)}
                 placeholder="90"

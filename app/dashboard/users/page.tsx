@@ -10,7 +10,11 @@ export default function UsersPage() {
   const router   = useRouter();
 
   useEffect(() => {
-    if (user && user.role !== "admin") {
+    if (user === null) {
+      router.replace("/");
+      return;
+    }
+    if (user.role !== "admin") {
       router.replace("/dashboard/investors");
     }
   }, [user, router]);

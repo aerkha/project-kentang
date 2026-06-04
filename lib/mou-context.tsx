@@ -2,9 +2,9 @@
 
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
+import { useInvestors } from "./investors-context";
 
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
-import { useInvestors } from "./investors-context";
 
 export interface MoU {
   id: string;             // MOU-YYYYMM-NNN (customId, e.g. MOU-202505-001)
@@ -176,18 +176,22 @@ export function MouProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (initialSyncDone.current) return;
     if (!mous.length || !investors.length) return;
-    initialSyncDone.current = true;
 
     const investorIds = [...new Set(mous.map((m) => m.investorId))];
-    for (const investorId of investorIds) {
+    const syncs = investorIds.flatMap((investorId) => {
       const shouldBeActive = mous
         .filter((m) => m.investorId === investorId)
         .some(isMouAktif);
       const investor = investors.find((i) => i.id === investorId);
       if (investor && investor.isActive !== shouldBeActive) {
-        updateInvestor(investorId, { isActive: shouldBeActive }).catch(console.error);
+        return [updateInvestor(investorId, { isActive: shouldBeActive })];
       }
-    }
+      return [];
+    });
+
+    Promise.all(syncs)
+      .then(() => { initialSyncDone.current = true; })
+      .catch(console.error);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mous, investors]);
 
