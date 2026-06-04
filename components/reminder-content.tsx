@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
 import { useInvestors } from "@/lib/investors-context";
+import { useBrokers } from "@/lib/brokers-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -97,12 +98,23 @@ function calcBagiHasil(mou: MoU, transaksis: Transaksi[]) {
   return { investor, trader, minbun, broker };
 }
 
+// ── Tipe baris tabel ─────────────────────────────────────────────────────────
+
+type PaymentRow = {
+  nama:          string;
+  keterangan:    "Investor" | "Broker" | "Trader" | "MinBun";
+  bankName:      string;
+  accountNumber: string;
+  jumlah:        number;
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ReminderContent() {
   const { mous, updateMou } = useMou();
   const { transaksis }      = useTransaksi();
   const { investors }       = useInvestors();
+  const { brokers }         = useBrokers();
   const [toggling, setToggling] = useState<string | null>(null);
 
   // Hanya PKS yang aktif (tidak terminated, belum expired)
@@ -119,21 +131,63 @@ export function ReminderContent() {
       .map((mou) => {
         const endDateStr = addDays(mou.date, mou.contractPeriod);
         const bh         = calcBagiHasil(mou, transaksis);
-        return { mou, endDateStr, ...bh };
+        const inv        = investors.find((i) => i.id === mou.investorId);
+        const brokerData = brokers.find((b) => b.name === inv?.brokerName);
+
+        // Susun baris pembayaran per penerima (skip jika jumlah = 0)
+        const rows: PaymentRow[] = [];
+
+        if (bh.investor > 0)
+          rows.push({
+            nama:          mou.investorName,
+            keterangan:    "Investor",
+            bankName:      inv?.bankName      || "—",
+            accountNumber: inv?.accountNumber || "—",
+            jumlah:        bh.investor,
+          });
+
+        if (bh.broker > 0)
+          rows.push({
+            nama:          inv?.brokerName    || "Broker",
+            keterangan:    "Broker",
+            bankName:      brokerData?.bankName      || "—",
+            accountNumber: brokerData?.accountNumber || "—",
+            jumlah:        bh.broker,
+          });
+
+        if (bh.trader > 0)
+          rows.push({
+            nama:          "Trader",
+            keterangan:    "Trader",
+            bankName:      "—",
+            accountNumber: "—",
+            jumlah:        bh.trader,
+          });
+
+        if (bh.minbun > 0)
+          rows.push({
+            nama:          "MinBun",
+            keterangan:    "MinBun",
+            bankName:      "—",
+            accountNumber: "—",
+            jumlah:        bh.minbun,
+          });
+
+        return { mou, endDateStr, bh, rows };
       })
       .sort((a, b) => a.endDateStr.localeCompare(b.endDateStr));
-  }, [mous, transaksis]);
+  }, [mous, transaksis, investors, brokers]);
 
   // Ringkasan — hanya dari tugas yang belum selesai
   const summary = useMemo(() => {
     const pending = tasks.filter((t) => !t.mou.bagiHasilDone);
     return {
-      investor: pending.reduce((s, t) => s + t.investor, 0),
-      trader:   pending.reduce((s, t) => s + t.trader,   0),
-      minbun:   pending.reduce((s, t) => s + t.minbun,   0),
-      broker:   pending.reduce((s, t) => s + t.broker,   0),
-      totalTasks:   tasks.length,
-      doneTasks:    tasks.filter((t) => t.mou.bagiHasilDone).length,
+      investor: pending.reduce((s, t) => s + t.bh.investor, 0),
+      trader:   pending.reduce((s, t) => s + t.bh.trader,   0),
+      minbun:   pending.reduce((s, t) => s + t.bh.minbun,   0),
+      broker:   pending.reduce((s, t) => s + t.bh.broker,   0),
+      totalTasks: tasks.length,
+      doneTasks:  tasks.filter((t) => t.mou.bagiHasilDone).length,
     };
   }, [tasks]);
 
@@ -144,6 +198,13 @@ export function ReminderContent() {
     } finally {
       setToggling(null);
     }
+  };
+
+  const keteranganColor: Record<PaymentRow["keterangan"], string> = {
+    Investor: "bg-orange-100 text-orange-700 border-orange-200",
+    Broker:   "bg-blue-100 text-blue-700 border-blue-200",
+    Trader:   "bg-purple-100 text-purple-700 border-purple-200",
+    MinBun:   "bg-green-100 text-green-700 border-green-200",
   };
 
   return (
@@ -172,7 +233,6 @@ export function ReminderContent() {
             <p className="text-xs text-muted-foreground">{formatCurrency(summary.investor)}</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Bagi Hasil Trader</CardTitle>
@@ -183,7 +243,6 @@ export function ReminderContent() {
             <p className="text-xs text-muted-foreground">{formatCurrency(summary.trader)}</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Bagi Hasil MinBun</CardTitle>
@@ -194,7 +253,6 @@ export function ReminderContent() {
             <p className="text-xs text-muted-foreground">{formatCurrency(summary.minbun)}</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Bagi Hasil Broker</CardTitle>
@@ -224,12 +282,7 @@ export function ReminderContent() {
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
                     <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Nama</th>
-                    {/* Keterangan — sub-kolom */}
-                    <th className="text-right  py-2.5 px-3 font-medium text-orange-500 whitespace-nowrap">Investor</th>
-                    <th className="text-right  py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Broker</th>
-                    <th className="text-right  py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Trader</th>
-                    <th className="text-right  py-2.5 px-3 font-medium text-green-600 whitespace-nowrap">MinBun</th>
-                    {/* end sub-kolom */}
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Keterangan</th>
                     <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Nama Bank</th>
                     <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">No Rekening</th>
                     <th className="text-right  py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Jumlah</th>
@@ -237,22 +290,12 @@ export function ReminderContent() {
                     <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Deadline</th>
                     <th className="text-center py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Status</th>
                   </tr>
-                  {/* Label grup Keterangan */}
-                  <tr className="border-b border-border/50">
-                    <td />
-                    <td colSpan={4} className="py-1 px-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider text-center border-x border-border/40 bg-muted/20">
-                      Keterangan
-                    </td>
-                    <td colSpan={6} />
-                  </tr>
                 </thead>
                 <tbody>
                   {tasks.map((task) => {
                     const done      = !!task.mou.bagiHasilDone;
                     const days      = daysUntil(task.endDateStr);
                     const isLoading = toggling === task.mou.id;
-                    const investor  = investors.find((i) => i.id === task.mou.investorId);
-                    const jumlah    = task.investor + task.trader + task.minbun + task.broker;
 
                     let dayLabel: React.ReactNode;
                     if (done) {
@@ -269,82 +312,80 @@ export function ReminderContent() {
                       dayLabel = <span className="text-sm text-muted-foreground">{days} hari lagi</span>;
                     }
 
-                    return (
+                    const rowCount = task.rows.length || 1;
+                    const rowClass = `transition-colors ${done ? "opacity-50" : "hover:bg-muted/40"}`;
+
+                    return task.rows.map((pr, idx) => (
                       <tr
-                        key={task.mou.id}
-                        className={`border-b border-border/50 transition-colors ${
-                          done ? "opacity-50" : "hover:bg-muted/40"
-                        }`}
+                        key={`${task.mou.id}-${pr.keterangan}`}
+                        className={`border-b border-border/50 ${rowClass} ${idx === 0 ? "border-t-2 border-t-border/30" : ""}`}
                       >
                         {/* Nama */}
-                        <td className="py-3 px-3 whitespace-nowrap">
+                        <td className="py-2.5 px-3 whitespace-nowrap">
                           <span className={done ? "line-through text-muted-foreground" : "font-medium"}>
-                            {task.mou.investorName}
+                            {pr.nama}
                           </span>
                         </td>
-                        {/* Keterangan sub-kolom */}
-                        <td className="py-3 px-3 text-right whitespace-nowrap font-medium text-orange-500 border-l border-border/40 bg-muted/10">
-                          {formatShort(task.investor)}
-                        </td>
-                        <td className="py-3 px-3 text-right whitespace-nowrap text-muted-foreground bg-muted/10">
-                          {formatShort(task.broker)}
-                        </td>
-                        <td className="py-3 px-3 text-right whitespace-nowrap text-muted-foreground bg-muted/10">
-                          {formatShort(task.trader)}
-                        </td>
-                        <td className="py-3 px-3 text-right whitespace-nowrap font-medium text-green-600 border-r border-border/40 bg-muted/10">
-                          {formatShort(task.minbun)}
+                        {/* Keterangan */}
+                        <td className="py-2.5 px-3 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${keteranganColor[pr.keterangan]}`}>
+                            {pr.keterangan}
+                          </span>
                         </td>
                         {/* Nama Bank */}
-                        <td className="py-3 px-3 whitespace-nowrap text-muted-foreground">
-                          {investor?.bankName || "—"}
+                        <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">
+                          {pr.bankName}
                         </td>
                         {/* No Rekening */}
-                        <td className="py-3 px-3 whitespace-nowrap font-mono text-xs text-muted-foreground">
-                          {investor?.accountNumber || "—"}
+                        <td className="py-2.5 px-3 whitespace-nowrap font-mono text-xs text-muted-foreground">
+                          {pr.accountNumber}
                         </td>
                         {/* Jumlah */}
-                        <td className="py-3 px-3 text-right whitespace-nowrap font-bold">
-                          {formatShort(jumlah)}
-                          <div className="text-[10px] font-normal text-muted-foreground">{formatCurrency(jumlah)}</div>
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap font-semibold">
+                          {formatShort(pr.jumlah)}
+                          <div className="text-[10px] font-normal text-muted-foreground">{formatCurrency(pr.jumlah)}</div>
                         </td>
-                        {/* No PKS */}
-                        <td className="py-3 px-3 font-mono text-xs text-muted-foreground whitespace-nowrap">
-                          {task.mou.id}
-                        </td>
-                        {/* Deadline */}
-                        <td className="py-3 px-3 whitespace-nowrap">
-                          {dayLabel}
-                          <div className="text-[10px] text-muted-foreground mt-0.5">
-                            {formatDate(task.endDateStr)}
-                          </div>
-                        </td>
-                        {/* Status */}
-                        <td className="py-3 px-3 text-center">
-                          <TooltipProvider delayDuration={200}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  disabled={isLoading}
-                                  onClick={() => handleToggle(task.mou)}
-                                >
-                                  {done
-                                    ? <CheckCircle2 className="h-5 w-5 text-green-500" />
-                                    : <Circle className="h-5 w-5 text-muted-foreground" />
-                                  }
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent side="left" className="text-xs">
-                                {done ? "Tandai belum selesai" : "Tandai sudah selesai"}
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </td>
+                        {/* No PKS — hanya baris pertama, rowspan */}
+                        {idx === 0 && (
+                          <td className="py-2.5 px-3 font-mono text-xs text-muted-foreground whitespace-nowrap align-top" rowSpan={rowCount}>
+                            {task.mou.id}
+                          </td>
+                        )}
+                        {/* Deadline — hanya baris pertama, rowspan */}
+                        {idx === 0 && (
+                          <td className="py-2.5 px-3 whitespace-nowrap align-top" rowSpan={rowCount}>
+                            {dayLabel}
+                            <div className="text-[10px] text-muted-foreground mt-0.5">{formatDate(task.endDateStr)}</div>
+                          </td>
+                        )}
+                        {/* Status — hanya baris pertama, rowspan */}
+                        {idx === 0 && (
+                          <td className="py-2.5 px-3 text-center align-top" rowSpan={rowCount}>
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    disabled={isLoading}
+                                    onClick={() => handleToggle(task.mou)}
+                                  >
+                                    {done
+                                      ? <CheckCircle2 className="h-5 w-5 text-green-500" />
+                                      : <Circle className="h-5 w-5 text-muted-foreground" />
+                                    }
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="left" className="text-xs">
+                                  {done ? "Tandai belum selesai" : "Tandai sudah selesai"}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </td>
+                        )}
                       </tr>
-                    );
+                    ));
                   })}
                 </tbody>
               </table>
