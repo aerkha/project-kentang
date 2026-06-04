@@ -14,7 +14,7 @@ const allNavigation = [
   { name: "Perjanjian Kerjasama",href: "/dashboard/mou",       icon: FileText,  adminOnly: false },
   { name: "Transaksi",           href: "/dashboard/transaksi",    icon: Receipt,   adminOnly: false },
   { name: "Reminder",            href: "/dashboard/reminder",     icon: Bell,      adminOnly: false },
-  { name: "Pengeluaran",         href: "/dashboard/pengeluaran",  icon: Wallet,    adminOnly: false },
+  { name: "Cash Flow",         href: "/dashboard/cash-flow",  icon: Wallet,    adminOnly: false },
   { name: "Manajemen User",      href: "/dashboard/users",         icon: UserCog,   adminOnly: true  },
 ];
 
