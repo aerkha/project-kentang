@@ -8,11 +8,12 @@ const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "
 export interface TransaksiInvestorEntry {
   investorId: string;
   investorName: string;
+  investorBrokerName: string;  // "" jika langsung (tanpa broker)
   nilaiInvestasi: number;
-  pctTrader:  number;   // % dari PP2 untuk Trader
-  pctMinBun:  number;   // % dari PP2 untuk MinBun
-  pctBrokerI: number;   // % dari PP2 untuk Broker I
-  pctBrokerII: number;  // % dari PP2 untuk Broker II
+  pctTrader:  number;
+  pctMinBun:  number;
+  pctBrokerI: number;
+  pctBrokerII: number;
 }
 
 export interface Transaksi {
@@ -24,8 +25,6 @@ export interface Transaksi {
   investorEntries: TransaksiInvestorEntry[];
   ongkirPerKg: number;
   hargaJual: number;
-  brokerName?: string;
-  hasBrokerII?: boolean;
 }
 
 /** Hitung semua nilai turunan dari sebuah Transaksi */
@@ -64,22 +63,21 @@ function recordToTransaksi(
     hpp:             r.hpp            as number,
     kebutuhanModal:  r.kebutuhanModal as number,
     investorEntries,
-    ongkirPerKg:     r.ongkirPerKg    as number,
-    hargaJual:       r.hargaJual      as number,
-    brokerName:      (r.brokerName    as string)  || undefined,
-    hasBrokerII:     (r.hasBrokerII   as boolean) || undefined,
+    ongkirPerKg: r.ongkirPerKg as number,
+    hargaJual:   r.hargaJual   as number,
   };
 }
 
 function recordToInvestorEntry(r: Record<string, unknown>): TransaksiInvestorEntry {
   return {
-    investorId:    r.investorId     as string,
-    investorName:  r.investorName   as string,
-    nilaiInvestasi: r.nilaiInvestasi as number,
-    pctTrader:     (r.pctTrader     as number) ?? 10,
-    pctMinBun:     (r.pctMinBun     as number) ?? 5,
-    pctBrokerI:    (r.pctBrokerI    as number) ?? 0,
-    pctBrokerII:   (r.pctBrokerII   as number) ?? 0,
+    investorId:         r.investorId         as string,
+    investorName:       r.investorName       as string,
+    investorBrokerName: (r.investorBrokerName as string) || "",
+    nilaiInvestasi:     r.nilaiInvestasi      as number,
+    pctTrader:          (r.pctTrader          as number) ?? 10,
+    pctMinBun:          (r.pctMinBun          as number) ?? 5,
+    pctBrokerI:         (r.pctBrokerI         as number) ?? 0,
+    pctBrokerII:        (r.pctBrokerII        as number) ?? 0,
   };
 }
 
@@ -112,14 +110,15 @@ async function createInvestorEntries(
   await Promise.all(
     entries.map((e) =>
       pb.collection("transaksi_investors").create({
-        transaksiId:    transaksiPbId,
-        investorId:     e.investorId,
-        investorName:   e.investorName,
-        nilaiInvestasi: e.nilaiInvestasi,
-        pctTrader:      e.pctTrader,
-        pctMinBun:      e.pctMinBun,
-        pctBrokerI:     e.pctBrokerI,
-        pctBrokerII:    e.pctBrokerII,
+        transaksiId:         transaksiPbId,
+        investorId:          e.investorId,
+        investorName:        e.investorName,
+        investorBrokerName:  e.investorBrokerName,
+        nilaiInvestasi:      e.nilaiInvestasi,
+        pctTrader:           e.pctTrader,
+        pctMinBun:           e.pctMinBun,
+        pctBrokerI:          e.pctBrokerI,
+        pctBrokerII:         e.pctBrokerII,
       }),
     ),
   );
@@ -212,8 +211,6 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
           kebutuhanModal: t.kebutuhanModal,
           ongkirPerKg:    t.ongkirPerKg,
           hargaJual:      t.hargaJual,
-          brokerName:     t.brokerName  || "",
-          hasBrokerII:    t.hasBrokerII || false,
         });
 
         // 2. Buat junction records

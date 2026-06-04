@@ -61,23 +61,18 @@ interface TrxFormData {
   investorEntries: InvestorEntryForm[];
   ongkirPerKg: string;
   hargaJual: string;
-  brokerName: string;    // "" = tidak ada broker
-  hasBrokerII: string;   // "ya" | "tidak"
 }
 
-/** Hitung default pct per investor berdasarkan apakah investor via broker transaksi */
+/** Default pct berdasarkan broker investor — langsung dari data investor */
 function investorPct(
   investorBrokerName: string,
-  trxBrokerName: string,
-  hasBrokerII: string,
 ): Pick<InvestorEntryForm, "pctTrader" | "pctMinBun" | "pctBrokerI" | "pctBrokerII"> {
-  const viaB  = !!trxBrokerName && !!investorBrokerName && investorBrokerName === trxBrokerName;
-  const viaB2 = viaB && hasBrokerII === "ya";
+  const hasBroker = !!investorBrokerName;
   return {
-    pctTrader:  viaB2 ? "5"  : "10",
-    pctMinBun:  viaB  ? "0"  : "5",
-    pctBrokerI: viaB  ? "5"  : "0",
-    pctBrokerII: viaB2 ? "5" : "0",
+    pctTrader:   "10",
+    pctMinBun:   hasBroker ? "0" : "5",
+    pctBrokerI:  hasBroker ? "5" : "0",
+    pctBrokerII: "0",
   };
 }
 
@@ -94,8 +89,6 @@ const initialForm = (): TrxFormData => ({
   investorEntries: [emptyEntry()],
   ongkirPerKg: "",
   hargaJual: "",
-  brokerName: "",
-  hasBrokerII: "tidak",
 });
 
 // ─────────────────────────────────────────────
@@ -155,13 +148,12 @@ interface TrxFormProps {
   onRemoveEntry: (i: number) => void;
   onUpdateEntry: (i: number, field: keyof InvestorEntryForm, v: string) => void;
   onInvestorSelect: (i: number, investorId: string) => void;
-  onBrokerChange: (brokerName: string, hasBrokerII: string) => void;
 }
 
 function TrxFormFields({
   formData, setFormData, onSubmit, submitLabel, previewId,
-  investors, brokers,
-  onAddEntry, onRemoveEntry, onUpdateEntry, onInvestorSelect, onBrokerChange,
+  investors, brokers: _brokers,
+  onAddEntry, onRemoveEntry, onUpdateEntry, onInvestorSelect,
 }: TrxFormProps) {
   const set = (k: keyof Omit<TrxFormData, "investorEntries">, v: string) =>
     setFormData({ ...formData, [k]: v });
@@ -182,12 +174,23 @@ function TrxFormFields({
     selisih < 0   ? "text-orange-600" :
                     "text-red-600";
 
-  const hasBroker   = !!formData.brokerName;
-  const hasBrokerII = formData.hasBrokerII === "ya";
+  // Ringkasan broker dari investor yang dipilih
+  const brokerSummary = useMemo(() => {
+    const map = new Map<string, string[]>(); // brokerName → [investorName]
+    formData.investorEntries.forEach((e) => {
+      if (!e.investorId) return;
+      const inv = investors.find((x) => x.id === e.investorId);
+      if (!inv) return;
+      const key = inv.brokerName?.trim() || "__langsung";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(inv.name);
+    });
+    return map;
+  }, [formData.investorEntries, investors]);
 
   return (
-    <form onSubmit={onSubmit}>
-      <div className="overflow-y-auto max-h-[70vh] pr-2 space-y-5">
+    <form onSubmit={onSubmit} className="flex flex-col gap-0">
+      <div className="overflow-y-auto max-h-[62vh] pr-2 space-y-5">
 
         {/* ── Info Pengiriman ── */}
         <div className="space-y-3">
@@ -267,7 +270,6 @@ function TrxFormFields({
           <div className="space-y-3">
             {formData.investorEntries.map((entry, i) => {
               const inv = investors.find((x) => x.id === entry.investorId);
-              const viaB = !!formData.brokerName && !!inv?.brokerName && inv.brokerName === formData.brokerName;
               return (
                 <div key={i} className="rounded-md border border-border p-3 space-y-2.5 bg-muted/20">
                   {/* Baris utama: investor + nilai investasi */}
@@ -321,9 +323,9 @@ function TrxFormFields({
                         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                           Bagi Hasil PP2 (%)
                         </p>
-                        {viaB ? (
+                        {inv?.brokerName ? (
                           <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
-                            via {formData.brokerName}
+                            via {inv.brokerName}
                           </span>
                         ) : (
                           <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
@@ -337,9 +339,8 @@ function TrxFormFields({
                             pctTrader: "Trader", pctMinBun: "MinBun",
                             pctBrokerI: "Broker I", pctBrokerII: "Broker II",
                           };
-                          const disabled =
-                            (field === "pctBrokerI"  && !formData.brokerName) ||
-                            (field === "pctBrokerII" && formData.hasBrokerII !== "ya");
+                          // pctBrokerII selalu 0 di model per-investor (tiap investor punya 1 broker)
+                          const disabled = field === "pctBrokerII";
                           return (
                             <div key={field} className="space-y-1">
                               <Label className="text-[10px] text-muted-foreground">{labels[field]}</Label>
@@ -436,55 +437,31 @@ function TrxFormFields({
           )}
         </div>
 
-        {/* ── Broker ── */}
-        <div className="space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
-            Broker
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Broker I (Nama)</Label>
-              <Select
-                value={formData.brokerName || "__none"}
-                onValueChange={(v) => {
-                  const val = v === "__none" ? "" : v;
-                  const hasBrokerIIVal = val ? formData.hasBrokerII : "tidak";
-                  onBrokerChange(val, hasBrokerIIVal);
-                }}
-              >
-                <SelectTrigger><SelectValue placeholder="Tidak ada broker" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none">Tidak Ada</SelectItem>
-                  {brokers.map((b) => (
-                    <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Broker II</Label>
-              <Select
-                value={formData.hasBrokerII}
-                onValueChange={(v) => onBrokerChange(formData.brokerName, v)}
-                disabled={!hasBroker}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="tidak">Tidak</SelectItem>
-                  <SelectItem value="ya">Ya</SelectItem>
-                </SelectContent>
-              </Select>
+        {/* ── Afiliasi Broker ── */}
+        {brokerSummary.size > 0 && (
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
+              Afiliasi Broker
+            </p>
+            <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1">
+              {Array.from(brokerSummary.entries()).map(([broker, names]) => (
+                <div key={broker} className="flex items-start gap-2 text-xs">
+                  <span className={`mt-0.5 shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                    broker === "__langsung"
+                      ? "bg-muted text-muted-foreground"
+                      : "bg-amber-50 border border-amber-200 text-amber-700"
+                  }`}>
+                    {broker === "__langsung" ? "Langsung" : broker}
+                  </span>
+                  <span className="text-muted-foreground">{names.join(", ")}</span>
+                </div>
+              ))}
             </div>
           </div>
-          {hasBroker && (
-            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-              Persentase fee broker dihitung otomatis per investor berdasarkan afiliasi broker masing-masing.
-            </p>
-          )}
-        </div>
+        )}
       </div>
 
-      <DialogFooter className="mt-4 pt-4 border-t">
+      <DialogFooter className="mt-4 pt-4 border-t shrink-0">
         <Button type="submit">{submitLabel}</Button>
       </DialogFooter>
     </form>
@@ -561,23 +538,10 @@ export function TransaksiContent() {
       updated[i] = {
         investorId,
         nilaiInvestasi: inv ? inv.investmentAmount.toString() : "",
-        ...investorPct(inv?.brokerName ?? "", prev.brokerName, prev.hasBrokerII),
+        ...investorPct(inv?.brokerName ?? ""),
       };
       return { ...prev, investorEntries: updated };
     });
-  };
-
-  // Saat broker berubah: update pct semua investor entries sesuai afiliasi masing-masing
-  const handleBrokerChange = (brokerName: string, hasBrokerII: string) => {
-    setForm((prev) => ({
-      ...prev,
-      brokerName,
-      hasBrokerII,
-      investorEntries: prev.investorEntries.map((e) => {
-        const inv = investors.find((x) => x.id === e.investorId);
-        return { ...e, ...investorPct(inv?.brokerName ?? "", brokerName, hasBrokerII) };
-      }),
-    }));
   };
 
   // ── Form → Transaksi ──
@@ -591,19 +555,18 @@ export function TransaksiContent() {
       .map((e) => {
         const inv = investors.find((x) => x.id === e.investorId);
         return {
-          investorId:    e.investorId,
-          investorName:  inv?.name ?? e.investorId,
-          nilaiInvestasi: parseFloat(e.nilaiInvestasi) || 0,
-          pctTrader:  parseFloat(e.pctTrader)  || 0,
-          pctMinBun:  parseFloat(e.pctMinBun)  || 0,
-          pctBrokerI: parseFloat(e.pctBrokerI) || 0,
-          pctBrokerII: parseFloat(e.pctBrokerII) || 0,
+          investorId:         e.investorId,
+          investorName:       inv?.name ?? e.investorId,
+          investorBrokerName: inv?.brokerName ?? "",
+          nilaiInvestasi:     parseFloat(e.nilaiInvestasi) || 0,
+          pctTrader:          parseFloat(e.pctTrader)  || 0,
+          pctMinBun:          parseFloat(e.pctMinBun)  || 0,
+          pctBrokerI:         parseFloat(e.pctBrokerI) || 0,
+          pctBrokerII:        0,
         };
       }),
     ongkirPerKg: parseFloat(f.ongkirPerKg) || 0,
     hargaJual:   parseFloat(f.hargaJual) || 0,
-    brokerName:  f.brokerName || undefined,
-    hasBrokerII: f.brokerName && f.hasBrokerII === "ya" ? true : undefined,
   });
 
   // ── Submit handlers ──
@@ -642,8 +605,6 @@ export function TransaksiContent() {
         : [emptyEntry()],
       ongkirPerKg: t.ongkirPerKg.toString(),
       hargaJual:   t.hargaJual.toString(),
-      brokerName:  t.brokerName ?? "",
-      hasBrokerII: t.hasBrokerII ? "ya" : "tidak",
     });
     setIsEditOpen(true);
   };
@@ -672,7 +633,6 @@ export function TransaksiContent() {
     onRemoveEntry:    handleRemoveEntry,
     onUpdateEntry:    handleUpdateEntry,
     onInvestorSelect: handleInvestorSelect,
-    onBrokerChange:   handleBrokerChange,
   };
 
   return (
@@ -787,9 +747,12 @@ export function TransaksiContent() {
                 <tbody>
                   {sorted.map((t) => {
                     const c = calcTransaksi(t);
-                    const brokerLabel = t.brokerName
-                      ? (t.hasBrokerII ? `${t.brokerName} +II` : t.brokerName)
-                      : "—";
+                    const brokers = [...new Set(
+                      t.investorEntries
+                        .map((e) => e.investorBrokerName)
+                        .filter(Boolean)
+                    )];
+                    const brokerLabel = brokers.length > 0 ? brokers.join(", ") : "—";
                     return (
                       <tr key={t.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                         <td className="py-3 px-4 font-mono text-xs font-medium">{t.id}</td>
