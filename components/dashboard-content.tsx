@@ -341,8 +341,10 @@ export function DashboardContent() {
       const calc = calcTransaksi(t);
       if (calc.totalInvestasi === 0) return total;
       return total + t.investorEntries.reduce((s, e) => {
-        const ratio = e.nilaiInvestasi / calc.totalInvestasi;
-        const totalPct = (e.pctTrader + e.pctMinBun + e.pctBrokerI + e.pctBrokerII) / 100;
+        const ratio    = e.nilaiInvestasi / calc.totalInvestasi;
+        const sumPct   = e.pctTrader + e.pctMinBun + e.pctBrokerI + e.pctBrokerII;
+        // Fallback 15% untuk data lama yang tersimpan dengan semua pct = 0
+        const totalPct = (sumPct || 15) / 100;
         return s + calc.profit * ratio * totalPct;
       }, 0);
     }, 0);
