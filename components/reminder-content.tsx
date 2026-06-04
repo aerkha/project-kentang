@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
+import { useInvestors } from "@/lib/investors-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -101,6 +102,7 @@ function calcBagiHasil(mou: MoU, transaksis: Transaksi[]) {
 export function ReminderContent() {
   const { mous, updateMou } = useMou();
   const { transaksis }      = useTransaksi();
+  const { investors }       = useInvestors();
   const [toggling, setToggling] = useState<string | null>(null);
 
   // Hanya PKS yang aktif (tidak terminated, belum expired)
@@ -221,21 +223,36 @@ export function ReminderContent() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Investor</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">No PKS</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Deadline</th>
-                    <th className="text-right py-3 px-4 font-medium text-orange-500 whitespace-nowrap">Investor</th>
-                    <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Trader</th>
-                    <th className="text-right py-3 px-4 font-medium text-green-600 whitespace-nowrap">MinBun</th>
-                    <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Broker</th>
-                    <th className="text-center py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Status</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Nama</th>
+                    {/* Keterangan — sub-kolom */}
+                    <th className="text-right  py-2.5 px-3 font-medium text-orange-500 whitespace-nowrap">Investor</th>
+                    <th className="text-right  py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Broker</th>
+                    <th className="text-right  py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Trader</th>
+                    <th className="text-right  py-2.5 px-3 font-medium text-green-600 whitespace-nowrap">MinBun</th>
+                    {/* end sub-kolom */}
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Nama Bank</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">No Rekening</th>
+                    <th className="text-right  py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Jumlah</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">No PKS</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Deadline</th>
+                    <th className="text-center py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Status</th>
+                  </tr>
+                  {/* Label grup Keterangan */}
+                  <tr className="border-b border-border/50">
+                    <td />
+                    <td colSpan={4} className="py-1 px-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider text-center border-x border-border/40 bg-muted/20">
+                      Keterangan
+                    </td>
+                    <td colSpan={6} />
                   </tr>
                 </thead>
                 <tbody>
                   {tasks.map((task) => {
-                    const done     = !!task.mou.bagiHasilDone;
-                    const days     = daysUntil(task.endDateStr);
+                    const done      = !!task.mou.bagiHasilDone;
+                    const days      = daysUntil(task.endDateStr);
                     const isLoading = toggling === task.mou.id;
+                    const investor  = investors.find((i) => i.id === task.mou.investorId);
+                    const jumlah    = task.investor + task.trader + task.minbun + task.broker;
 
                     let dayLabel: React.ReactNode;
                     if (done) {
@@ -259,33 +276,51 @@ export function ReminderContent() {
                           done ? "opacity-50" : "hover:bg-muted/40"
                         }`}
                       >
-                        <td className="py-3 px-4 whitespace-nowrap">
+                        {/* Nama */}
+                        <td className="py-3 px-3 whitespace-nowrap">
                           <span className={done ? "line-through text-muted-foreground" : "font-medium"}>
                             {task.mou.investorName}
                           </span>
                         </td>
-                        <td className="py-3 px-4 font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        {/* Keterangan sub-kolom */}
+                        <td className="py-3 px-3 text-right whitespace-nowrap font-medium text-orange-500 border-l border-border/40 bg-muted/10">
+                          {formatShort(task.investor)}
+                        </td>
+                        <td className="py-3 px-3 text-right whitespace-nowrap text-muted-foreground bg-muted/10">
+                          {formatShort(task.broker)}
+                        </td>
+                        <td className="py-3 px-3 text-right whitespace-nowrap text-muted-foreground bg-muted/10">
+                          {formatShort(task.trader)}
+                        </td>
+                        <td className="py-3 px-3 text-right whitespace-nowrap font-medium text-green-600 border-r border-border/40 bg-muted/10">
+                          {formatShort(task.minbun)}
+                        </td>
+                        {/* Nama Bank */}
+                        <td className="py-3 px-3 whitespace-nowrap text-muted-foreground">
+                          {investor?.bankName || "—"}
+                        </td>
+                        {/* No Rekening */}
+                        <td className="py-3 px-3 whitespace-nowrap font-mono text-xs text-muted-foreground">
+                          {investor?.accountNumber || "—"}
+                        </td>
+                        {/* Jumlah */}
+                        <td className="py-3 px-3 text-right whitespace-nowrap font-bold">
+                          {formatShort(jumlah)}
+                          <div className="text-[10px] font-normal text-muted-foreground">{formatCurrency(jumlah)}</div>
+                        </td>
+                        {/* No PKS */}
+                        <td className="py-3 px-3 font-mono text-xs text-muted-foreground whitespace-nowrap">
                           {task.mou.id}
                         </td>
-                        <td className="py-3 px-4 whitespace-nowrap">
+                        {/* Deadline */}
+                        <td className="py-3 px-3 whitespace-nowrap">
                           {dayLabel}
                           <div className="text-[10px] text-muted-foreground mt-0.5">
                             {formatDate(task.endDateStr)}
                           </div>
                         </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap font-medium text-orange-500">
-                          {formatShort(task.investor)}
-                        </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap text-muted-foreground">
-                          {formatShort(task.trader)}
-                        </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap font-medium text-green-600">
-                          {formatShort(task.minbun)}
-                        </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap text-muted-foreground">
-                          {formatShort(task.broker)}
-                        </td>
-                        <td className="py-3 px-4 text-center">
+                        {/* Status */}
+                        <td className="py-3 px-3 text-center">
                           <TooltipProvider delayDuration={200}>
                             <Tooltip>
                               <TooltipTrigger asChild>
