@@ -342,7 +342,8 @@ export function DashboardContent() {
       if (calc.totalInvestasi === 0) return total;
       return total + t.investorEntries.reduce((s, e) => {
         const ratio = e.nilaiInvestasi / calc.totalInvestasi;
-        return s + calc.profit * ratio * (e.pctMinBun / 100);
+        const totalPct = (e.pctTrader + e.pctMinBun + e.pctBrokerI + e.pctBrokerII) / 100;
+        return s + calc.profit * ratio * totalPct;
       }, 0);
     }, 0);
     const periodLabel = filterYear
