@@ -1,10 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
 import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
+import { usePengeluaran } from "@/lib/pengeluaran-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -115,6 +117,7 @@ export function ReminderContent() {
   const { transaksis }      = useTransaksi();
   const { investors }       = useInvestors();
   const { brokers }         = useBrokers();
+  const { addPengeluaran }  = usePengeluaran();
   const [toggling, setToggling] = useState<string | null>(null);
 
   // Hanya PKS yang aktif (tidak terminated, belum expired)
@@ -192,9 +195,30 @@ export function ReminderContent() {
   }, [tasks]);
 
   const handleToggle = async (mou: MoU) => {
+    const willDone = !mou.bagiHasilDone;
     setToggling(mou.id);
     try {
-      await updateMou(mou.id, { bagiHasilDone: !mou.bagiHasilDone });
+      await updateMou(mou.id, { bagiHasilDone: willDone });
+
+      if (willDone) {
+        // Cari data task yang sesuai untuk mendapatkan rows pembayaran
+        const task = tasks.find((t) => t.mou.id === mou.id);
+        if (task && task.rows.length > 0) {
+          const today = new Date().toISOString().slice(0, 10);
+          await Promise.all(
+            task.rows.map((row) =>
+              addPengeluaran({
+                date:      today,
+                deskripsi: `Bagi Hasil ${row.nama} (${row.keterangan}) - PKS ${mou.id}`,
+                debet:     row.keterangan === "MinBun" ? row.jumlah : 0,
+                kredit:    row.keterangan === "MinBun" ? 0 : row.jumlah,
+                catatan:   `Auto dari Reminder PKS ${mou.id}`,
+              })
+            )
+          );
+          toast.success(`Bagi hasil PKS ${mou.id} dicatat di Cashflow`);
+        }
+      }
     } finally {
       setToggling(null);
     }
