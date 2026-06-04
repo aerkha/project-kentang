@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import React from "react";
 import { toast } from "sonner";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
@@ -45,6 +46,7 @@ import {
   PowerOff,
   RotateCcw,
   Upload,
+  ChevronDown,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -137,6 +139,90 @@ function endDate(mou: MoU) {
 }
 
 // ─────────────────────────────────────────────
+// KeteranganCombobox — input + dropdown saran dari data existing
+// ─────────────────────────────────────────────
+
+function KeteranganCombobox({
+  value,
+  onChange,
+  suggestions,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  suggestions: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  // sinkronkan query saat value berubah dari luar (edit mode)
+  React.useEffect(() => { setQuery(value); }, [value]);
+
+  const filtered = query.trim()
+    ? suggestions.filter((s) => s.toLowerCase().includes(query.toLowerCase()) && s !== query)
+    : suggestions;
+
+  function handleSelect(s: string) {
+    onChange(s);
+    setQuery(s);
+    setOpen(false);
+  }
+
+  function handleBlur(e: React.FocusEvent) {
+    // tutup hanya jika fokus keluar dari container
+    if (!containerRef.current?.contains(e.relatedTarget as Node)) {
+      setOpen(false);
+    }
+  }
+
+  return (
+    <div ref={containerRef} className="relative" onBlur={handleBlur}>
+      <div className="relative">
+        <input
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pr-8"
+          placeholder="Catatan tambahan (opsional)"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            onChange(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          autoComplete="off"
+        />
+        {suggestions.length > 0 && (
+          <button
+            type="button"
+            tabIndex={-1}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            onClick={() => setOpen((v) => !v)}
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {open && filtered.length > 0 && (
+        <ul className="absolute z-50 mt-1 w-full rounded-md border border-border bg-popover shadow-md text-sm overflow-hidden">
+          {filtered.map((s) => (
+            <li key={s}>
+              <button
+                type="button"
+                className="w-full text-left px-3 py-2 hover:bg-accent hover:text-accent-foreground transition-colors"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleSelect(s)}
+              >
+                {s}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // Form component — module level (stable ref)
 // ─────────────────────────────────────────────
 
@@ -148,6 +234,7 @@ interface FormProps {
   previewId: string;
   investors: Investor[];
   onInvestorSelect: (id: string) => void;
+  keteranganSuggestions: string[];
   isEdit?: boolean;
   isSaving?: boolean;
 }
@@ -160,6 +247,7 @@ function MouFormFields({
   previewId,
   investors,
   onInvestorSelect,
+  keteranganSuggestions,
   isEdit = false,
   isSaving = false,
 }: FormProps) {
@@ -194,12 +282,11 @@ function MouFormFields({
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="mou-keterangan" className="text-xs">Keterangan</Label>
-            <Input
-              id="mou-keterangan"
+            <Label className="text-xs">Keterangan</Label>
+            <KeteranganCombobox
               value={formData.keterangan}
-              onChange={(e) => set("keterangan", e.target.value)}
-              placeholder="Catatan tambahan (opsional)"
+              onChange={(v) => set("keterangan", v)}
+              suggestions={keteranganSuggestions}
             />
           </div>
         </div>
@@ -529,6 +616,12 @@ export function MouContent() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
+  const keteranganSuggestions = React.useMemo(() => {
+    const set = new Set<string>();
+    mous.forEach((m) => { if (m.keterangan?.trim()) set.add(m.keterangan.trim()); });
+    return Array.from(set).sort();
+  }, [mous]);
+
   const [filter, setFilter] = useState<Filter>("semua");
   const changeFilter = (f: Filter) => { setFilter(f); setPage(1); };
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -850,6 +943,7 @@ export function MouContent() {
               previewId={nextId(form.date)}
               investors={investors}
               onInvestorSelect={handleInvestorSelect}
+              keteranganSuggestions={keteranganSuggestions}
               isSaving={isSaving}
             />
           </DialogContent>
@@ -1129,6 +1223,7 @@ export function MouContent() {
             previewId={selected?.id ?? ""}
             investors={investors}
             onInvestorSelect={handleInvestorSelect}
+            keteranganSuggestions={keteranganSuggestions}
             isEdit
             isSaving={isSaving}
           />

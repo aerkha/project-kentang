@@ -220,36 +220,81 @@ export function DashboardContent() {
     };
   }, [investors]);
 
-  // ── Period filter state ──
-  const [filterYear,  setFilterYear]  = useState<string>("");
-  const [filterMonth, setFilterMonth] = useState<string>("");
+  // ── Filter state ──
+  const [filterYear,     setFilterYear]     = useState<string>("");
+  const [filterMonth,    setFilterMonth]    = useState<string>("");
+  const [filterBroker,   setFilterBroker]   = useState<string>("");
+  const [filterInvestor, setFilterInvestor] = useState<string>("");
 
   // ── Available years from data ──
   const availableYears = useMemo(() => {
     const years = new Set<string>();
     transaksis.forEach((t) => years.add(t.date.slice(0, 4)));
     mous.forEach((m) => years.add(m.date.slice(0, 4)));
-    return Array.from(years).sort((a, b) => b.localeCompare(a)); // newest first
+    return Array.from(years).sort((a, b) => b.localeCompare(a));
   }, [transaksis, mous]);
 
-  // ── Filtered collections by period ──
+  // ── Available brokers from investor data ──
+  const availableBrokers = useMemo(() => {
+    const set = new Set<string>();
+    investors.forEach((inv) => {
+      set.add(inv.brokerName?.trim() || "Tanpa Broker");
+    });
+    const sorted = brokers
+      .map((b) => b.name)
+      .filter((n) => set.has(n));
+    if (set.has("Tanpa Broker")) sorted.push("Tanpa Broker");
+    return sorted;
+  }, [investors, brokers]);
+
+  // ── Investors filtered by selected broker (for investor dropdown) ──
+  const investorOptions = useMemo(() => {
+    return investors.filter((inv) => {
+      if (!filterBroker) return true;
+      return (inv.brokerName?.trim() || "Tanpa Broker") === filterBroker;
+    });
+  }, [investors, filterBroker]);
+
+  // ── Filtered collections ──
   const filteredTransaksis = useMemo(
     () => transaksis.filter((t) => {
       if (filterYear  && t.date.slice(0, 4) !== filterYear)  return false;
       if (filterMonth && t.date.slice(5, 7) !== filterMonth) return false;
+      if (filterInvestor && !t.investorEntries.some((e) => e.investorId === filterInvestor)) return false;
+      if (filterBroker && !filterInvestor) {
+        const hasMatch = t.investorEntries.some((e) => {
+          const inv = investors.find((i) => i.id === e.investorId);
+          return (inv?.brokerName?.trim() || "Tanpa Broker") === filterBroker;
+        });
+        if (!hasMatch) return false;
+      }
       return true;
     }),
-    [transaksis, filterYear, filterMonth],
+    [transaksis, filterYear, filterMonth, filterInvestor, filterBroker, investors],
   );
 
   const filteredMousByPeriod = useMemo(
     () => mous.filter((m) => {
-      if (filterYear  && m.date.slice(0, 4) !== filterYear)  return false;
-      if (filterMonth && m.date.slice(5, 7) !== filterMonth) return false;
+      if (filterYear     && m.date.slice(0, 4) !== filterYear)  return false;
+      if (filterMonth    && m.date.slice(5, 7) !== filterMonth) return false;
+      if (filterInvestor && m.investorId !== filterInvestor)    return false;
+      if (filterBroker && !filterInvestor) {
+        const inv = investors.find((i) => i.id === m.investorId);
+        if ((inv?.brokerName?.trim() || "Tanpa Broker") !== filterBroker) return false;
+      }
       return true;
     }),
-    [mous, filterYear, filterMonth],
+    [mous, filterYear, filterMonth, filterInvestor, filterBroker, investors],
   );
+
+  // ── Investors filtered for detail table ──
+  const filteredInvestors = useMemo(() => {
+    return investors.filter((inv) => {
+      if (filterInvestor && inv.id !== filterInvestor) return false;
+      if (filterBroker && (inv.brokerName?.trim() || "Tanpa Broker") !== filterBroker) return false;
+      return true;
+    });
+  }, [investors, filterInvestor, filterBroker]);
 
   // ── Rekap filter state ──
   const [showFilter, setShowFilter] = useState(false);
@@ -303,9 +348,39 @@ export function DashboardContent() {
       trxCount:   filteredTransaksis.length,
       mouCount:   filteredMousByPeriod.length,
       periodLabel,
-      isFiltered: !!(filterYear || filterMonth),
+      isFiltered: !!(filterYear || filterMonth || filterBroker || filterInvestor),
     };
-  }, [filteredTransaksis, filteredMousByPeriod, rekapData, filterYear, filterMonth]);
+  }, [filteredTransaksis, filteredMousByPeriod, rekapData, filterYear, filterMonth, filterBroker, filterInvestor]);
+
+  // ── Chart: modal per bulan stacked by keterangan ──
+  const modalByKeteranganData = useMemo(() => {
+    const COLORS = [
+      "#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6",
+      "#06b6d4","#f97316","#84cc16","#ec4899","#6366f1",
+      "#14b8a6","#eab308","#a855f7","#22c55e","#0ea5e9",
+    ];
+
+    const monthMap = new Map<string, Record<string, number>>();
+    const labelSet = new Set<string>();
+
+    filteredMousByPeriod.forEach((m) => {
+      const ym    = m.date.slice(0, 7);
+      const label = m.keterangan?.trim() || "Tanpa Keterangan";
+      labelSet.add(label);
+      if (!monthMap.has(ym)) monthMap.set(ym, {});
+      const row = monthMap.get(ym)!;
+      row[label] = (row[label] ?? 0) + m.investmentAmount;
+    });
+
+    const data = Array.from(monthMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([ym, row]) => ({ month: monthLabel(ym), ...row }));
+
+    const labels   = Array.from(labelSet);
+    const colorMap = new Map(labels.map((l, i) => [l, COLORS[i % COLORS.length]]));
+
+    return { data, labels, colorMap };
+  }, [filteredMousByPeriod]);
 
   // ── Chart: investasi masuk per bulan (dari MoU, terfilter) ──
   const monthlyMouData = useMemo(() => {
@@ -423,9 +498,42 @@ export function DashboardContent() {
             </SelectContent>
           </Select>
 
+          <Select
+            value={filterBroker || "__all"}
+            onValueChange={(v) => {
+              setFilterBroker(v === "__all" ? "" : v);
+              setFilterInvestor("");
+            }}
+          >
+            <SelectTrigger className="w-[140px] h-8 text-sm">
+              <SelectValue placeholder="Semua Broker" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">Semua Broker</SelectItem>
+              {availableBrokers.map((b) => (
+                <SelectItem key={b} value={b}>{b}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={filterInvestor || "__all"}
+            onValueChange={(v) => setFilterInvestor(v === "__all" ? "" : v)}
+          >
+            <SelectTrigger className="w-[160px] h-8 text-sm">
+              <SelectValue placeholder="Semua Investor" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">Semua Investor</SelectItem>
+              {investorOptions.map((inv) => (
+                <SelectItem key={inv.id} value={inv.id}>{inv.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           {periodMetrics.isFiltered && (
             <button
-              onClick={() => { setFilterYear(""); setFilterMonth(""); }}
+              onClick={() => { setFilterYear(""); setFilterMonth(""); setFilterBroker(""); setFilterInvestor(""); }}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md text-muted-foreground hover:bg-muted transition-colors"
             >
               <X className="h-3.5 w-3.5" />
@@ -695,6 +803,67 @@ export function DashboardContent() {
         </div>
       )}
 
+      {/* ── Chart: Modal per bulan by Keterangan ── */}
+      {modalByKeteranganData.data.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Modal per Bulan berdasarkan Keterangan</CardTitle>
+            <CardDescription>
+              Total nilai investasi tiap bulan, dibagi per porsi keterangan PKS
+              {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={modalByKeteranganData.data}
+                  margin={{ top: 20, right: 20, left: 8, bottom: 4 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                  <YAxis
+                    tickFormatter={formatShort}
+                    tick={{ fontSize: 11 }}
+                    width={52}
+                  />
+                  <Tooltip
+                    formatter={(value, name) => [formatCurrency(value as number), name as string]}
+                    contentStyle={tooltipStyle}
+                    labelStyle={{ color: "hsl(var(--card-foreground))", fontWeight: 600 }}
+                    itemStyle={{ color: "#ffffff" }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: "11px" }} />
+                  {modalByKeteranganData.labels.map((label, i) => (
+                    <Bar
+                      key={label}
+                      dataKey={label}
+                      stackId="modal"
+                      fill={modalByKeteranganData.colorMap.get(label)}
+                      radius={i === modalByKeteranganData.labels.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                      name={label}
+                    >
+                      {i === modalByKeteranganData.labels.length - 1 && (
+                        <LabelList
+                          valueAccessor={(entry: Record<string, number>) => {
+                            const total = modalByKeteranganData.labels.reduce(
+                              (s, l) => s + (entry[l] ?? 0), 0
+                            );
+                            return formatShort(total);
+                          }}
+                          position="top"
+                          style={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                        />
+                      )}
+                    </Bar>
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Chart: Per broker & kontribusi per investor ── */}
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
@@ -881,7 +1050,7 @@ export function DashboardContent() {
                 </tr>
               </thead>
               <tbody>
-                {investors.map((investor) => {
+                {filteredInvestors.map((investor) => {
                   // Cari PKS aktif investor ini (non-terminated, bukan expired, sudah ada signed doc)
                   const activeMou = mous
                     .filter((m) =>
