@@ -272,16 +272,18 @@ function TrxFormFields({
               const inv = investors.find((x) => x.id === entry.investorId);
               return (
                 <div key={i} className="rounded-md border border-border p-3 space-y-2.5 bg-muted/20">
-                  {/* Baris utama: investor + nilai investasi */}
+                  {/* Baris 1: investor select (full width) + tombol hapus */}
                   <div className="flex gap-2 items-end">
-                    <div className="flex-1 space-y-1.5">
+                    <div className="flex-1 min-w-0 space-y-1.5">
                       {i === 0 && (
                         <Label className="text-xs">
                           Investor <span className="text-destructive">*</span>
                         </Label>
                       )}
                       <Select value={entry.investorId} onValueChange={(v) => onInvestorSelect(i, v)}>
-                        <SelectTrigger><SelectValue placeholder="Pilih investor..." /></SelectTrigger>
+                        <SelectTrigger className="w-full truncate">
+                          <SelectValue placeholder="Pilih investor..." />
+                        </SelectTrigger>
                         <SelectContent>
                           {investors.map((inv) => (
                             <SelectItem key={inv.id} value={inv.id}>
@@ -292,19 +294,6 @@ function TrxFormFields({
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="w-40 space-y-1.5">
-                      {i === 0 && (
-                        <Label className="text-xs">
-                          Nilai Investasi (Rp) <span className="text-destructive">*</span>
-                        </Label>
-                      )}
-                      <Input
-                        type="number" min="0" step="100000"
-                        value={entry.nilaiInvestasi}
-                        onChange={(e) => onUpdateEntry(i, "nilaiInvestasi", e.target.value)}
-                        placeholder="0" required
-                      />
-                    </div>
                     {formData.investorEntries.length > 1 && (
                       <Button
                         type="button" variant="ghost" size="icon"
@@ -314,6 +303,20 @@ function TrxFormFields({
                         <X className="h-4 w-4" />
                       </Button>
                     )}
+                  </div>
+                  {/* Baris 2: nilai investasi (full width) */}
+                  <div className="space-y-1.5">
+                    {i === 0 && (
+                      <Label className="text-xs">
+                        Nilai Investasi (Rp) <span className="text-destructive">*</span>
+                      </Label>
+                    )}
+                    <Input
+                      type="number" min="0" step="100000"
+                      value={entry.nilaiInvestasi}
+                      onChange={(e) => onUpdateEntry(i, "nilaiInvestasi", e.target.value)}
+                      placeholder="0" required
+                    />
                   </div>
 
                   {/* Baris pct — tampil setelah investor dipilih */}
