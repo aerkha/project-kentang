@@ -11,8 +11,8 @@ import { Sprout, Users, BarChart3, LogOut, User, FileText, Receipt, UserCog, Men
 const allNavigation = [
   { name: "Dashboard Analitik",  href: "/dashboard",           icon: BarChart3, adminOnly: true  },
   { name: "Investor",            href: "/dashboard/investors", icon: Users,     adminOnly: false },
-  { name: "Perjanjian Kerjasama",href: "/dashboard/mou",       icon: FileText,  adminOnly: false },
   { name: "Transaksi",           href: "/dashboard/transaksi",    icon: Receipt,   adminOnly: false },
+  { name: "Perjanjian Kerjasama",href: "/dashboard/mou",       icon: FileText,  adminOnly: false },
   { name: "Reminder",            href: "/dashboard/reminder",     icon: Bell,      adminOnly: false },
   { name: "Cash Flow",         href: "/dashboard/cash-flow",  icon: Wallet,    adminOnly: false },
   { name: "Manajemen User",      href: "/dashboard/users",         icon: UserCog,   adminOnly: true  },
