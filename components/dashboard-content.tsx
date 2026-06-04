@@ -457,14 +457,14 @@ export function DashboardContent() {
         <p className="text-muted-foreground">Monitor kinerja investasi dan portofolio</p>
       </div>
 
-      {/* ── Filter Periode ── */}
+      {/* ── Filter ── */}
       <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
         <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground shrink-0">
-          <CalendarDays className="h-4 w-4" />
-          <span>Periode</span>
+          <Filter className="h-4 w-4" />
+          <span>Filter</span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 flex-1">
+        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
           <Select
             value={filterYear || "__all"}
             onValueChange={(v) => setFilterYear(v === "__all" ? "" : v)}
