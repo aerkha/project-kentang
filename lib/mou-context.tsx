@@ -25,6 +25,7 @@ export interface MoU {
   bagiHasilPP2: number;   // % Pihak Pertama II (default 15)
   bagiHasilPK:  number;   // % Pihak Kedua      (default 35)
   isTerminated?: boolean;
+  bagiHasilDone?: boolean;
   esignPihakPertama1?: string;
   esignPihakPertama2?: string;
   esignPihakKedua?: string;
@@ -89,6 +90,7 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
     bagiHasilPP2:       (r.bagiHasilPP2      as number) ?? 15,
     bagiHasilPK:        (r.bagiHasilPK       as number) ?? 35,
     isTerminated:       (r.isTerminated      as boolean) || false,
+    bagiHasilDone:      (r.bagiHasilDone     as boolean) || false,
     esignPihakPertama1: pbFileUrl(pbRecordId, r.esignPihakPertama1),
     esignPihakPertama2: pbFileUrl(pbRecordId, r.esignPihakPertama2),
     esignPihakKedua:    pbFileUrl(pbRecordId, r.esignPihakKedua),
