@@ -8,6 +8,7 @@ import { BrokersProvider } from "@/lib/brokers-context";
 import { MouProvider } from "@/lib/mou-context";
 import { TransaksiProvider } from "@/lib/transaksi-context";
 import { PengeluaranProvider } from "@/lib/pengeluaran-context";
+import { SettingsProvider } from "@/lib/settings-context";
 import { AppSidebar } from "@/components/app-sidebar";
 
 export default function DashboardLayout({
@@ -35,6 +36,7 @@ export default function DashboardLayout({
         <MouProvider>
           <TransaksiProvider>
           <PengeluaranProvider>
+          <SettingsProvider>
             <div className="min-h-screen bg-background">
               <AppSidebar />
               {/* pt-14 = tinggi mobile top bar; md:pt-0 = desktop tidak perlu padding atas */}
@@ -42,6 +44,7 @@ export default function DashboardLayout({
                 {children}
               </main>
             </div>
+          </SettingsProvider>
           </PengeluaranProvider>
           </TransaksiProvider>
         </MouProvider>

@@ -7,6 +7,7 @@ import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-con
 import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
 import { usePengeluaran } from "@/lib/pengeluaran-context";
+import { useSettings } from "@/lib/settings-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Bell,
   CheckCircle2,
@@ -24,6 +27,10 @@ import {
   TrendingUp,
   Wallet,
   Briefcase,
+  Settings2,
+  Save,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -113,12 +120,30 @@ type PaymentRow = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ReminderContent() {
-  const { mous, updateMou } = useMou();
-  const { transaksis }      = useTransaksi();
-  const { investors }       = useInvestors();
-  const { brokers }         = useBrokers();
-  const { addPengeluaran }  = usePengeluaran();
-  const [toggling, setToggling] = useState<string | null>(null);
+  const { mous, updateMou }              = useMou();
+  const { transaksis }                   = useTransaksi();
+  const { investors }                    = useInvestors();
+  const { brokers }                      = useBrokers();
+  const { addPengeluaran }               = usePengeluaran();
+  const { minbun, trader, updateMinbun, updateTrader } = useSettings();
+  const [toggling, setToggling]          = useState<string | null>(null);
+
+  // ── State form pengaturan rekening internal ──
+  const [showSettings, setShowSettings]  = useState(false);
+  const [isSavingMB,   setIsSavingMB]   = useState(false);
+  const [isSavingTR,   setIsSavingTR]   = useState(false);
+  const [formMinbun,   setFormMinbun]   = useState({ nama: minbun.nama, bankName: minbun.bankName, accountNumber: minbun.accountNumber });
+  const [formTrader,   setFormTrader]   = useState({ nama: trader.nama, bankName: trader.bankName, accountNumber: trader.accountNumber });
+
+  // Sync form jika context baru load dari PocketBase
+  useMemo(() => {
+    setFormMinbun({ nama: minbun.nama, bankName: minbun.bankName, accountNumber: minbun.accountNumber });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minbun.bankName, minbun.accountNumber, minbun.nama]);
+  useMemo(() => {
+    setFormTrader({ nama: trader.nama, bankName: trader.bankName, accountNumber: trader.accountNumber });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trader.bankName, trader.accountNumber, trader.nama]);
 
   // Hanya PKS yang aktif (tidak terminated, belum expired)
   const tasks = useMemo(() => {
@@ -160,26 +185,26 @@ export function ReminderContent() {
 
         if (bh.trader > 0)
           rows.push({
-            nama:          "Trader",
+            nama:          trader.nama || "Trader",
             keterangan:    "Trader",
-            bankName:      "—",
-            accountNumber: "—",
+            bankName:      trader.bankName      || "—",
+            accountNumber: trader.accountNumber || "—",
             jumlah:        bh.trader,
           });
 
         if (bh.minbun > 0)
           rows.push({
-            nama:          "MinBun",
+            nama:          minbun.nama || "MinBun",
             keterangan:    "MinBun",
-            bankName:      "—",
-            accountNumber: "—",
+            bankName:      minbun.bankName      || "—",
+            accountNumber: minbun.accountNumber || "—",
             jumlah:        bh.minbun,
           });
 
         return { mou, endDateStr, bh, rows };
       })
       .sort((a, b) => a.endDateStr.localeCompare(b.endDateStr));
-  }, [mous, transaksis, investors, brokers]);
+  }, [mous, transaksis, investors, brokers, minbun, trader]);
 
   // Ringkasan — hanya dari tugas yang belum selesai
   const summary = useMemo(() => {
@@ -221,6 +246,30 @@ export function ReminderContent() {
       }
     } finally {
       setToggling(null);
+    }
+  };
+
+  const handleSaveMinbun = async () => {
+    setIsSavingMB(true);
+    try {
+      await updateMinbun(formMinbun);
+      toast.success("Rekening MinBun berhasil disimpan");
+    } catch {
+      toast.error("Gagal menyimpan rekening MinBun");
+    } finally {
+      setIsSavingMB(false);
+    }
+  };
+
+  const handleSaveTrader = async () => {
+    setIsSavingTR(true);
+    try {
+      await updateTrader(formTrader);
+      toast.success("Rekening Trader berhasil disimpan");
+    } catch {
+      toast.error("Gagal menyimpan rekening Trader");
+    } finally {
+      setIsSavingTR(false);
     }
   };
 
@@ -416,6 +465,116 @@ export function ReminderContent() {
             </div>
           )}
         </CardContent>
+      </Card>
+
+      {/* ── Pengaturan Rekening Internal ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <button
+            onClick={() => setShowSettings((v) => !v)}
+            className="flex items-center justify-between w-full text-left"
+          >
+            <div className="flex items-center gap-2">
+              <Settings2 className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-base">Pengaturan Rekening Internal</CardTitle>
+            </div>
+            {showSettings
+              ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              : <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            }
+          </button>
+          {!showSettings && (
+            <p className="text-xs text-muted-foreground mt-1 ml-6">
+              Kelola nama, bank, dan nomor rekening MinBun & Trader
+            </p>
+          )}
+        </CardHeader>
+
+        {showSettings && (
+          <CardContent className="space-y-6">
+            {/* MinBun */}
+            <div>
+              <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-green-100 text-green-700 border-green-200">MinBun</span>
+                Rekening MinBun
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Nama</Label>
+                  <Input
+                    value={formMinbun.nama}
+                    onChange={(e) => setFormMinbun((f) => ({ ...f, nama: e.target.value }))}
+                    placeholder="MinBun / nama perusahaan"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Nama Bank</Label>
+                  <Input
+                    value={formMinbun.bankName}
+                    onChange={(e) => setFormMinbun((f) => ({ ...f, bankName: e.target.value }))}
+                    placeholder="BCA / BRI / Mandiri..."
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Nomor Rekening</Label>
+                  <Input
+                    value={formMinbun.accountNumber}
+                    onChange={(e) => setFormMinbun((f) => ({ ...f, accountNumber: e.target.value }))}
+                    placeholder="1234567890"
+                  />
+                </div>
+              </div>
+              <div className="mt-3 flex justify-end">
+                <Button size="sm" onClick={handleSaveMinbun} disabled={isSavingMB}>
+                  <Save className="h-3.5 w-3.5 mr-1.5" />
+                  {isSavingMB ? "Menyimpan…" : "Simpan MinBun"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="border-t" />
+
+            {/* Trader */}
+            <div>
+              <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-purple-100 text-purple-700 border-purple-200">Trader</span>
+                Rekening Trader
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Nama</Label>
+                  <Input
+                    value={formTrader.nama}
+                    onChange={(e) => setFormTrader((f) => ({ ...f, nama: e.target.value }))}
+                    placeholder="Trader / nama trader"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Nama Bank</Label>
+                  <Input
+                    value={formTrader.bankName}
+                    onChange={(e) => setFormTrader((f) => ({ ...f, bankName: e.target.value }))}
+                    placeholder="BCA / BRI / Mandiri..."
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Nomor Rekening</Label>
+                  <Input
+                    value={formTrader.accountNumber}
+                    onChange={(e) => setFormTrader((f) => ({ ...f, accountNumber: e.target.value }))}
+                    placeholder="1234567890"
+                  />
+                </div>
+              </div>
+              <div className="mt-3 flex justify-end">
+                <Button size="sm" onClick={handleSaveTrader} disabled={isSavingTR}>
+                  <Save className="h-3.5 w-3.5 mr-1.5" />
+                  {isSavingTR ? "Menyimpan…" : "Simpan Trader"}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        )}
       </Card>
     </div>
   );
