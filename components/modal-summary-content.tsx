@@ -7,8 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Banknote, TrendingDown, Wallet, Printer,
-  ArrowDownLeft, ArrowUpRight, ReceiptText, Info, Building2,
+  Printer, ArrowDownLeft, ArrowUpRight, ReceiptText, Building2,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -185,7 +184,7 @@ export function ModalSummaryContent() {
             </CardHeader>
             <CardContent className="space-y-1">
               <p className="text-2xl font-bold text-green-700 dark:text-green-300">{formatRp(totalModal)}</p>
-              <p className="text-xs text-green-600/70">total komitmen {activeMous.length} PKS aktif</p>
+              <p className="text-xs text-green-600/70">{activeMous.length} PKS aktif</p>
             </CardContent>
           </Card>
 
@@ -200,12 +199,6 @@ export function ModalSummaryContent() {
             <CardContent className="space-y-1">
               <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{formatRp(totalDisalurkan)}</p>
               <p className="text-xs text-blue-600/70">dipakai untuk transaksi</p>
-              <p className="text-xs text-muted-foreground pt-1">
-                Saldo di MinBun:{" "}
-                <span className={`font-semibold ${totalSaldo < 0 ? "text-red-600" : "text-foreground"}`}>
-                  {formatRp(totalSaldo)}
-                </span>
-              </p>
             </CardContent>
           </Card>
 
@@ -220,10 +213,6 @@ export function ModalSummaryContent() {
             <CardContent className="space-y-1">
               <p className="text-2xl font-bold text-purple-700 dark:text-purple-300">{formatRp(totalKewajiban)}</p>
               <p className="text-xs text-purple-600/70">dikembalikan di akhir PKS</p>
-              <p className="text-xs text-muted-foreground pt-1">
-                Modal + PP2 + PK dari profit{" "}
-                <span className="font-medium">{formatRp(totalProfit)}</span>
-              </p>
             </CardContent>
           </Card>
         </div>
@@ -249,29 +238,16 @@ export function ModalSummaryContent() {
                       <tr className="border-b border-border bg-muted/30">
                         <th className="text-left py-3 px-4 font-medium text-muted-foreground">PKS / Investor</th>
                         <th className="text-left py-3 px-4 font-medium text-muted-foreground">Periode</th>
-                        <th className="text-right py-3 px-4 font-medium text-muted-foreground">
-                          <span className="text-green-700 dark:text-green-400">Modal Investor</span>
-                          <br /><span className="font-normal text-[10px]">Investor → MinBun</span>
-                        </th>
-                        <th className="text-right py-3 px-4 font-medium text-muted-foreground">
-                          <span className="text-blue-700 dark:text-blue-400">Disalurkan</span>
-                          <br /><span className="font-normal text-[10px]">MinBun → Owner</span>
-                        </th>
-                        <th className="text-right py-3 px-4 font-medium text-muted-foreground">
-                          Profit
-                          <br /><span className="font-normal text-[10px]">dari transaksi</span>
-                        </th>
-                        <th className="text-right py-3 px-4 font-medium text-muted-foreground">
-                          <span className="text-purple-700 dark:text-purple-400">Kewajiban Owner</span>
-                          <br /><span className="font-normal text-[10px]">Modal + PP2 + PK</span>
-                        </th>
+                        <th className="text-right py-3 px-4 font-medium text-muted-foreground text-green-700 dark:text-green-400">Modal Investor</th>
+                        <th className="text-right py-3 px-4 font-medium text-muted-foreground text-blue-700 dark:text-blue-400">Disalurkan</th>
+                        <th className="text-right py-3 px-4 font-medium text-muted-foreground">Profit</th>
+                        <th className="text-right py-3 px-4 font-medium text-muted-foreground text-purple-700 dark:text-purple-400">Kewajiban Owner</th>
                       </tr>
                     </thead>
                     <tbody>
                       {mouRows.map(({ mou, endDate, daysLeft, modalDisalurkan,
                                      profitBersih, bagianPP2, bagianPK, kewajiban }) => {
                         const nearExpiry = daysLeft <= 14;
-                        const saldoMou   = mou.investmentAmount - modalDisalurkan;
                         return (
                           <tr key={mou.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
 
@@ -298,29 +274,18 @@ export function ModalSummaryContent() {
                             </td>
 
                             {/* Disalurkan ke Owner */}
-                            <td className="py-3 px-4 text-right whitespace-nowrap">
-                              <p className="font-semibold text-blue-700 dark:text-blue-400">{formatRp(modalDisalurkan)}</p>
-                              <p className={`text-[10px] ${saldoMou < 0 ? "text-red-500" : "text-muted-foreground"}`}>
-                                sisa {formatRp(saldoMou)}
-                              </p>
+                            <td className="py-3 px-4 text-right whitespace-nowrap font-semibold text-blue-700 dark:text-blue-400">
+                              {formatRp(modalDisalurkan)}
                             </td>
 
                             {/* Profit */}
-                            <td className="py-3 px-4 text-right whitespace-nowrap">
-                              <p className={`font-semibold ${profitBersih >= 0 ? "text-green-600" : "text-red-600"}`}>
-                                {formatRp(profitBersih)}
-                              </p>
-                              <p className="text-[10px] text-muted-foreground">
-                                PP1 {mou.bagiHasilPP1}% · PP2 {mou.bagiHasilPP2}% · PK {mou.bagiHasilPK}%
-                              </p>
+                            <td className={`py-3 px-4 text-right whitespace-nowrap font-semibold ${profitBersih >= 0 ? "text-green-600" : "text-red-600"}`}>
+                              {formatRp(profitBersih)}
                             </td>
 
                             {/* Kewajiban Owner */}
-                            <td className="py-3 px-4 text-right whitespace-nowrap">
-                              <p className="font-bold text-purple-700 dark:text-purple-400">{formatRp(kewajiban)}</p>
-                              <p className="text-[10px] text-muted-foreground">
-                                {formatRp(mou.investmentAmount)} + {formatRp(bagianPP2)} + {formatRp(bagianPK)}
-                              </p>
+                            <td className="py-3 px-4 text-right whitespace-nowrap font-bold text-purple-700 dark:text-purple-400">
+                              {formatRp(kewajiban)}
                             </td>
                           </tr>
                         );
@@ -352,28 +317,6 @@ export function ModalSummaryContent() {
           </Card>
         </div>
 
-        {/* ── Penjelasan formula ── */}
-        <Card className="border-dashed">
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-start gap-3">
-              <Info className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Cara hitung kewajiban pengembalian Owner ke MinBun</p>
-                <div className="text-xs text-muted-foreground space-y-1">
-                  <div className="font-mono bg-muted/40 rounded p-2 space-y-0.5">
-                    <p>Kewajiban  =  Modal Pokok  +  (PP2% × Profit)  +  (PK% × Profit)</p>
-                    <p className="text-[10px] text-muted-foreground/70">
-                      MinBun meneruskan porsi PK ke investor · Owner menikmati PP1% dari profit
-                    </p>
-                  </div>
-                  <p className="pt-1">
-                    Bukti bagi hasil kepada investor dikelola melalui halaman <strong>Reminder</strong>.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </div>
   );
