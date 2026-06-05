@@ -988,6 +988,7 @@ export function InvestorsContent() {
         </div>
       )}
 
+      {!isInvestor && (<>
       <Separator className="my-4" />
 
       {/* ══════════════════════════════════════
@@ -1120,6 +1121,8 @@ export function InvestorsContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      </>)}{/* end !isInvestor broker section */}
 
       {/* ══════════════════════════════════════
           DIALOGS — Broker
