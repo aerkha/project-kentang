@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { toast } from "sonner";
-import { useMou, type MoU } from "@/lib/mou-context";
+import { useMou, type MoU, BUKTI_FIELD } from "@/lib/mou-context";
 import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
 import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
@@ -20,6 +20,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   Bell,
   CheckCircle2,
   Circle,
@@ -31,6 +39,9 @@ import {
   Save,
   ChevronDown,
   ChevronUp,
+  Upload,
+  FileCheck,
+  ExternalLink,
 } from "lucide-react";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -120,13 +131,21 @@ type PaymentRow = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ReminderContent() {
-  const { mous, updateMou }              = useMou();
+  const { mous, updateMou, uploadBuktiTransfer } = useMou();
   const { transaksis }                   = useTransaksi();
   const { investors }                    = useInvestors();
   const { brokers }                      = useBrokers();
   const { addPengeluaran }               = usePengeluaran();
   const { minbun, trader, updateMinbun, updateTrader } = useSettings();
   const [toggling, setToggling]          = useState<string | null>(null);
+  const [showDone, setShowDone]          = useState(false);
+
+  // ── State dialog bukti transfer ──
+  type BuktiTarget = { mou: MoU; keterangan: string; row: PaymentRow } | null;
+  const [buktiTarget,   setBuktiTarget]  = useState<BuktiTarget>(null);
+  const [buktiFile,     setBuktiFile]    = useState<File | null>(null);
+  const [buktiPreview,  setBuktiPreview] = useState<string | null>(null);
+  const [isUploading,   setIsUploading]  = useState(false);
 
   // ── State form pengaturan rekening internal ──
   const [showSettings, setShowSettings]  = useState(false);
@@ -225,50 +244,88 @@ export function ReminderContent() {
     };
   }, [tasks]);
 
-  const handleToggleRow = async (mou: MoU, keterangan: string, row: PaymentRow) => {
-    const key       = `${mou.id}__${keterangan}`;
-    const checks    = { ...(mou.bagiHasilChecks ?? {}) };
-    const willCheck = !checks[keterangan];
-    checks[keterangan] = willCheck;
+  // Klik ceklis: jika akan dicentang → buka dialog upload bukti dulu
+  //              jika akan di-uncheck → langsung proses
+  const handleToggleRow = (mou: MoU, keterangan: string, row: PaymentRow) => {
+    const isChecked = !!mou.bagiHasilChecks?.[keterangan];
+    if (!isChecked) {
+      // Buka dialog upload bukti transfer
+      setBuktiTarget({ mou, keterangan, row });
+      setBuktiFile(null);
+      setBuktiPreview(null);
+    } else {
+      // Un-check langsung
+      void handleUncheck(mou, keterangan);
+    }
+  };
 
-    // PKS dianggap selesai jika semua baris sudah dicentang
-    const task    = tasks.find((t) => t.mou.id === mou.id);
+  const handleUncheck = async (mou: MoU, keterangan: string) => {
+    const key    = `${mou.id}__${keterangan}`;
+    const checks = { ...(mou.bagiHasilChecks ?? {}), [keterangan]: false };
+    const task   = tasks.find((t) => t.mou.id === mou.id);
     const allDone = task ? task.rows.every((r) => checks[r.keterangan]) : false;
-
     setToggling(key);
     try {
-      // 1. Simpan status ceklis ke PocketBase
-      await updateMou(mou.id, {
-        bagiHasilChecks: checks,
-        bagiHasilDone:   allDone,
-      });
-
-      if (willCheck) {
-        // 2. Catat ke cashflow — MinBun = debet (pemasukan), lainnya = kredit (pengeluaran)
-        const today = new Date().toISOString().slice(0, 10);
-        try {
-          await addPengeluaran({
-            date:      today,
-            deskripsi: `Bagi Hasil ${row.nama} (${keterangan}) - PKS ${mou.id}`,
-            debet:     keterangan === "MinBun" ? row.jumlah : 0,
-            kredit:    keterangan === "MinBun" ? 0 : row.jumlah,
-            catatan:   `Auto dari Reminder PKS ${mou.id}`,
-          });
-          toast.success(`${keterangan} — ${row.nama} dicatat di Cash Flow`);
-        } catch {
-          // Ceklis sudah tersimpan, tapi cashflow gagal — beri tahu user
-          toast.error(
-            `Ceklis tersimpan, tapi gagal mencatat ${keterangan} di Cash Flow. Tambahkan manual.`
-          );
-        }
-      } else {
-        // Un-check: ceklis dibatalkan, entri cashflow TIDAK dihapus otomatis
-        toast.info(`${keterangan} ditandai belum dibayar. Entri Cash Flow tidak dihapus otomatis.`);
-      }
+      await updateMou(mou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+      toast.info(`${keterangan} ditandai belum dibayar. Entri Cash Flow tidak dihapus otomatis.`);
     } catch {
       toast.error("Gagal menyimpan perubahan. Coba lagi.");
     } finally {
       setToggling(null);
+    }
+  };
+
+  // Submit dialog: upload bukti → mark check → catat cashflow
+  const handleConfirmBukti = async () => {
+    if (!buktiTarget || !buktiFile) return;
+    const { mou, keterangan, row } = buktiTarget;
+    const key    = `${mou.id}__${keterangan}`;
+    const checks = { ...(mou.bagiHasilChecks ?? {}), [keterangan]: true };
+    const task   = tasks.find((t) => t.mou.id === mou.id);
+    const allDone = task ? task.rows.every((r) => checks[r.keterangan]) : false;
+
+    setIsUploading(true);
+    setToggling(key);
+    try {
+      // 1. Upload bukti transfer
+      await uploadBuktiTransfer(mou.id, keterangan, buktiFile);
+
+      // 2. Simpan status ceklis
+      await updateMou(mou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+
+      // 3. Catat ke cashflow
+      const today = new Date().toISOString().slice(0, 10);
+      try {
+        await addPengeluaran({
+          date:      today,
+          deskripsi: `Bagi Hasil ${row.nama} (${keterangan}) - PKS ${mou.id}`,
+          debet:     keterangan === "MinBun" ? row.jumlah : 0,
+          kredit:    keterangan === "MinBun" ? 0 : row.jumlah,
+          catatan:   `Auto dari Reminder PKS ${mou.id}`,
+        });
+        toast.success(`${keterangan} — ${row.nama} dicatat di Cash Flow`);
+      } catch {
+        toast.error(`Ceklis tersimpan, tapi gagal mencatat ${keterangan} di Cash Flow. Tambahkan manual.`);
+      }
+
+      setBuktiTarget(null);
+    } catch {
+      toast.error("Gagal mengupload bukti transfer. Coba lagi.");
+    } finally {
+      setIsUploading(false);
+      setToggling(null);
+    }
+  };
+
+  const handleBuktiFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setBuktiFile(file);
+    if (file && file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (ev) => setBuktiPreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setBuktiPreview(null);
     }
   };
 
@@ -363,10 +420,46 @@ export function ReminderContent() {
 
       {/* Task list */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Daftar Tugas Bagi Hasil</CardTitle>
+        <CardHeader className="pb-0">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <CardTitle className="text-base">Daftar Tugas Bagi Hasil</CardTitle>
+
+            {/* Tab toggle */}
+            <div className="flex items-center rounded-lg border border-border bg-muted/40 p-0.5 text-sm">
+              <button
+                onClick={() => setShowDone(false)}
+                className={`px-3 py-1.5 rounded-md font-medium transition-colors whitespace-nowrap ${
+                  !showDone
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Pending
+                <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
+                  !showDone ? "bg-orange-100 text-orange-700" : "bg-muted text-muted-foreground"
+                }`}>
+                  {summary.totalTasks - summary.doneTasks}
+                </span>
+              </button>
+              <button
+                onClick={() => setShowDone(true)}
+                className={`px-3 py-1.5 rounded-md font-medium transition-colors whitespace-nowrap ${
+                  showDone
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Selesai
+                <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
+                  showDone ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"
+                }`}>
+                  {summary.doneTasks}
+                </span>
+              </button>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 pt-3">
           {tasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-14 text-muted-foreground gap-3">
               <CheckCircle2 className="h-10 w-10" />
@@ -388,10 +481,17 @@ export function ReminderContent() {
                   </tr>
                 </thead>
                 <tbody>
-                  {tasks.map((task) => {
+                  {tasks.flatMap((task) => {
+                    const checks  = task.mou.bagiHasilChecks ?? {};
+                    // Filter baris sesuai tab: pending = belum dicentang, selesai = sudah dicentang
+                    const visibleRows = task.rows.filter((r) =>
+                      showDone ? !!checks[r.keterangan] : !checks[r.keterangan]
+                    );
+                    if (visibleRows.length === 0) return [];
+
                     const days     = daysUntil(task.endDateStr);
-                    const allDone  = task.rows.every((r) => task.mou.bagiHasilChecks?.[r.keterangan]);
-                    const rowCount = task.rows.length || 1;
+                    const allDone  = task.rows.every((r) => checks[r.keterangan]);
+                    const rowCount = visibleRows.length;
 
                     let dayLabel: React.ReactNode;
                     if (allDone) {
@@ -408,11 +508,12 @@ export function ReminderContent() {
                       dayLabel = <span className="text-sm text-muted-foreground">{days} hari lagi</span>;
                     }
 
-                    return task.rows.map((pr, idx) => {
-                      const rowDone   = !!task.mou.bagiHasilChecks?.[pr.keterangan];
+                    return visibleRows.map((pr, idx) => {
+                      const rowDone   = !!checks[pr.keterangan];
                       const rowKey    = `${task.mou.id}__${pr.keterangan}`;
                       const isLoading = toggling === rowKey;
-                      const rowClass  = `transition-colors ${rowDone ? "opacity-50" : "hover:bg-muted/40"}`;
+                      // Di tab Selesai semua baris sudah done — tampilkan normal tanpa opacity
+                      const rowClass  = `transition-colors ${rowDone && !showDone ? "opacity-50" : "hover:bg-muted/40"}`;
 
                       return (
                         <tr
@@ -421,7 +522,7 @@ export function ReminderContent() {
                         >
                           {/* Nama */}
                           <td className="py-2.5 px-3 whitespace-nowrap">
-                            <span className={rowDone ? "line-through text-muted-foreground" : "font-medium"}>
+                            <span className={rowDone && !showDone ? "line-through text-muted-foreground" : "font-medium"}>
                               {pr.nama}
                             </span>
                           </td>
@@ -460,34 +561,78 @@ export function ReminderContent() {
                               <div className="text-[10px] text-muted-foreground mt-0.5">{formatDate(task.endDateStr)}</div>
                             </td>
                           )}
-                          {/* Status — 1 ceklis per baris */}
+                          {/* Status — ceklis + indikator bukti */}
                           <td className="py-2.5 px-3 text-center">
-                            <TooltipProvider delayDuration={200}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8"
-                                    disabled={isLoading}
-                                    onClick={() => handleToggleRow(task.mou, pr.keterangan, pr)}
-                                  >
-                                    {rowDone
-                                      ? <CheckCircle2 className="h-5 w-5 text-green-500" />
-                                      : <Circle className="h-5 w-5 text-muted-foreground" />
-                                    }
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="left" className="text-xs">
-                                  {rowDone ? "Tandai belum dibayar" : "Tandai sudah dibayar"}
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+                            <div className="flex items-center justify-center gap-1">
+                              <TooltipProvider delayDuration={200}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      disabled={isLoading}
+                                      onClick={() => handleToggleRow(task.mou, pr.keterangan, pr)}
+                                    >
+                                      {rowDone
+                                        ? <CheckCircle2 className="h-5 w-5 text-green-500" />
+                                        : <Circle className="h-5 w-5 text-muted-foreground" />
+                                      }
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="left" className="text-xs">
+                                    {rowDone ? "Tandai belum dibayar" : "Upload bukti & tandai selesai"}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+
+                              {/* Ikon bukti transfer jika sudah ada file */}
+                              {(() => {
+                                const buktiUrl = task.mou[BUKTI_FIELD[pr.keterangan] as keyof MoU] as string | undefined;
+                                if (!buktiUrl) return null;
+                                return (
+                                  <TooltipProvider delayDuration={200}>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <a href={buktiUrl} target="_blank" rel="noopener noreferrer"
+                                          className="inline-flex items-center justify-center h-7 w-7 rounded-md text-green-600 hover:bg-green-50 transition-colors"
+                                        >
+                                          <FileCheck className="h-4 w-4" />
+                                        </a>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="left" className="text-xs">
+                                        Lihat bukti transfer
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                );
+                              })()}
+                            </div>
                           </td>
                         </tr>
                       );
                     });
                   })}
+                  {/* Empty state per tab */}
+                  {tasks.every((task) =>
+                    task.rows.every((r) =>
+                      showDone
+                        ? !task.mou.bagiHasilChecks?.[r.keterangan]
+                        : !!task.mou.bagiHasilChecks?.[r.keterangan]
+                    )
+                  ) && (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-sm text-muted-foreground">
+                        {showDone
+                          ? "Belum ada tugas yang selesai"
+                          : <span className="flex flex-col items-center gap-2">
+                              <CheckCircle2 className="h-8 w-8 text-green-500" />
+                              Semua tugas sudah selesai 🎉
+                            </span>
+                        }
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -604,6 +749,85 @@ export function ReminderContent() {
           </CardContent>
         )}
       </Card>
+
+      {/* ── Dialog Upload Bukti Transfer ── */}
+      <Dialog open={!!buktiTarget} onOpenChange={(open) => { if (!open) setBuktiTarget(null); }}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-4 w-4" />
+              Upload Bukti Transfer
+            </DialogTitle>
+            <DialogDescription>
+              Upload bukti transfer untuk{" "}
+              <span className="font-semibold">{buktiTarget?.keterangan}</span>
+              {" "}—{" "}
+              <span className="font-semibold">{buktiTarget?.row.nama}</span>
+              {" "}sebesar{" "}
+              <span className="font-semibold">
+                {buktiTarget ? formatCurrency(buktiTarget.row.jumlah) : ""}
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label className="text-xs">
+                File Bukti Transfer <span className="text-destructive">*</span>
+              </Label>
+              <label className={`flex flex-col items-center justify-center w-full border-2 border-dashed rounded-lg cursor-pointer transition-colors p-4 gap-2 ${
+                buktiFile ? "border-green-400 bg-green-50 dark:bg-green-950/20" : "border-border hover:border-primary/50 hover:bg-muted/40"
+              }`}>
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  className="hidden"
+                  onChange={handleBuktiFileChange}
+                />
+                {buktiFile ? (
+                  <div className="flex flex-col items-center gap-1 text-center">
+                    <FileCheck className="h-8 w-8 text-green-500" />
+                    <span className="text-sm font-medium text-green-700 dark:text-green-400">{buktiFile.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {(buktiFile.size / 1024).toFixed(0)} KB · Klik untuk ganti
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-1 text-center">
+                    <Upload className="h-8 w-8 text-muted-foreground" />
+                    <span className="text-sm font-medium">Klik untuk pilih file</span>
+                    <span className="text-xs text-muted-foreground">Gambar (JPG, PNG) atau PDF</span>
+                  </div>
+                )}
+              </label>
+            </div>
+
+            {/* Preview gambar */}
+            {buktiPreview && (
+              <div className="rounded-lg overflow-hidden border border-border">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={buktiPreview} alt="Preview bukti" className="w-full max-h-48 object-contain bg-muted" />
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setBuktiTarget(null)} disabled={isUploading}>
+              Batal
+            </Button>
+            <Button onClick={handleConfirmBukti} disabled={!buktiFile || isUploading}>
+              {isUploading ? (
+                "Menyimpan…"
+              ) : (
+                <>
+                  <FileCheck className="h-4 w-4 mr-1.5" />
+                  Konfirmasi &amp; Tandai Selesai
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

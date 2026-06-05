@@ -27,6 +27,10 @@ export interface MoU {
   isTerminated?: boolean;
   bagiHasilDone?: boolean;
   bagiHasilChecks?: Record<string, boolean>; // { Investor: true, Broker: false, ... }
+  buktiInvestor?: string; // URL file bukti transfer
+  buktiBroker?:  string;
+  buktiTrader?:  string;
+  buktiMinBun?:  string;
   esignPihakPertama1?: string;
   esignPihakPertama2?: string;
   esignPihakKedua?: string;
@@ -34,12 +38,21 @@ export interface MoU {
   signedDocUrl?: string;
 }
 
+// Mapping keterangan → nama field file di PocketBase
+export const BUKTI_FIELD: Record<string, string> = {
+  Investor: "buktiInvestor",
+  Broker:   "buktiBroker",
+  Trader:   "buktiTrader",
+  MinBun:   "buktiMinBun",
+};
+
 interface MouContextType {
   mous: MoU[];
-  addMou:          (mou: Omit<MoU, "id">) => Promise<void>;
-  updateMou:       (id: string, updates: Partial<MoU>) => Promise<void>;
-  deleteMou:       (id: string) => Promise<void>;
-  uploadSignedDoc: (id: string, file: File) => Promise<void>;
+  addMou:              (mou: Omit<MoU, "id">) => Promise<void>;
+  updateMou:           (id: string, updates: Partial<MoU>) => Promise<void>;
+  deleteMou:           (id: string) => Promise<void>;
+  uploadSignedDoc:     (id: string, file: File) => Promise<void>;
+  uploadBuktiTransfer: (id: string, keterangan: string, file: File) => Promise<void>;
 }
 
 const MouContext = createContext<MouContextType | undefined>(undefined);
@@ -92,6 +105,10 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
     bagiHasilPK:        (r.bagiHasilPK       as number) ?? 35,
     isTerminated:       (r.isTerminated      as boolean) || false,
     bagiHasilDone:      (r.bagiHasilDone     as boolean) || false,
+    buktiInvestor:      pbFileUrl(pbRecordId, r.buktiInvestor),
+    buktiBroker:        pbFileUrl(pbRecordId, r.buktiBroker),
+    buktiTrader:        pbFileUrl(pbRecordId, r.buktiTrader),
+    buktiMinBun:        pbFileUrl(pbRecordId, r.buktiMinBun),
     bagiHasilChecks:    (() => {
       try { return JSON.parse((r.bagiHasilChecks as string) || "{}") as Record<string, boolean>; }
       catch { return {}; }
@@ -352,6 +369,18 @@ export function MouProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const uploadBuktiTransfer = async (id: string, keterangan: string, file: File) => {
+    const pbId     = await resolvePbId(id);
+    if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan.`);
+    const fieldName = BUKTI_FIELD[keterangan];
+    if (!fieldName) throw new Error(`Keterangan "${keterangan}" tidak dikenali.`);
+    const fd = new FormData();
+    fd.append(fieldName, file);
+    const record     = await pb.collection("mous").update(pbId, fd);
+    const updatedMou = recordToMou(record, map);
+    setMous((prev) => prev.map((m) => (m.id === id ? updatedMou : m)));
+  };
+
   const uploadSignedDoc = async (id: string, file: File) => {
     const pbId = await resolvePbId(id);
     if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan di server — coba refresh halaman.`);
@@ -367,7 +396,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <MouContext.Provider value={{ mous, addMou, updateMou, deleteMou, uploadSignedDoc }}>
+    <MouContext.Provider value={{ mous, addMou, updateMou, deleteMou, uploadSignedDoc, uploadBuktiTransfer }}>
       {children}
     </MouContext.Provider>
   );
