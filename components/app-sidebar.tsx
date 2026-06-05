@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Sprout, Users, BarChart3, LogOut, User, FileText, Receipt, UserCog, Menu, X, Wallet, Bell } from "lucide-react";
+import { Sprout, Users, BarChart3, LogOut, User, FileText, Receipt, UserCog, Menu, X, Wallet, Bell, Banknote } from "lucide-react";
 
 // roles: null = semua, array = hanya role tersebut
 const allNavigation = [
@@ -14,6 +14,7 @@ const allNavigation = [
   { name: "Investor",            href: "/dashboard/investors", icon: Users,     roles: null },
   { name: "Transaksi",           href: "/dashboard/transaksi", icon: Receipt,   roles: null },
   { name: "Perjanjian Kerjasama",href: "/dashboard/mou",       icon: FileText,  roles: null },
+  { name: "Ringkasan Modal",     href: "/dashboard/modal",     icon: Banknote,  roles: ["admin", "owner", "user"] },
   { name: "Reminder",            href: "/dashboard/reminder",  icon: Bell,      roles: ["admin", "user"] },
   { name: "Cash Flow",           href: "/dashboard/cash-flow", icon: Wallet,    roles: ["admin", "user"] },
   { name: "Manajemen User",      href: "/dashboard/users",     icon: UserCog,   roles: ["admin"] },
