@@ -34,6 +34,7 @@ import {
   Plus, Pencil, Trash2, Search, Users, Briefcase, Building2,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { usePermissions } from "@/lib/permissions";
 
 // ─────────────────────────────────────────────
 // Types
@@ -508,8 +509,15 @@ export function InvestorsContent() {
   const { mous } = useMou();
   const { brokers, addBroker, updateBroker, deleteBroker } = useBrokers();
   const { transaksis } = useTransaksi();
-  const { user } = useAuth();
+  const { user, isInvestor } = useAuth();
   const isAdmin = user?.role === "admin";
+  const perm    = usePermissions();
+  const canEdit   = isAdmin || perm.edit;
+  const canCreate = isAdmin || perm.create;
+  const canDelete = isAdmin || perm.delete;
+  const visibleInvestors = isInvestor && user?.investorId
+    ? investors.filter((inv) => inv.id === user.investorId)
+    : investors;
 
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -544,7 +552,7 @@ export function InvestorsContent() {
   const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null);
   const [brokerForm, setBrokerForm] = useState<BrokerFormData>(initialBrokerForm);
 
-  const filteredInvestors = investors.filter(
+  const filteredInvestors = visibleInvestors.filter(
     (inv) =>
       inv.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       inv.brokerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -780,7 +788,7 @@ export function InvestorsContent() {
         </div>
         <div className="flex items-center gap-2">
           {/* ── Tambah Broker (admin only) ── */}
-          {isAdmin && <Dialog open={isAddBrokerOpen} onOpenChange={setIsAddBrokerOpen}>
+          {canCreate && <Dialog open={isAddBrokerOpen} onOpenChange={setIsAddBrokerOpen}>
             <DialogTrigger asChild>
               <Button variant="outline">
                 <Plus className="w-4 h-4 mr-2" />
@@ -804,7 +812,7 @@ export function InvestorsContent() {
           </Dialog>}
 
           {/* ── Tambah Investor ── */}
-          <Dialog open={isAddInvestorOpen} onOpenChange={setIsAddInvestorOpen}>
+          {canCreate && <Dialog open={isAddInvestorOpen} onOpenChange={setIsAddInvestorOpen}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="w-4 h-4 mr-2" />
@@ -826,7 +834,7 @@ export function InvestorsContent() {
                 isSaving={isSaving}
               />
             </DialogContent>
-          </Dialog>
+          </Dialog>}
         </div>
       </div>
 
@@ -890,26 +898,20 @@ export function InvestorsContent() {
                     </div>
                     <span className="text-xs font-mono text-muted-foreground">{investor.id}</span>
                   </div>
-                  {isAdmin && (
+                  {(canEdit || canDelete) && (
                   <div className="flex gap-1 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => handleEditInvestorClick(investor)}
-                    >
+                    {canEdit && (
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditInvestorClick(investor)}>
                       <Pencil className="h-3.5 w-3.5" />
                       <span className="sr-only">Edit</span>
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => handleDeleteInvestorClick(investor)}
-                    >
+                    )}
+                    {canDelete && (
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteInvestorClick(investor)}>
                       <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       <span className="sr-only">Hapus</span>
                     </Button>
+                    )}
                   </div>
                   )}
                 </div>
@@ -1027,26 +1029,20 @@ export function InvestorsContent() {
                       </Badge>
                     </div>
                   </div>
-                  {isAdmin && (
+                  {(canEdit || canDelete) && (
                   <div className="flex gap-1 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => handleEditBrokerClick(broker)}
-                    >
+                    {canEdit && (
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditBrokerClick(broker)}>
                       <Pencil className="h-3.5 w-3.5" />
                       <span className="sr-only">Edit</span>
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => handleDeleteBrokerClick(broker)}
-                    >
+                    )}
+                    {canDelete && (
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteBrokerClick(broker)}>
                       <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       <span className="sr-only">Hapus</span>
                     </Button>
+                    )}
                   </div>
                   )}
                 </div>

@@ -4,9 +4,10 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from "
 import pb from "./pocketbase";
 
 interface User {
-  username: string;
-  name: string;
-  role: string;
+  username:   string;
+  name:       string;
+  role:       string;
+  investorId: string; // customId investor (e.g. "INV-0001"), diisi hanya untuk role "investor"
 }
 
 interface AuthContextType {
@@ -14,15 +15,20 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   isAuthenticated: boolean;
+  isAdmin:    boolean;
+  isOwner:    boolean;
+  isInvestor: boolean;
+  canEdit:    boolean; // admin atau owner
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 function modelToUser(model: Record<string, string>): User {
   return {
-    username: model.username || model.email || "",
-    name:     model.name     || model.username || model.email || "",
-    role:     model.role     || "User",
+    username:   model.username   || model.email || "",
+    name:       model.name       || model.username || model.email || "",
+    role:       model.role       || "user",
+    investorId: model.investorId || "",
   };
 }
 
@@ -81,8 +87,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
   }
 
+  const isAdmin    = user?.role === "admin";
+  const isOwner    = user?.role === "owner";
+  const isInvestor = user?.role === "investor";
+  const canEdit    = isAdmin || isOwner;
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, isAdmin, isOwner, isInvestor, canEdit }}>
       {children}
     </AuthContext.Provider>
   );

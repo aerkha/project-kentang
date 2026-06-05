@@ -170,8 +170,8 @@ function PengeluaranForm({
 export function PengeluaranContent() {
   const { pengeluarans, addPengeluaran, updatePengeluaran, deletePengeluaran } =
     usePengeluaran();
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const { user, canEdit } = useAuth();
+  const isAdmin = canEdit; // owner dan admin sama-sama bisa edit cash flow
 
   // ── Navigasi bulan ──
   const today = new Date();
@@ -351,7 +351,7 @@ export function PengeluaranContent() {
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Pengeluaran</h1>
+          <h1 className="text-2xl font-bold text-foreground">Arus Kas</h1>
           <p className="text-muted-foreground">Buku kas — rekening koran operasional</p>
         </div>
         <div className="flex gap-2">
@@ -484,8 +484,19 @@ export function PengeluaranContent() {
                       <td className={`py-3 px-4 text-right tabular-nums font-semibold ${p.saldo < 0 ? "text-red-600" : ""}`}>
                         {fmt(p.saldo)}
                       </td>
-                      <td className="py-3 px-4 text-muted-foreground text-xs max-w-[160px] truncate">
-                        {p.catatan || "—"}
+                      <td className="py-3 px-4 text-xs max-w-[200px]">
+                        {p.catatan?.startsWith("[Reminder]") ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 w-fit whitespace-nowrap">
+                              🔔 Dari Reminder
+                            </span>
+                            <span className="text-muted-foreground truncate">
+                              {p.catatan.replace("[Reminder] ", "")}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground truncate block">{p.catatan || "—"}</span>
+                        )}
                       </td>
                       {isAdmin && (
                         <td className="py-3 px-4">

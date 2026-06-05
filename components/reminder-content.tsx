@@ -4,11 +4,12 @@ import { useMemo, useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useMou, type MoU, BUKTI_FIELD } from "@/lib/mou-context";
 import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
-import { useInvestors } from "@/lib/investors-context";
-import { useBrokers } from "@/lib/brokers-context";
+import { useInvestors, type Investor } from "@/lib/investors-context";
+import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { usePengeluaran } from "@/lib/pengeluaran-context";
 import { useSettings } from "@/lib/settings-context";
 import { useReminderLogs, type ReminderLog } from "@/lib/reminder-logs-context";
+import pb from "@/lib/pocketbase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ import {
   Mail,
   MessageCircle,
   Clock,
+  AlertTriangle,
 } from "lucide-react";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -134,6 +136,39 @@ type PaymentRow = {
   jumlah:        number;
 };
 
+// ── Build payment rows (shared) ──────────────────────────────────────────────
+
+type AccountInfo = { nama: string; bankName: string; accountNumber: string };
+
+function buildRows(
+  mou:       MoU,
+  transaksis: Transaksi[],
+  investors:  Investor[],
+  brokers:    Broker[],
+  minbunAcc:  AccountInfo,
+  traderAcc:  AccountInfo,
+): PaymentRow[] {
+  const bh         = calcBagiHasil(mou, transaksis);
+  const inv        = investors.find((i) => i.id === mou.investorId);
+  const brokerData = brokers.find((b) => b.name === inv?.brokerName);
+  const rows: PaymentRow[] = [];
+
+  if (bh.investor > 0)
+    rows.push({ nama: mou.investorName, keterangan: "Investor",
+      bankName: inv?.bankName || "—", accountNumber: inv?.accountNumber || "—", jumlah: bh.investor });
+  if (bh.broker > 0)
+    rows.push({ nama: inv?.brokerName || "Broker", keterangan: "Broker",
+      bankName: brokerData?.bankName || "—", accountNumber: brokerData?.accountNumber || "—", jumlah: bh.broker });
+  if (bh.trader > 0)
+    rows.push({ nama: traderAcc.nama || "Trader", keterangan: "Trader",
+      bankName: traderAcc.bankName || "—", accountNumber: traderAcc.accountNumber || "—", jumlah: bh.trader });
+  if (bh.minbun > 0)
+    rows.push({ nama: minbunAcc.nama || "MinBun", keterangan: "MinBun",
+      bankName: minbunAcc.bankName || "—", accountNumber: minbunAcc.accountNumber || "—", jumlah: bh.minbun });
+
+  return rows;
+}
+
 // ── ChannelBadge ─────────────────────────────────────────────────────────────
 
 function ChannelBadge({ status, icon }: { status: string; icon: React.ReactNode }) {
@@ -166,6 +201,7 @@ export function ReminderContent() {
   const [isSendingReminder, setIsSendingReminder] = useState(false);
   const [toggling, setToggling]          = useState<string | null>(null);
   const [showDone, setShowDone]          = useState(false);
+  const [showExpired, setShowExpired]    = useState(true);
 
   // ── State dialog bukti transfer ──
   type BuktiTarget = { mou: MoU; keterangan: string; row: PaymentRow } | null;
@@ -189,62 +225,41 @@ export function ReminderContent() {
     setFormTrader({ nama: trader.nama, bankName: trader.bankName, accountNumber: trader.accountNumber });
   }, [trader.nama, trader.bankName, trader.accountNumber]);
 
-  // Hanya PKS yang aktif (tidak terminated, belum expired)
+  // PKS aktif (tidak terminated, belum expired)
   const tasks = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
     return mous
       .filter((m) => {
         if (m.isTerminated) return false;
-        const end = new Date(addDays(m.date, m.contractPeriod));
-        return end >= today;
+        return new Date(addDays(m.date, m.contractPeriod)) >= today;
       })
       .map((mou) => {
         const endDateStr = addDays(mou.date, mou.contractPeriod);
+        const rows       = buildRows(mou, transaksis, investors, brokers, minbun, trader);
         const bh         = calcBagiHasil(mou, transaksis);
-        const inv        = investors.find((i) => i.id === mou.investorId);
-        const brokerData = brokers.find((b) => b.name === inv?.brokerName);
+        return { mou, endDateStr, bh, rows };
+      })
+      .sort((a, b) => a.endDateStr.localeCompare(b.endDateStr));
+  }, [mous, transaksis, investors, brokers, minbun, trader]);
 
-        // Susun baris pembayaran per penerima (skip jika jumlah = 0)
-        const rows: PaymentRow[] = [];
-
-        if (bh.investor > 0)
-          rows.push({
-            nama:          mou.investorName,
-            keterangan:    "Investor",
-            bankName:      inv?.bankName      || "—",
-            accountNumber: inv?.accountNumber || "—",
-            jumlah:        bh.investor,
-          });
-
-        if (bh.broker > 0)
-          rows.push({
-            nama:          inv?.brokerName    || "Broker",
-            keterangan:    "Broker",
-            bankName:      brokerData?.bankName      || "—",
-            accountNumber: brokerData?.accountNumber || "—",
-            jumlah:        bh.broker,
-          });
-
-        if (bh.trader > 0)
-          rows.push({
-            nama:          trader.nama || "Trader",
-            keterangan:    "Trader",
-            bankName:      trader.bankName      || "—",
-            accountNumber: trader.accountNumber || "—",
-            jumlah:        bh.trader,
-          });
-
-        if (bh.minbun > 0)
-          rows.push({
-            nama:          minbun.nama || "MinBun",
-            keterangan:    "MinBun",
-            bankName:      minbun.bankName      || "—",
-            accountNumber: minbun.accountNumber || "—",
-            jumlah:        bh.minbun,
-          });
-
+  // PKS expired (tidak terminated, sudah lewat) yang MASIH ADA tugas belum selesai
+  const expiredPendingTasks = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return mous
+      .filter((m) => {
+        if (m.isTerminated) return false;
+        const isExpired = new Date(addDays(m.date, m.contractPeriod)) < today;
+        if (!isExpired) return false;
+        // Hanya yang masih punya baris belum dicentang
+        const rows = buildRows(m, transaksis, investors, brokers, minbun, trader);
+        return rows.some((r) => !m.bagiHasilChecks?.[r.keterangan]);
+      })
+      .map((mou) => {
+        const endDateStr = addDays(mou.date, mou.contractPeriod);
+        const rows       = buildRows(mou, transaksis, investors, brokers, minbun, trader);
+        const bh         = calcBagiHasil(mou, transaksis);
         return { mou, endDateStr, bh, rows };
       })
       .sort((a, b) => a.endDateStr.localeCompare(b.endDateStr));
@@ -302,37 +317,70 @@ export function ReminderContent() {
     }
   };
 
-  // Submit dialog: upload bukti → mark check → catat cashflow
+  // Submit dialog: upload bukti → mark check → catat cashflow → notif investor
   const handleConfirmBukti = async () => {
     if (!buktiTarget || !buktiFile) return;
     const { mou, keterangan, row } = buktiTarget;
-    const key    = `${mou.id}__${keterangan}`;
-    const checks = { ...(mou.bagiHasilChecks ?? {}), [keterangan]: true };
-    const task   = tasks.find((t) => t.mou.id === mou.id);
-    const allDone = task ? task.rows.every((r) => checks[r.keterangan]) : false;
+    const key     = `${mou.id}__${keterangan}`;
+    const checks  = { ...(mou.bagiHasilChecks ?? {}), [keterangan]: true };
+    const allTask = [...tasks, ...expiredPendingTasks].find((t) => t.mou.id === mou.id);
+    const allDone = allTask ? allTask.rows.every((r) => checks[r.keterangan]) : false;
+    const today   = new Date().toISOString().slice(0, 10);
 
     setIsUploading(true);
     setToggling(key);
     try {
-      // 1. Upload bukti transfer
+      // 1. Upload bukti transfer — simpan URL untuk notifikasi
       await uploadBuktiTransfer(mou.id, keterangan, buktiFile);
+
+      // Ambil URL bukti yang baru diupload dari mou yang sudah diupdate
+      const updatedMou  = mous.find((m) => m.id === mou.id);
+      const buktiUrl    = (updatedMou?.[BUKTI_FIELD[keterangan] as keyof MoU] as string) ?? "";
 
       // 2. Simpan status ceklis
       await updateMou(mou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
 
-      // 3. Catat ke cashflow
-      const today = new Date().toISOString().slice(0, 10);
+      // 3. Catat ke cashflow dengan keterangan sumber reminder
       try {
         await addPengeluaran({
           date:      today,
           deskripsi: `Bagi Hasil ${row.nama} (${keterangan}) - PKS ${mou.id}`,
           debet:     keterangan === "MinBun" ? row.jumlah : 0,
           kredit:    keterangan === "MinBun" ? 0 : row.jumlah,
-          catatan:   `Auto dari Reminder PKS ${mou.id}`,
+          catatan:   `[Reminder] PKS ${mou.id} · ${keterangan}`,
         });
         toast.success(`${keterangan} — ${row.nama} dicatat di Cash Flow`);
       } catch {
         toast.error(`Ceklis tersimpan, tapi gagal mencatat ${keterangan} di Cash Flow. Tambahkan manual.`);
+      }
+
+      // 4. Kirim notifikasi ke investor (non-blocking — tidak gagalkan flow utama)
+      const pbToken = pb.authStore.token;
+      if (pbToken && keterangan === "Investor") {
+        fetch("/api/notify-investor", {
+          method:  "POST",
+          headers: {
+            "Authorization": `Bearer ${pbToken}`,
+            "Content-Type":  "application/json",
+          },
+          body: JSON.stringify({
+            mouCustomId:  mou.id,
+            keterangan,
+            investorId:   mou.investorId,
+            jumlah:       row.jumlah,
+            buktiUrl,
+          }),
+        })
+          .then((r) => r.json())
+          .then((data: { waStatus?: string; emailStatus?: string }) => {
+            const parts: string[] = [];
+            if (data.waStatus    === "sent")    parts.push("💬 WA terkirim");
+            if (data.waStatus    === "skipped") parts.push("💬 WA (belum diset)");
+            if (data.emailStatus === "sent")    parts.push("✉️ Email terkirim");
+            if (data.emailStatus === "skipped") parts.push("✉️ Email (belum diset)");
+            if (parts.length) toast.info(`Notifikasi investor: ${parts.join(" · ")}`);
+          })
+          .catch(() => toast.warning("Notifikasi investor gagal dikirim. Cek konfigurasi API."));
       }
 
       setBuktiTarget(null);
@@ -383,23 +431,31 @@ export function ReminderContent() {
   const handleSendReminder = async () => {
     setIsSendingReminder(true);
     try {
-      const secret = process.env.NEXT_PUBLIC_CRON_SECRET;
-      const res = await fetch(`/api/send-reminders?manual=true`, {
-        headers: { Authorization: `Bearer ${secret ?? ""}` },
+      // Kirim PocketBase token milik user yang login — CRON_SECRET tidak pernah ke browser
+      const pbToken = pb.authStore.token;
+      if (!pbToken) {
+        toast.error("Sesi tidak ditemukan. Silakan login ulang.");
+        return;
+      }
+
+      const res = await fetch("/api/trigger-reminder", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${pbToken}` },
       });
       const data = await res.json() as {
         sent?: number; message?: string; emailStatus?: string;
         waStatus?: string; errors?: string[]; error?: string;
       };
+
       if (!res.ok) {
         toast.error(`Gagal: ${data.error ?? "Unknown error"}`);
       } else if (data.sent === 0) {
         toast.info(data.message ?? "Tidak ada yang perlu dikirim");
       } else {
         const parts = [`${data.sent} reminder terkirim`];
-        if (data.emailStatus === "sent")   parts.push("✉️ Email OK");
+        if (data.emailStatus === "sent")    parts.push("✉️ Email OK");
         if (data.emailStatus === "skipped") parts.push("✉️ Email (belum dikonfigurasi)");
-        if (data.waStatus    === "sent")   parts.push("💬 WA OK");
+        if (data.waStatus    === "sent")    parts.push("💬 WA OK");
         if (data.waStatus    === "skipped") parts.push("💬 WA (belum dikonfigurasi)");
         toast.success(parts.join(" · "));
         await refreshLogs();
@@ -475,6 +531,139 @@ export function ReminderContent() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Alert: PKS Expired dengan tugas belum selesai ── */}
+      {expiredPendingTasks.length > 0 && (
+        <div className="rounded-lg border-2 border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-800 overflow-hidden">
+          {/* Header alert */}
+          <button
+            onClick={() => setShowExpired((v) => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left"
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+                  {expiredPendingTasks.reduce((s, t) =>
+                    s + t.rows.filter((r) => !t.mou.bagiHasilChecks?.[r.keterangan]).length, 0
+                  )} tugas belum selesai dari {expiredPendingTasks.length} PKS yang sudah expired
+                </p>
+                <p className="text-xs text-red-600/80 dark:text-red-400/70 mt-0.5">
+                  PKS sudah berakhir tapi bagi hasil belum semua dibayarkan
+                </p>
+              </div>
+            </div>
+            <span className="text-xs text-red-600 font-medium ml-4 shrink-0">
+              {showExpired ? "Sembunyikan ▲" : "Tampilkan ▼"}
+            </span>
+          </button>
+
+          {/* Tabel expired tasks */}
+          {showExpired && (
+            <div className="border-t border-red-200 dark:border-red-800 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-red-100/60 dark:bg-red-900/20">
+                    <th className="text-left   py-2.5 px-3 font-medium text-red-700 dark:text-red-400 whitespace-nowrap">Nama</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-red-700 dark:text-red-400 whitespace-nowrap">Keterangan</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-red-700 dark:text-red-400 whitespace-nowrap">Nama Bank</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-red-700 dark:text-red-400 whitespace-nowrap">No Rekening</th>
+                    <th className="text-right  py-2.5 px-3 font-medium text-red-700 dark:text-red-400 whitespace-nowrap">Jumlah</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-red-700 dark:text-red-400 whitespace-nowrap">No PKS</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-red-700 dark:text-red-400 whitespace-nowrap">Expired</th>
+                    <th className="text-center py-2.5 px-3 font-medium text-red-700 dark:text-red-400 whitespace-nowrap">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {expiredPendingTasks.map((task) => {
+                    const pendingRows = task.rows.filter((r) => !task.mou.bagiHasilChecks?.[r.keterangan]);
+                    const rowCount    = pendingRows.length;
+                    const expiredDays = Math.abs(daysUntil(task.endDateStr));
+
+                    return pendingRows.map((pr, idx) => {
+                      const rowKey    = `${task.mou.id}__${pr.keterangan}`;
+                      const isLoading = toggling === rowKey;
+
+                      return (
+                        <tr
+                          key={rowKey}
+                          className={`border-b border-red-200/60 dark:border-red-800/40 hover:bg-red-100/40 dark:hover:bg-red-900/20 transition-colors ${idx === 0 ? "border-t-2 border-t-red-300 dark:border-t-red-700" : ""}`}
+                        >
+                          <td className="py-2.5 px-3 whitespace-nowrap font-medium">{pr.nama}</td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${keteranganColor[pr.keterangan]}`}>
+                              {pr.keterangan}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">{pr.bankName}</td>
+                          <td className="py-2.5 px-3 whitespace-nowrap font-mono text-xs text-muted-foreground">{pr.accountNumber}</td>
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap font-semibold">
+                            {formatShort(pr.jumlah)}
+                            <div className="text-[10px] font-normal text-muted-foreground">{formatCurrency(pr.jumlah)}</div>
+                          </td>
+                          {idx === 0 && (
+                            <td className="py-2.5 px-3 font-mono text-xs font-bold text-foreground whitespace-nowrap align-top border-l-[3px] border-l-red-400" rowSpan={rowCount}>
+                              {task.mou.id}
+                            </td>
+                          )}
+                          {idx === 0 && (
+                            <td className="py-2.5 px-3 whitespace-nowrap align-top" rowSpan={rowCount}>
+                              <Badge variant="destructive" className="text-xs py-0.5">
+                                Lewat {expiredDays} hari
+                              </Badge>
+                              <div className="text-[10px] text-muted-foreground mt-0.5">{formatDate(task.endDateStr)}</div>
+                            </td>
+                          )}
+                          <td className="py-2.5 px-3 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <TooltipProvider delayDuration={200}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      disabled={isLoading}
+                                      onClick={() => handleToggleRow(task.mou, pr.keterangan, pr)}
+                                    >
+                                      <Circle className="h-5 w-5 text-red-400" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="left" className="text-xs">
+                                    Upload bukti &amp; tandai selesai
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                              {(() => {
+                                const buktiUrl = task.mou[BUKTI_FIELD[pr.keterangan] as keyof MoU] as string | undefined;
+                                if (!buktiUrl) return null;
+                                return (
+                                  <TooltipProvider delayDuration={200}>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <a href={buktiUrl} target="_blank" rel="noopener noreferrer"
+                                          className="inline-flex items-center justify-center h-7 w-7 rounded-md text-green-600 hover:bg-green-50 transition-colors"
+                                        >
+                                          <FileCheck className="h-4 w-4" />
+                                        </a>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="left" className="text-xs">Lihat bukti transfer</TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                );
+                              })()}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Task list */}
       <Card>

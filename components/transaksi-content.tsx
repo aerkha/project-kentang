@@ -8,6 +8,7 @@ import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-con
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useAuth } from "@/lib/auth-context";
+import { usePermissions } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -479,8 +480,12 @@ export function TransaksiContent() {
   const { transaksis, addTransaksi, updateTransaksi, deleteTransaksi } = useTransaksi();
   const { investors }  = useInvestors();
   const { brokers }    = useBrokers();
-  const { user }       = useAuth();
-  const isAdmin        = user?.role === "admin";
+  const { user, isInvestor } = useAuth();
+  const isAdmin   = user?.role === "admin";
+  const perm      = usePermissions();
+  const canCreate = isAdmin || perm.create;
+  const canEdit   = isAdmin || perm.edit;
+  const canDelete = isAdmin || perm.delete;
 
   const [isAddOpen, setIsAddOpen]       = useState(false);
   const [isEditOpen, setIsEditOpen]     = useState(false);
@@ -490,22 +495,30 @@ export function TransaksiContent() {
   const [errorInfo, setErrorInfo]       = useState<PbErrorInfo | null>(null);
   const [form, setForm]                 = useState<TrxFormData>(initialForm());
 
+  // Filter untuk investor: hanya tampilkan transaksi yang melibatkan investor tersebut
+  const visibleTransaksis = useMemo(() => {
+    if (!isInvestor || !user?.investorId) return transaksis;
+    return transaksis.filter((t) =>
+      t.investorEntries.some((e) => e.investorId === user.investorId)
+    );
+  }, [transaksis, isInvestor, user?.investorId]);
+
   // ── Summary metrics ──
   const metrics = useMemo(() => {
     let totalModal = 0, totalIncome = 0, totalProfit = 0;
-    transaksis.forEach((t) => {
+    visibleTransaksis.forEach((t) => {
       const c = calcTransaksi(t);
       totalModal  += t.kebutuhanModal;
       totalIncome += c.income;
       totalProfit += c.profit;
     });
-    return { totalModal, totalIncome, totalProfit, count: transaksis.length };
-  }, [transaksis]);
+    return { totalModal, totalIncome, totalProfit, count: visibleTransaksis.length };
+  }, [visibleTransaksis]);
 
   // ── Sorted newest first ──
   const sorted = useMemo(
-    () => [...transaksis].sort((a, b) => b.date.localeCompare(a.date)),
-    [transaksis],
+    () => [...visibleTransaksis].sort((a, b) => b.date.localeCompare(a.date)),
+    [visibleTransaksis],
   );
 
   // ── Next ID ──
@@ -648,9 +661,9 @@ export function TransaksiContent() {
           <p className="text-muted-foreground">Input data pengiriman dan hitung profit secara otomatis</p>
         </div>
         <Dialog open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) setForm(initialForm()); }}>
-          <DialogTrigger asChild>
+          {canCreate && <DialogTrigger asChild>
             <Button><Plus className="w-4 h-4 mr-2" />Tambah Transaksi</Button>
-          </DialogTrigger>
+          </DialogTrigger>}
           <DialogContent className="sm:max-w-[660px]">
             <DialogHeader>
               <DialogTitle>Tambah Transaksi Baru</DialogTitle>
@@ -717,7 +730,7 @@ export function TransaksiContent() {
       </div>
 
       {/* ── Riwayat Transaksi ── */}
-      {transaksis.length === 0 ? (
+      {visibleTransaksis.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-14">
             <PackageCheck className="h-12 w-12 text-muted-foreground mb-4" />
@@ -780,14 +793,18 @@ export function TransaksiContent() {
                           {formatRp(c.profit)}
                         </td>
                         <td className="py-3 px-4">
-                          {isAdmin && (
+                          {(canEdit || canDelete) && (
                           <div className="flex items-center justify-center gap-1">
+                            {canEdit && (
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(t)}>
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
+                            )}
+                            {canDelete && (
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openDelete(t)}>
                               <Trash2 className="h-3.5 w-3.5 text-destructive" />
                             </Button>
+                            )}
                           </div>
                           )}
                         </td>
@@ -798,7 +815,7 @@ export function TransaksiContent() {
                 <tfoot>
                   <tr className="border-t-2 border-border bg-muted/20">
                     <td colSpan={9} className="py-3 px-4 font-semibold text-sm">
-                      Total ({transaksis.length} transaksi)
+                      Total ({visibleTransaksis.length} transaksi)
                     </td>
                     <td className="py-3 px-4 text-right font-bold whitespace-nowrap">{formatRp(metrics.totalIncome)}</td>
                     <td className={`py-3 px-4 text-right font-bold whitespace-nowrap ${metrics.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useAuth } from "@/lib/auth-context";
+import { usePermissions } from "@/lib/permissions";
 import { generateMouHtml } from "@/lib/mou-html";
 import { useTransaksi } from "@/lib/transaksi-context";
 import { Button } from "@/components/ui/button";
@@ -617,8 +618,13 @@ export function MouContent() {
   const { mous, addMou, updateMou, deleteMou, uploadSignedDoc } = useMou();
   const { investors } = useInvestors();
   const { transaksis } = useTransaksi();
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const { user, isInvestor } = useAuth();
+  const isAdmin   = user?.role === "admin";
+  const perm      = usePermissions();
+  const canCreate = isAdmin || perm.create;
+  const canEdit   = isAdmin || perm.edit;
+  const canDelete = isAdmin || perm.delete;
+  const canPrint  = isAdmin || perm.print;
 
   const keteranganSuggestions = React.useMemo(() => {
     const set = new Set<string>();
@@ -649,8 +655,13 @@ export function MouContent() {
 
   const ITEMS_PER_PAGE = 20;
 
+  // Filter investor: hanya tampilkan MOU milik investor yang login
+  const visibleMous = isInvestor && user?.investorId
+    ? mous.filter((m) => m.investorId === user.investorId)
+    : mous;
+
   // ── Filter ──
-  const filtered = mous.filter((m) => {
+  const filtered = visibleMous.filter((m) => {
     if (filter === "semua") return true;
     return getMouStatus(m) === filter;
   });
@@ -909,11 +920,11 @@ export function MouContent() {
 
   // ── Count per status ──
   const counts = {
-    semua:    mous.length,
-    pending:  mous.filter((m) => getMouStatus(m) === "pending").length,
-    aktif:    mous.filter((m) => getMouStatus(m) === "aktif").length,
-    expired:  mous.filter((m) => getMouStatus(m) === "expired").length,
-    nonaktif: mous.filter((m) => getMouStatus(m) === "nonaktif").length,
+    semua:    visibleMous.length,
+    pending:  visibleMous.filter((m) => getMouStatus(m) === "pending").length,
+    aktif:    visibleMous.filter((m) => getMouStatus(m) === "aktif").length,
+    expired:  visibleMous.filter((m) => getMouStatus(m) === "expired").length,
+    nonaktif: visibleMous.filter((m) => getMouStatus(m) === "nonaktif").length,
   };
 
   return (
@@ -926,12 +937,12 @@ export function MouContent() {
           <p className="text-muted-foreground">Kelola dokumen perjanjian kerjasama investasi</p>
         </div>
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-          <DialogTrigger asChild>
+          {canCreate && <DialogTrigger asChild>
             <Button>
               <Plus className="w-4 h-4 mr-2" />
               Buat PKS
             </Button>
-          </DialogTrigger>
+          </DialogTrigger>}
           <DialogContent className="sm:max-w-[600px]">
             <DialogHeader>
               <DialogTitle>Buat PKS Baru</DialogTitle>
@@ -1074,6 +1085,7 @@ export function MouContent() {
                         </td>
                         <td className="py-3 px-4">
                           <div className="flex items-center justify-center gap-1">
+                            {canPrint && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -1083,7 +1095,8 @@ export function MouContent() {
                             >
                               <Printer className="h-3.5 w-3.5" />
                             </Button>
-                            {isAdmin && (
+                            )}
+                            {canEdit && (
                             <>
                             <Button
                               variant="ghost"
@@ -1123,6 +1136,9 @@ export function MouContent() {
                             >
                               <Upload className={`h-3.5 w-3.5 ${mou.hasSignedDoc ? "text-green-600" : "text-blue-500"}`} />
                             </Button>
+                            </>
+                            )}
+                            {canDelete && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -1132,7 +1148,6 @@ export function MouContent() {
                             >
                               <Trash2 className="h-3.5 w-3.5 text-destructive" />
                             </Button>
-                            </>
                             )}
                           </div>
                         </td>

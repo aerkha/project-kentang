@@ -10,11 +10,11 @@ export default function DashboardPage() {
   const router   = useRouter();
 
   useEffect(() => {
-    if (user && user.role !== "admin") {
+    if (user && user.role !== "admin" && user.role !== "owner") {
       router.replace("/dashboard/investors");
     }
   }, [user, router]);
 
-  if (!user || user.role !== "admin") return null;
+  if (!user || (user.role !== "admin" && user.role !== "owner")) return null;
   return <DashboardContent />;
 }

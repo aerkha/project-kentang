@@ -8,23 +8,25 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Sprout, Users, BarChart3, LogOut, User, FileText, Receipt, UserCog, Menu, X, Wallet, Bell } from "lucide-react";
 
+// roles: null = semua, array = hanya role tersebut
 const allNavigation = [
-  { name: "Dashboard Analitik",  href: "/dashboard",           icon: BarChart3, adminOnly: true  },
-  { name: "Investor",            href: "/dashboard/investors", icon: Users,     adminOnly: false },
-  { name: "Transaksi",           href: "/dashboard/transaksi",    icon: Receipt,   adminOnly: false },
-  { name: "Perjanjian Kerjasama",href: "/dashboard/mou",       icon: FileText,  adminOnly: false },
-  { name: "Reminder",            href: "/dashboard/reminder",     icon: Bell,      adminOnly: false },
-  { name: "Cash Flow",         href: "/dashboard/cash-flow",  icon: Wallet,    adminOnly: false },
-  { name: "Manajemen User",      href: "/dashboard/users",         icon: UserCog,   adminOnly: true  },
+  { name: "Dashboard Analitik",  href: "/dashboard",           icon: BarChart3, roles: ["admin", "owner"] },
+  { name: "Investor",            href: "/dashboard/investors", icon: Users,     roles: null },
+  { name: "Transaksi",           href: "/dashboard/transaksi", icon: Receipt,   roles: null },
+  { name: "Perjanjian Kerjasama",href: "/dashboard/mou",       icon: FileText,  roles: null },
+  { name: "Reminder",            href: "/dashboard/reminder",  icon: Bell,      roles: ["admin", "user"] },
+  { name: "Cash Flow",           href: "/dashboard/cash-flow", icon: Wallet,    roles: ["admin", "user"] },
+  { name: "Manajemen User",      href: "/dashboard/users",     icon: UserCog,   roles: ["admin"] },
 ];
 
 export function AppSidebar() {
   const pathname  = usePathname();
   const { user, logout } = useAuth();
-  const isAdmin   = user?.role === "admin";
   const [isOpen, setIsOpen] = useState(false);
 
-  const navigation = allNavigation.filter((item) => !item.adminOnly || isAdmin);
+  const navigation = allNavigation.filter((item) =>
+    item.roles === null || (user?.role && item.roles.includes(user.role))
+  );
 
   const close = () => setIsOpen(false);
 

@@ -25,25 +25,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, Users, ShieldCheck, User, AlertCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, ShieldCheck, User, AlertCircle, Crown, TrendingUp, ShieldAlert, Check, X as XIcon } from "lucide-react";
+import { useSettings, type RolePermissions, DEFAULT_ROLE_PERMISSIONS } from "@/lib/settings-context";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 
 // ─────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────
 
 interface AppUser {
-  id:       string;
-  email:    string;
-  name:     string;
-  role:     string;
-  verified: boolean;
-  created:  string;
+  id:         string;
+  email:      string;
+  name:       string;
+  role:       string;
+  investorId: string;
+  verified:   boolean;
+  created:    string;
 }
 
 interface UserFormData {
   name:            string;
   email:           string;
   role:            string;
+  investorId:      string;
   password:        string;
   passwordConfirm: string;
   changePassword:  boolean;
@@ -62,19 +67,156 @@ function formatDate(s: string) {
 
 function recordToUser(r: Record<string, unknown>): AppUser {
   return {
-    id:       r.id       as string,
-    email:    r.email    as string,
-    name:     (r.name    as string) || "",
-    role:     (r.role    as string) || "user",
-    verified: (r.verified as boolean) || false,
-    created:  r.created  as string,
+    id:         r.id         as string,
+    email:      r.email      as string,
+    name:       (r.name      as string) || "",
+    role:       (r.role      as string) || "user",
+    investorId: (r.investorId as string) || "",
+    verified:   (r.verified  as boolean) || false,
+    created:    r.created    as string,
   };
 }
 
 const emptyForm = (): UserFormData => ({
-  name: "", email: "", role: "user",
+  name: "", email: "", role: "user", investorId: "",
   password: "", passwordConfirm: "", changePassword: false,
 });
+
+const ROLE_LABELS: Record<string, string> = {
+  admin:    "Admin",
+  user:     "User",
+  owner:    "Owner",
+  investor: "Investor",
+};
+
+// ─────────────────────────────────────────────
+// Permissions Panel
+// ─────────────────────────────────────────────
+
+const PERM_LABELS: { key: keyof import("@/lib/settings-context").RolePermission; label: string; desc: string }[] = [
+  { key: "create", label: "Tambah Data",  desc: "Membuat entri baru (investor, transaksi, PKS, dll)" },
+  { key: "edit",   label: "Edit Data",    desc: "Mengubah data yang sudah ada"                        },
+  { key: "delete", label: "Hapus Data",   desc: "Menghapus entri secara permanen"                     },
+  { key: "print",  label: "Cetak / Ekspor", desc: "Mencetak dokumen PKS dan mengekspor data"          },
+];
+
+const CONFIGURABLE_ROLES: { key: keyof RolePermissions; label: string; color: string }[] = [
+  { key: "user",     label: "User",     color: "text-blue-600"   },
+  { key: "owner",    label: "Owner",    color: "text-purple-600" },
+  { key: "investor", label: "Investor", color: "text-green-600"  },
+];
+
+function PermissionsPanel({
+  permissions, onToggle, onSave, onReset, isSaving, isSaved, isDirty,
+}: {
+  permissions: RolePermissions;
+  onToggle: (role: keyof RolePermissions, action: keyof RolePermissions[keyof RolePermissions]) => void;
+  onSave:   () => void;
+  onReset:  () => void;
+  isSaving: boolean;
+  isSaved:  boolean;
+  isDirty:  boolean;
+}) {
+  return (
+    <div className="space-y-6">
+      {/* Info admin */}
+      <Card className="border-dashed">
+        <CardContent className="pt-4 pb-4">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium">Admin selalu memiliki akses penuh</p>
+              <p className="text-xs text-muted-foreground">Hak akses di bawah hanya berlaku untuk role User, Owner, dan Investor.</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Grid permission */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Konfigurasi Hak Akses per Role</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="text-left py-3 px-4 font-medium text-muted-foreground w-1/2">Hak Akses</th>
+                  {CONFIGURABLE_ROLES.map((r) => (
+                    <th key={r.key} className={`text-center py-3 px-4 font-semibold ${r.color}`}>{r.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {PERM_LABELS.map((perm) => (
+                  <tr key={perm.key} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                    <td className="py-3 px-4">
+                      <p className="font-medium">{perm.label}</p>
+                      <p className="text-xs text-muted-foreground">{perm.desc}</p>
+                    </td>
+                    {CONFIGURABLE_ROLES.map((r) => (
+                      <td key={r.key} className="py-3 px-4 text-center">
+                        <div className="flex justify-center">
+                          <Switch
+                            checked={permissions[r.key][perm.key]}
+                            onCheckedChange={() => onToggle(r.key, perm.key)}
+                            aria-label={`${r.label} - ${perm.label}`}
+                          />
+                        </div>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Ringkasan per role */}
+      <div className="grid gap-4 md:grid-cols-3">
+        {CONFIGURABLE_ROLES.map((r) => (
+          <Card key={r.key}>
+            <CardHeader className="pb-2">
+              <CardTitle className={`text-sm font-semibold ${r.color}`}>{r.label}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1.5">
+              {PERM_LABELS.map((perm) => (
+                <div key={perm.key} className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">{perm.label}</span>
+                  {permissions[r.key][perm.key]
+                    ? <Check className="h-3.5 w-3.5 text-green-500" />
+                    : <XIcon className="h-3.5 w-3.5 text-muted-foreground/40" />
+                  }
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Aksi */}
+      <div className="flex items-center gap-3">
+        <Button onClick={onSave} disabled={!isDirty || isSaving}>
+          {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
+        </Button>
+        <Button variant="outline" onClick={onReset} disabled={isSaving}>
+          Reset Default
+        </Button>
+        {isSaved && (
+          <span className="flex items-center gap-1.5 text-sm text-green-600">
+            <Check className="h-4 w-4" />
+            Tersimpan
+          </span>
+        )}
+        {isDirty && !isSaved && (
+          <span className="text-xs text-muted-foreground">Ada perubahan yang belum disimpan</span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────
 // Main component
@@ -92,6 +234,43 @@ export function UsersContent() {
   const [formError,   setFormError]   = useState("");
   const [isSubmitting,setIsSubmitting]= useState(false);
   const [errorInfo,   setErrorInfo]   = useState<PbErrorInfo | null>(null);
+
+  const { rolePermissions, updatePermissions } = useSettings();
+  const [permDraft,     setPermDraft]     = useState<RolePermissions | null>(null);
+  const [isSavingPerm,  setIsSavingPerm]  = useState(false);
+  const [permSaved,     setPermSaved]     = useState(false);
+
+  const currentPermissions = permDraft ?? rolePermissions;
+
+  const togglePerm = (
+    role: keyof RolePermissions,
+    action: keyof RolePermissions[typeof role]
+  ) => {
+    const base = permDraft ?? rolePermissions;
+    setPermDraft({
+      ...base,
+      [role]: { ...base[role], [action]: !base[role][action] },
+    });
+    setPermSaved(false);
+  };
+
+  const savePerm = async () => {
+    if (!permDraft) return;
+    setIsSavingPerm(true);
+    try {
+      await updatePermissions(permDraft);
+      setPermDraft(null);
+      setPermSaved(true);
+      setTimeout(() => setPermSaved(false), 2500);
+    } finally {
+      setIsSavingPerm(false);
+    }
+  };
+
+  const resetPerm = () => {
+    setPermDraft(DEFAULT_ROLE_PERMISSIONS);
+    setPermSaved(false);
+  };
 
   const currentUserId = pb.authStore.record?.id as string | undefined;
 
@@ -113,10 +292,13 @@ export function UsersContent() {
   };
 
   // ── Metrics ──
-  const metrics = useMemo(() => {
-    const admins = users.filter((u) => u.role === "admin").length;
-    return { total: users.length, admins, regular: users.length - admins };
-  }, [users]);
+  const metrics = useMemo(() => ({
+    total:    users.length,
+    admins:   users.filter((u) => u.role === "admin").length,
+    owners:   users.filter((u) => u.role === "owner").length,
+    investors: users.filter((u) => u.role === "investor").length,
+    regular:  users.filter((u) => u.role === "user").length,
+  }), [users]);
 
   // ── Tambah user ──
   const handleAdd = async (e: React.FormEvent) => {
@@ -133,9 +315,10 @@ export function UsersContent() {
         emailVisibility: true,
         name:            form.name,
         role:            form.role,
+        investorId:      form.role === "investor" ? form.investorId : "",
         password:        form.password,
         passwordConfirm: form.passwordConfirm,
-        verified:        true, // langsung aktif tanpa verifikasi email
+        verified:        true,
       });
       setUsers((prev) => [...prev, recordToUser(record)]);
       setIsAddOpen(false);
@@ -156,7 +339,7 @@ export function UsersContent() {
   // ── Edit user ──
   const openEdit = (u: AppUser) => {
     setSelected(u);
-    setForm({ ...emptyForm(), name: u.name, email: u.email, role: u.role });
+    setForm({ ...emptyForm(), name: u.name, email: u.email, role: u.role, investorId: u.investorId });
     setFormError("");
     setIsEditOpen(true);
   };
@@ -177,7 +360,11 @@ export function UsersContent() {
     }
     setIsSubmitting(true);
     try {
-      const payload: Record<string, unknown> = { name: form.name, role: form.role };
+      const payload: Record<string, unknown> = {
+        name:       form.name,
+        role:       form.role,
+        investorId: form.role === "investor" ? form.investorId : "",
+      };
       if (form.changePassword && form.password) {
         payload.password        = form.password;
         payload.passwordConfirm = form.passwordConfirm;
@@ -226,11 +413,21 @@ export function UsersContent() {
     <div className="space-y-6">
 
       {/* ── Header ── */}
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Manajemen User</h1>
+        <p className="text-muted-foreground">Kelola akun pengguna dan hak akses aplikasi MinBun ERP</p>
+      </div>
+
+      <Tabs defaultValue="pengguna">
+        <TabsList>
+          <TabsTrigger value="pengguna"><Users className="w-4 h-4 mr-2" />Pengguna</TabsTrigger>
+          <TabsTrigger value="hak-akses"><ShieldAlert className="w-4 h-4 mr-2" />Hak Akses</TabsTrigger>
+        </TabsList>
+
+        {/* ══ TAB: PENGGUNA ══ */}
+        <TabsContent value="pengguna" className="space-y-6 mt-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Manajemen User</h1>
-          <p className="text-muted-foreground">Kelola akun pengguna aplikasi MinBun ERP</p>
-        </div>
+        <div />
 
         <Dialog
           open={isAddOpen}
@@ -286,14 +483,32 @@ export function UsersContent() {
                 <Label className="text-xs">
                   Role <span className="text-destructive">*</span>
                 </Label>
-                <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v }))}>
+                <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v, investorId: "" }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="user">User — admin input data</SelectItem>
+                    <SelectItem value="user">User — input data</SelectItem>
                     <SelectItem value="admin">Admin — akses penuh</SelectItem>
+                    <SelectItem value="owner">Owner — lihat &amp; edit semua</SelectItem>
+                    <SelectItem value="investor">Investor — portal investor</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+
+              {form.role === "investor" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="add-investorid" className="text-xs">
+                    ID Investor <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="add-investorid"
+                    value={form.investorId}
+                    onChange={(e) => setForm((f) => ({ ...f, investorId: e.target.value }))}
+                    placeholder="Contoh: INV-0001"
+                    required={form.role === "investor"}
+                  />
+                  <p className="text-[11px] text-muted-foreground">Masukkan customId investor (lihat di halaman Investor)</p>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
@@ -336,7 +551,7 @@ export function UsersContent() {
       </div>
 
       {/* ── Metrics ── */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total User</CardTitle>
@@ -361,12 +576,23 @@ export function UsersContent() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">User</CardTitle>
-            <User className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Owner</CardTitle>
+            <Crown className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics.regular}</div>
-            <p className="text-xs text-muted-foreground">admin input data</p>
+            <div className="text-2xl font-bold">{metrics.owners}</div>
+            <p className="text-xs text-muted-foreground">lihat & edit data</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Investor</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{metrics.investors}</div>
+            <p className="text-xs text-muted-foreground">portal investor</p>
           </CardContent>
         </Card>
       </div>
@@ -415,8 +641,12 @@ export function UsersContent() {
                       </td>
                       <td className="py-3 px-4 text-muted-foreground">{u.email}</td>
                       <td className="py-3 px-4 text-center">
-                        <Badge variant={u.role === "admin" ? "default" : "secondary"}>
-                          {u.role === "admin" ? "Admin" : "User"}
+                        <Badge variant={
+                          u.role === "admin" ? "default" :
+                          u.role === "owner" ? "outline" :
+                          u.role === "investor" ? "secondary" : "secondary"
+                        }>
+                          {ROLE_LABELS[u.role] ?? u.role}
                         </Badge>
                       </td>
                       <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">
@@ -493,14 +723,28 @@ export function UsersContent() {
 
             <div className="space-y-1.5">
               <Label className="text-xs">Role</Label>
-              <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v }))}>
+              <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v, investorId: "" }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="user">User — hanya input data</SelectItem>
+                  <SelectItem value="user">User — input data</SelectItem>
                   <SelectItem value="admin">Admin — akses penuh</SelectItem>
+                  <SelectItem value="owner">Owner — lihat &amp; edit semua</SelectItem>
+                  <SelectItem value="investor">Investor — portal investor</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {form.role === "investor" && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">ID Investor</Label>
+                <Input
+                  value={form.investorId}
+                  onChange={(e) => setForm((f) => ({ ...f, investorId: e.target.value }))}
+                  placeholder="Contoh: INV-0001"
+                />
+                <p className="text-[11px] text-muted-foreground">customId investor yang terhubung ke akun ini</p>
+              </div>
+            )}
 
             {/* Ganti password (opsional) */}
             <div className="space-y-3 border-t pt-3">
@@ -560,6 +804,23 @@ export function UsersContent() {
           </form>
         </DialogContent>
       </Dialog>
+
+        </TabsContent>{/* end pengguna */}
+
+        {/* ══ TAB: HAK AKSES ══ */}
+        <TabsContent value="hak-akses" className="space-y-6 mt-6">
+          <PermissionsPanel
+            permissions={currentPermissions}
+            onToggle={togglePerm}
+            onSave={savePerm}
+            onReset={resetPerm}
+            isSaving={isSavingPerm}
+            isSaved={permSaved}
+            isDirty={permDraft !== null}
+          />
+        </TabsContent>
+
+      </Tabs>
 
       {/* ── Delete Dialog ── */}
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
