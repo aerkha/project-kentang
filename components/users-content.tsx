@@ -318,7 +318,6 @@ export function UsersContent() {
         investorId:      form.role === "investor" ? form.investorId : "",
         password:        form.password,
         passwordConfirm: form.passwordConfirm,
-        verified:        true,
       });
       setUsers((prev) => [...prev, recordToUser(record)]);
       setIsAddOpen(false);

@@ -49,6 +49,7 @@ import {
   RotateCcw,
   Upload,
   ChevronDown,
+  PenLine,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -650,6 +651,47 @@ export function MouContent() {
   const [isUploading, setIsUploading] = useState(false);
   const [overwriteConfirmed, setOverwriteConfirmed] = useState(false);
 
+  // ── Dialog TTD investor ──
+  const [isTtdOpen,    setIsTtdOpen]    = useState(false);
+  const [ttdTarget,    setTtdTarget]    = useState<MoU | null>(null);
+  const [ttdPreview,   setTtdPreview]   = useState<string>("");
+  const [isSavingTtd,  setIsSavingTtd]  = useState(false);
+
+  const openTtd = (mou: MoU) => {
+    setTtdTarget(mou);
+    setTtdPreview(mou.esignPihakKedua ?? "");
+    setIsTtdOpen(true);
+  };
+
+  const handleTtdFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 200 * 1024) {
+      e.target.value = "";
+      window.alert(`Ukuran file terlalu besar (${(file.size / 1024).toFixed(0)} KB). Maksimal 200 KB.`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => setTtdPreview(ev.target?.result as string ?? "");
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveTtd = async () => {
+    if (!ttdTarget) return;
+    setIsSavingTtd(true);
+    try {
+      await updateMou(ttdTarget.id, { esignPihakKedua: ttdPreview });
+      toast.success("Tanda tangan berhasil disimpan");
+      setIsTtdOpen(false);
+      setTtdTarget(null);
+      setTtdPreview("");
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal menyimpan tanda tangan"));
+    } finally {
+      setIsSavingTtd(false);
+    }
+  };
+
   const [errorInfo, setErrorInfo] = useState<PbErrorInfo | null>(null);
   const [page, setPage] = useState(1);
 
@@ -1096,6 +1138,17 @@ export function MouContent() {
                               <Printer className="h-3.5 w-3.5" />
                             </Button>
                             )}
+                            {isInvestor && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              title={mou.esignPihakKedua ? "Ubah Tanda Tangan" : "Upload Tanda Tangan"}
+                              onClick={() => openTtd(mou)}
+                            >
+                              <PenLine className={`h-3.5 w-3.5 ${mou.esignPihakKedua ? "text-green-600" : "text-blue-500"}`} />
+                            </Button>
+                            )}
                             {canEdit && (
                             <>
                             <Button
@@ -1458,6 +1511,60 @@ export function MouContent() {
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog TTD Investor ── */}
+      <Dialog open={isTtdOpen} onOpenChange={(o) => { if (!o) { setIsTtdOpen(false); setTtdTarget(null); setTtdPreview(""); } }}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Tanda Tangan Pihak Kedua</DialogTitle>
+            <DialogDescription>
+              Upload tanda tangan Anda untuk PKS{" "}
+              <strong>{ttdTarget?.id}</strong>. Format JPEG / PNG / WebP, maks. 200 KB.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-2">
+            {ttdPreview ? (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Preview tanda tangan:</p>
+                <div className="flex items-center gap-3 p-3 border rounded-md bg-muted/30">
+                  <img
+                    src={ttdPreview}
+                    alt="Preview TTD"
+                    className="h-16 w-auto object-contain border rounded bg-white"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setTtdPreview("")}
+                  >
+                    Hapus
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Upload File Tanda Tangan</Label>
+                <Input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="cursor-pointer"
+                  onChange={handleTtdFileChange}
+                />
+                <p className="text-[11px] text-muted-foreground">JPEG / PNG / WebP · Maks. 200 KB</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="pt-3 border-t">
+            <Button variant="outline" onClick={() => setIsTtdOpen(false)}>Batal</Button>
+            <Button onClick={handleSaveTtd} disabled={!ttdPreview || isSavingTtd}>
+              {isSavingTtd ? "Menyimpan..." : "Simpan Tanda Tangan"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

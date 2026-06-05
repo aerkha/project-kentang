@@ -42,7 +42,7 @@ const DEFAULT_TRADER: InternalAccount = { nama: "Trader", bankName: "", accountN
 export const DEFAULT_ROLE_PERMISSIONS: RolePermissions = {
   user:     { create: true,  edit: true,  delete: false, print: true  },
   owner:    { create: true,  edit: true,  delete: false, print: true  },
-  investor: { create: false, edit: false, delete: false, print: false },
+  investor: { create: false, edit: false, delete: false, print: true  },
 };
 
 // ── Context ──────────────────────────────────────────────────────────────────
