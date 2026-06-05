@@ -10,8 +10,8 @@ import { Sprout, Users, BarChart3, LogOut, User, FileText, Receipt, UserCog, Men
 
 // roles: null = semua, array = hanya role tersebut
 const allNavigation = [
-  { name: "Dashboard Analitik",  href: "/dashboard",           icon: BarChart3, roles: ["admin", "owner"] },
-  { name: "Investor",            href: "/dashboard/investors", icon: Users,     roles: null },
+  { name: "Dashboard Analitik",  href: "/dashboard",           icon: BarChart3, roles: ["admin"] },
+  { name: "Investor",            href: "/dashboard/investors", icon: Users,     roles: ["admin", "user"] },
   { name: "Transaksi",           href: "/dashboard/transaksi", icon: Receipt,   roles: null },
   { name: "Perjanjian Kerjasama",href: "/dashboard/mou",       icon: FileText,  roles: null },
   { name: "Ringkasan Modal",     href: "/dashboard/modal",     icon: Banknote,  roles: ["admin", "owner", "user"] },
