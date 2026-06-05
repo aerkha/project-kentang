@@ -24,6 +24,14 @@ interface DueCycle {
   daysOverdue: number;
 }
 
+type ChannelStatus = "sent" | "failed" | "skipped";
+
+interface SendResult {
+  emailStatus:   ChannelStatus;
+  waStatus:      ChannelStatus;
+  errorMessage:  string;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const MONTHS_ID = [
@@ -64,9 +72,6 @@ function findDueCycles(mous: MoURecord[]): DueCycle[] {
       (today.getTime() - start.getTime()) / 86_400_000,
     );
     if (daysSinceStart < 30) continue;
-
-    // Hanya siklus yang tepat jatuh tempo hari ini (bukan semua masa lalu)
-    // daysSinceStart % 30 === 0 berarti tepat kelipatan 30 hari
     if (daysSinceStart % 30 !== 0) continue;
 
     const cycleNumber = daysSinceStart / 30;
@@ -108,22 +113,16 @@ function buildEmailHtml(cycles: DueCycle[], date: string): string {
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:'Segoe UI',Arial,sans-serif;">
   <div style="max-width:700px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.08);">
-
-    <!-- Header -->
     <div style="background:#16a34a;padding:28px 32px;">
       <h1 style="margin:0;color:#fff;font-size:22px;">🔔 Reminder Bagi Hasil Investor</h1>
       <p style="margin:6px 0 0;color:#bbf7d0;font-size:14px;">${date} · MinBun ERP</p>
     </div>
-
-    <!-- Summary -->
     <div style="padding:24px 32px;background:#f0fdf4;border-bottom:1px solid #dcfce7;">
       <p style="margin:0;font-size:15px;color:#15803d;">
         <strong>${cycles.length} investor</strong> memiliki bagi hasil yang jatuh tempo hari ini.
         Silakan proses pembayaran dan konfirmasi ke masing-masing investor.
       </p>
     </div>
-
-    <!-- Table -->
     <div style="padding:24px 32px;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
@@ -139,8 +138,6 @@ function buildEmailHtml(cycles: DueCycle[], date: string): string {
         <tbody>${rows}</tbody>
       </table>
     </div>
-
-    <!-- Footer -->
     <div style="padding:20px 32px;background:#f9fafb;border-top:1px solid #e5e7eb;">
       <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">
         Email ini dikirim otomatis oleh MinBun ERP · Jangan membalas email ini
@@ -151,37 +148,31 @@ function buildEmailHtml(cycles: DueCycle[], date: string): string {
 </html>`;
 }
 
-// ─── Nodemailer transporter ───────────────────────────────────────────────────
+// ─── Email ────────────────────────────────────────────────────────────────────
 
-function createTransporter() {
-  return nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD,
-    },
-  });
-}
+async function sendEmail(cycles: DueCycle[], todayStr: string): Promise<ChannelStatus> {
+  const user       = process.env.GMAIL_USER;
+  const pass       = process.env.GMAIL_APP_PASSWORD;
+  const recipients = (process.env.ADMIN_EMAIL ?? "").split(",").map((e) => e.trim()).filter(Boolean);
 
-async function sendEmail(cycles: DueCycle[], todayStr: string): Promise<void> {
-  const transporter = createTransporter();
-  const recipients  = (process.env.ADMIN_EMAIL ?? "")
-    .split(",").map((e) => e.trim()).filter(Boolean);
+  if (!user || !pass || recipients.length === 0) return "skipped";
 
+  const transporter = nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
   await transporter.sendMail({
-    from:    `"MinBun ERP" <${process.env.GMAIL_USER}>`,
+    from:    `"MinBun ERP" <${user}>`,
     to:      recipients.join(", "),
     subject: `[MinBun] 🔔 ${cycles.length} Investor Jatuh Tempo Bagi Hasil — ${todayStr}`,
     html:    buildEmailHtml(cycles, todayStr),
   });
+  return "sent";
 }
 
-// ─── WA via Fonnte ────────────────────────────────────────────────────────────
+// ─── WhatsApp via Fonnte ──────────────────────────────────────────────────────
 
-async function sendWhatsApp(cycles: DueCycle[], date: string): Promise<void> {
-  const token       = process.env.FONNTE_TOKEN;
-  const adminPhone  = process.env.ADMIN_PHONE;
-  if (!token || !adminPhone) return; // WA tidak dikonfigurasi, lewati
+async function sendWhatsApp(cycles: DueCycle[], date: string): Promise<ChannelStatus> {
+  const token      = process.env.FONNTE_TOKEN;
+  const adminPhone = process.env.ADMIN_PHONE;
+  if (!token || !adminPhone) return "skipped";
 
   const lines = [
     `🔔 *Reminder Bagi Hasil MinBun*`,
@@ -196,7 +187,7 @@ async function sendWhatsApp(cycles: DueCycle[], date: string): Promise<void> {
     `_Silakan proses pembayaran bagi hasil._`,
   ];
 
-  await fetch("https://api.fonnte.com/send", {
+  const res = await fetch("https://api.fonnte.com/send", {
     method: "POST",
     headers: { Authorization: token },
     body: new URLSearchParams({
@@ -205,115 +196,113 @@ async function sendWhatsApp(cycles: DueCycle[], date: string): Promise<void> {
       countryCode: "62",
     }),
   });
+  if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
+  return "sent";
 }
 
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
-  // Verifikasi secret — Vercel Cron menyertakan header ini otomatis
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = req.headers.get("authorization");
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // ── Mode test: kirim email contoh tanpa cek PocketBase ──
-  const isTest = req.nextUrl.searchParams.get("test") === "true";
-  if (isTest) {
-    try {
-      const todayStr = fmtDate(new Date().toISOString().slice(0, 10));
-      const dummy: DueCycle[] = [{
-        mou: {
-          id: "pb-test-id",
-          customId: "MOU-202505-001",
-          date: "2025-04-01",
-          investorId: "INV-0001",
-          investorName: "Investor Test",
-          investorPhone: "0812-3456-7890",
-          investmentAmount: 50_000_000,
-          contractPeriod: 90,
-          isTerminated: false,
-        },
-        cycleNumber:   1,
-        cycleStart:    "2025-04-01",
-        cycleEnd:      "2025-05-01",
-        daysOverdue:   0,
-      }];
+  const isTest      = req.nextUrl.searchParams.get("test") === "true";
+  const triggeredBy = req.nextUrl.searchParams.get("manual") === "true" ? "manual" : "cron";
 
-      await sendEmail(dummy, `${todayStr} (TEST)`);
-      return NextResponse.json({ mode: "test", status: "email sent" });
-    } catch (err) {
-      return NextResponse.json({ mode: "test", error: String(err) }, { status: 500 });
-    }
+  // ── Mode test ──
+  if (isTest) {
+    const todayStr = fmtDate(new Date().toISOString().slice(0, 10));
+    const dummy: DueCycle[] = [{
+      mou: {
+        id: "pb-test-id", customId: "MOU-202505-001", date: "2025-04-01",
+        investorId: "INV-0001", investorName: "Investor Test",
+        investorPhone: "0812-3456-7890", investmentAmount: 50_000_000,
+        contractPeriod: 90, isTerminated: false,
+      },
+      cycleNumber: 1, cycleStart: "2025-04-01", cycleEnd: "2025-05-01", daysOverdue: 0,
+    }];
+    const emailStatus = await sendEmail(dummy, `${todayStr} (TEST)`).catch(() => "failed" as ChannelStatus);
+    const waStatus    = await sendWhatsApp(dummy, `${todayStr} (TEST)`).catch(() => "failed" as ChannelStatus);
+    return NextResponse.json({ mode: "test", emailStatus, waStatus });
   }
 
   try {
-    // ── Koneksi ke PocketBase ──
     const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
     await pb.collection("users").authWithPassword(
       process.env.PB_SERVICE_EMAIL!,
       process.env.PB_SERVICE_PASSWORD!,
     );
 
-    // ── Ambil semua MoU ──
-    const records = await pb.collection("mous").getFullList<MoURecord>({
-      sort: "date",
-    });
+    const records    = await pb.collection("mous").getFullList<MoURecord>({ sort: "date" });
+    const dueCycles  = findDueCycles(records);
 
-    // ── Cari yang jatuh tempo hari ini ──
-    const dueCycles = findDueCycles(records);
     if (dueCycles.length === 0) {
       return NextResponse.json({ sent: 0, message: "Tidak ada yang jatuh tempo hari ini" });
     }
 
-    // ── Filter yang belum pernah dikirim ──
+    // Filter yang belum pernah dikirim (kecuali manual — boleh kirim ulang)
     const toSend: DueCycle[] = [];
     for (const cycle of dueCycles) {
+      if (triggeredBy === "manual") {
+        toSend.push(cycle);
+        continue;
+      }
       const existing = await pb.collection("reminder_logs")
         .getList(1, 1, {
-          filter: `mouCustomId = "${cycle.mou.customId}" && cycleNumber = ${cycle.cycleNumber}`,
+          filter: `mouCustomId = "${cycle.mou.customId}" && cycleNumber = ${cycle.cycleNumber} && triggeredBy = "cron"`,
         })
-        .catch(() => ({ totalItems: 0 })); // koleksi belum dibuat = anggap belum ada log
-
-      if (existing.totalItems === 0) {
-        toSend.push(cycle);
-      }
+        .catch(() => ({ totalItems: 0 }));
+      if (existing.totalItems === 0) toSend.push(cycle);
     }
 
     if (toSend.length === 0) {
-      return NextResponse.json({ sent: 0, message: "Semua reminder hari ini sudah terkirim sebelumnya" });
+      return NextResponse.json({ sent: 0, message: "Semua reminder hari ini sudah terkirim" });
     }
 
     const todayStr = fmtDate(new Date().toISOString().slice(0, 10));
+    const errors: string[] = [];
 
-    // ── Kirim Email via Gmail ──
-    await sendEmail(toSend, todayStr);
+    // Kirim email
+    const emailStatus = await sendEmail(toSend, todayStr).catch((e) => {
+      errors.push(`Email: ${String(e)}`);
+      return "failed" as ChannelStatus;
+    });
 
-    // ── Kirim WA via Fonnte (jika dikonfigurasi) ──
-    await sendWhatsApp(toSend, todayStr);
+    // Kirim WA
+    const waStatus = await sendWhatsApp(toSend, todayStr).catch((e) => {
+      errors.push(`WA: ${String(e)}`);
+      return "failed" as ChannelStatus;
+    });
 
-    // ── Simpan log ──
+    // Simpan log per siklus
     for (const cycle of toSend) {
-      await pb.collection("reminder_logs")
-        .create({
-          mouCustomId:  cycle.mou.customId,
-          cycleNumber:  cycle.cycleNumber,
-          sentAt:       new Date().toISOString(),
-          investorName: cycle.mou.investorName,
-        })
-        .catch(() => {}); // jika koleksi belum ada, lewati
+      await pb.collection("reminder_logs").create({
+        mouCustomId:  cycle.mou.customId,
+        cycleNumber:  cycle.cycleNumber,
+        sentAt:       new Date().toISOString(),
+        investorName: cycle.mou.investorName,
+        emailStatus,
+        waStatus,
+        errorMessage: errors.join(" | "),
+        triggeredBy,
+      }).catch(() => {});
     }
 
     return NextResponse.json({
       sent:     toSend.length,
-      investors: toSend.map((c) => ({ name: c.mou.investorName, pks: c.mou.customId, cycle: c.cycleNumber })),
+      emailStatus,
+      waStatus,
+      errors:   errors.length ? errors : undefined,
+      investors: toSend.map((c) => ({
+        name: c.mou.investorName, pks: c.mou.customId, cycle: c.cycleNumber,
+      })),
     });
 
   } catch (err) {
     console.error("[send-reminders]", err);
-    return NextResponse.json(
-      { error: "Internal error", detail: String(err) },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Internal error", detail: String(err) }, { status: 500 });
   }
 }

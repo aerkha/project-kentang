@@ -9,6 +9,7 @@ import { MouProvider } from "@/lib/mou-context";
 import { TransaksiProvider } from "@/lib/transaksi-context";
 import { PengeluaranProvider } from "@/lib/pengeluaran-context";
 import { SettingsProvider } from "@/lib/settings-context";
+import { ReminderLogsProvider } from "@/lib/reminder-logs-context";
 import { AppSidebar } from "@/components/app-sidebar";
 
 export default function DashboardLayout({
@@ -37,6 +38,7 @@ export default function DashboardLayout({
           <TransaksiProvider>
           <PengeluaranProvider>
           <SettingsProvider>
+          <ReminderLogsProvider>
             <div className="min-h-screen bg-background">
               <AppSidebar />
               {/* pt-14 = tinggi mobile top bar; md:pt-0 = desktop tidak perlu padding atas */}
@@ -44,6 +46,7 @@ export default function DashboardLayout({
                 {children}
               </main>
             </div>
+          </ReminderLogsProvider>
           </SettingsProvider>
           </PengeluaranProvider>
           </TransaksiProvider>

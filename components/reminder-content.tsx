@@ -8,6 +8,7 @@ import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
 import { usePengeluaran } from "@/lib/pengeluaran-context";
 import { useSettings } from "@/lib/settings-context";
+import { useReminderLogs, type ReminderLog } from "@/lib/reminder-logs-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,11 @@ import {
   Upload,
   FileCheck,
   ExternalLink,
+  Send,
+  RefreshCw,
+  Mail,
+  MessageCircle,
+  Clock,
 } from "lucide-react";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -128,6 +134,25 @@ type PaymentRow = {
   jumlah:        number;
 };
 
+// ── ChannelBadge ─────────────────────────────────────────────────────────────
+
+function ChannelBadge({ status, icon }: { status: string; icon: React.ReactNode }) {
+  const map: Record<string, string> = {
+    sent:    "bg-green-100 text-green-700",
+    failed:  "bg-red-100 text-red-700",
+    skipped: "bg-muted text-muted-foreground",
+  };
+  const label: Record<string, string> = {
+    sent: "Terkirim", failed: "Gagal", skipped: "Belum diset",
+  };
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${map[status] ?? map.skipped}`}>
+      {icon}
+      {label[status] ?? status}
+    </span>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ReminderContent() {
@@ -137,6 +162,8 @@ export function ReminderContent() {
   const { brokers }                      = useBrokers();
   const { addPengeluaran }               = usePengeluaran();
   const { minbun, trader, updateMinbun, updateTrader } = useSettings();
+  const { logs, isLoading: logsLoading, refresh: refreshLogs } = useReminderLogs();
+  const [isSendingReminder, setIsSendingReminder] = useState(false);
   const [toggling, setToggling]          = useState<string | null>(null);
   const [showDone, setShowDone]          = useState(false);
 
@@ -350,6 +377,37 @@ export function ReminderContent() {
       toast.error("Gagal menyimpan rekening Trader");
     } finally {
       setIsSavingTR(false);
+    }
+  };
+
+  const handleSendReminder = async () => {
+    setIsSendingReminder(true);
+    try {
+      const secret = process.env.NEXT_PUBLIC_CRON_SECRET;
+      const res = await fetch(`/api/send-reminders?manual=true`, {
+        headers: { Authorization: `Bearer ${secret ?? ""}` },
+      });
+      const data = await res.json() as {
+        sent?: number; message?: string; emailStatus?: string;
+        waStatus?: string; errors?: string[]; error?: string;
+      };
+      if (!res.ok) {
+        toast.error(`Gagal: ${data.error ?? "Unknown error"}`);
+      } else if (data.sent === 0) {
+        toast.info(data.message ?? "Tidak ada yang perlu dikirim");
+      } else {
+        const parts = [`${data.sent} reminder terkirim`];
+        if (data.emailStatus === "sent")   parts.push("✉️ Email OK");
+        if (data.emailStatus === "skipped") parts.push("✉️ Email (belum dikonfigurasi)");
+        if (data.waStatus    === "sent")   parts.push("💬 WA OK");
+        if (data.waStatus    === "skipped") parts.push("💬 WA (belum dikonfigurasi)");
+        toast.success(parts.join(" · "));
+        await refreshLogs();
+      }
+    } catch {
+      toast.error("Gagal menghubungi server. Coba lagi.");
+    } finally {
+      setIsSendingReminder(false);
     }
   };
 
@@ -748,6 +806,103 @@ export function ReminderContent() {
             </div>
           </CardContent>
         )}
+      </Card>
+
+      {/* ── Riwayat Reminder ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                Riwayat Reminder
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Log pengiriman reminder otomatis &amp; manual via Email / WhatsApp
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void refreshLogs()}
+                disabled={logsLoading}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${logsLoading ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void handleSendReminder()}
+                disabled={isSendingReminder}
+              >
+                <Send className="h-3.5 w-3.5 mr-1.5" />
+                {isSendingReminder ? "Mengirim…" : "Kirim Sekarang"}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {logsLoading ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">Memuat…</div>
+          ) : logs.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              <Clock className="h-8 w-8 mx-auto mb-2 opacity-40" />
+              Belum ada riwayat pengiriman reminder
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-left py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Waktu Kirim</th>
+                    <th className="text-left py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Investor</th>
+                    <th className="text-left py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">No PKS</th>
+                    <th className="text-center py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Siklus</th>
+                    <th className="text-center py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Email</th>
+                    <th className="text-center py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">WhatsApp</th>
+                    <th className="text-center py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Trigger</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {logs.slice(0, 50).map((log: ReminderLog) => (
+                    <tr key={log.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                      <td className="py-2.5 px-4 whitespace-nowrap text-muted-foreground text-xs">
+                        {new Date(log.sentAt).toLocaleString("id-ID", {
+                          day: "2-digit", month: "short", year: "numeric",
+                          hour: "2-digit", minute: "2-digit",
+                        })}
+                      </td>
+                      <td className="py-2.5 px-4 font-medium whitespace-nowrap">{log.investorName}</td>
+                      <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground whitespace-nowrap">{log.mouCustomId}</td>
+                      <td className="py-2.5 px-4 text-center text-muted-foreground">ke-{log.cycleNumber}</td>
+                      <td className="py-2.5 px-4 text-center">
+                        <ChannelBadge status={log.emailStatus} icon={<Mail className="h-3 w-3" />} />
+                      </td>
+                      <td className="py-2.5 px-4 text-center">
+                        <ChannelBadge status={log.waStatus} icon={<MessageCircle className="h-3 w-3" />} />
+                      </td>
+                      <td className="py-2.5 px-4 text-center">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                          log.triggeredBy === "manual"
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-muted text-muted-foreground"
+                        }`}>
+                          {log.triggeredBy === "manual" ? "Manual" : "Otomatis"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {logs.length > 50 && (
+                <p className="text-xs text-muted-foreground text-center py-3">
+                  Menampilkan 50 terbaru dari {logs.length} log
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
       </Card>
 
       {/* ── Dialog Upload Bukti Transfer ── */}
