@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
@@ -136,14 +136,12 @@ export function ReminderContent() {
   const [formTrader,   setFormTrader]   = useState({ nama: trader.nama, bankName: trader.bankName, accountNumber: trader.accountNumber });
 
   // Sync form jika context baru load dari PocketBase
-  useMemo(() => {
+  useEffect(() => {
     setFormMinbun({ nama: minbun.nama, bankName: minbun.bankName, accountNumber: minbun.accountNumber });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minbun.bankName, minbun.accountNumber, minbun.nama]);
-  useMemo(() => {
+  }, [minbun.nama, minbun.bankName, minbun.accountNumber]);
+  useEffect(() => {
     setFormTrader({ nama: trader.nama, bankName: trader.bankName, accountNumber: trader.accountNumber });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trader.bankName, trader.accountNumber, trader.nama]);
+  }, [trader.nama, trader.bankName, trader.accountNumber]);
 
   // Hanya PKS yang aktif (tidak terminated, belum expired)
   const tasks = useMemo(() => {
@@ -206,44 +204,69 @@ export function ReminderContent() {
       .sort((a, b) => a.endDateStr.localeCompare(b.endDateStr));
   }, [mous, transaksis, investors, brokers, minbun, trader]);
 
-  // Ringkasan — hanya dari tugas yang belum selesai
+  // Ringkasan — jumlah per penerima yang BELUM dicentang (per baris, bukan per PKS)
   const summary = useMemo(() => {
-    const pending = tasks.filter((t) => !t.mou.bagiHasilDone);
+    let investor = 0, trader = 0, minbun = 0, broker = 0;
+    tasks.forEach((t) => {
+      t.rows.forEach((r) => {
+        if (t.mou.bagiHasilChecks?.[r.keterangan]) return; // sudah dicentang, skip
+        if (r.keterangan === "Investor") investor += r.jumlah;
+        else if (r.keterangan === "Trader") trader  += r.jumlah;
+        else if (r.keterangan === "MinBun") minbun  += r.jumlah;
+        else if (r.keterangan === "Broker") broker  += r.jumlah;
+      });
+    });
     return {
-      investor: pending.reduce((s, t) => s + t.bh.investor, 0),
-      trader:   pending.reduce((s, t) => s + t.bh.trader,   0),
-      minbun:   pending.reduce((s, t) => s + t.bh.minbun,   0),
-      broker:   pending.reduce((s, t) => s + t.bh.broker,   0),
-      totalTasks: tasks.length,
-      doneTasks:  tasks.filter((t) => t.mou.bagiHasilDone).length,
+      investor, trader, minbun, broker,
+      totalTasks: tasks.reduce((s, t) => s + t.rows.length, 0),
+      doneTasks:  tasks.reduce((s, t) =>
+        s + t.rows.filter((r) => !!t.mou.bagiHasilChecks?.[r.keterangan]).length, 0
+      ),
     };
   }, [tasks]);
 
-  const handleToggle = async (mou: MoU) => {
-    const willDone = !mou.bagiHasilDone;
-    setToggling(mou.id);
-    try {
-      await updateMou(mou.id, { bagiHasilDone: willDone });
+  const handleToggleRow = async (mou: MoU, keterangan: string, row: PaymentRow) => {
+    const key       = `${mou.id}__${keterangan}`;
+    const checks    = { ...(mou.bagiHasilChecks ?? {}) };
+    const willCheck = !checks[keterangan];
+    checks[keterangan] = willCheck;
 
-      if (willDone) {
-        // Cari data task yang sesuai untuk mendapatkan rows pembayaran
-        const task = tasks.find((t) => t.mou.id === mou.id);
-        if (task && task.rows.length > 0) {
-          const today = new Date().toISOString().slice(0, 10);
-          await Promise.all(
-            task.rows.map((row) =>
-              addPengeluaran({
-                date:      today,
-                deskripsi: `Bagi Hasil ${row.nama} (${row.keterangan}) - PKS ${mou.id}`,
-                debet:     row.keterangan === "MinBun" ? row.jumlah : 0,
-                kredit:    row.keterangan === "MinBun" ? 0 : row.jumlah,
-                catatan:   `Auto dari Reminder PKS ${mou.id}`,
-              })
-            )
+    // PKS dianggap selesai jika semua baris sudah dicentang
+    const task    = tasks.find((t) => t.mou.id === mou.id);
+    const allDone = task ? task.rows.every((r) => checks[r.keterangan]) : false;
+
+    setToggling(key);
+    try {
+      // 1. Simpan status ceklis ke PocketBase
+      await updateMou(mou.id, {
+        bagiHasilChecks: checks,
+        bagiHasilDone:   allDone,
+      });
+
+      if (willCheck) {
+        // 2. Catat ke cashflow — MinBun = debet (pemasukan), lainnya = kredit (pengeluaran)
+        const today = new Date().toISOString().slice(0, 10);
+        try {
+          await addPengeluaran({
+            date:      today,
+            deskripsi: `Bagi Hasil ${row.nama} (${keterangan}) - PKS ${mou.id}`,
+            debet:     keterangan === "MinBun" ? row.jumlah : 0,
+            kredit:    keterangan === "MinBun" ? 0 : row.jumlah,
+            catatan:   `Auto dari Reminder PKS ${mou.id}`,
+          });
+          toast.success(`${keterangan} — ${row.nama} dicatat di Cash Flow`);
+        } catch {
+          // Ceklis sudah tersimpan, tapi cashflow gagal — beri tahu user
+          toast.error(
+            `Ceklis tersimpan, tapi gagal mencatat ${keterangan} di Cash Flow. Tambahkan manual.`
           );
-          toast.success(`Bagi hasil PKS ${mou.id} dicatat di Cashflow`);
         }
+      } else {
+        // Un-check: ceklis dibatalkan, entri cashflow TIDAK dihapus otomatis
+        toast.info(`${keterangan} ditandai belum dibayar. Entri Cash Flow tidak dihapus otomatis.`);
       }
+    } catch {
+      toast.error("Gagal menyimpan perubahan. Coba lagi.");
     } finally {
       setToggling(null);
     }
@@ -290,7 +313,7 @@ export function ReminderContent() {
         </h1>
         <p className="text-muted-foreground">
           Pantau dan catat pelunasan bagi hasil per PKS ·{" "}
-          <span className="font-medium">{summary.doneTasks}/{summary.totalTasks}</span> selesai
+          <span className="font-medium">{summary.doneTasks}/{summary.totalTasks}</span> tugas selesai
         </p>
       </div>
 
@@ -366,12 +389,12 @@ export function ReminderContent() {
                 </thead>
                 <tbody>
                   {tasks.map((task) => {
-                    const done      = !!task.mou.bagiHasilDone;
-                    const days      = daysUntil(task.endDateStr);
-                    const isLoading = toggling === task.mou.id;
+                    const days     = daysUntil(task.endDateStr);
+                    const allDone  = task.rows.every((r) => task.mou.bagiHasilChecks?.[r.keterangan]);
+                    const rowCount = task.rows.length || 1;
 
                     let dayLabel: React.ReactNode;
-                    if (done) {
+                    if (allDone) {
                       dayLabel = <span className="text-muted-foreground text-xs">Selesai</span>;
                     } else if (days < 0) {
                       dayLabel = <Badge variant="destructive" className="text-xs py-0.5">Lewat {Math.abs(days)} hari</Badge>;
@@ -385,55 +408,60 @@ export function ReminderContent() {
                       dayLabel = <span className="text-sm text-muted-foreground">{days} hari lagi</span>;
                     }
 
-                    const rowCount = task.rows.length || 1;
-                    const rowClass = `transition-colors ${done ? "opacity-50" : "hover:bg-muted/40"}`;
+                    return task.rows.map((pr, idx) => {
+                      const rowDone   = !!task.mou.bagiHasilChecks?.[pr.keterangan];
+                      const rowKey    = `${task.mou.id}__${pr.keterangan}`;
+                      const isLoading = toggling === rowKey;
+                      const rowClass  = `transition-colors ${rowDone ? "opacity-50" : "hover:bg-muted/40"}`;
 
-                    return task.rows.map((pr, idx) => (
-                      <tr
-                        key={`${task.mou.id}-${pr.keterangan}`}
-                        className={`border-b border-border/50 ${rowClass} ${idx === 0 ? "border-t-2 border-t-border/30" : ""}`}
-                      >
-                        {/* Nama */}
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          <span className={done ? "line-through text-muted-foreground" : "font-medium"}>
-                            {pr.nama}
-                          </span>
-                        </td>
-                        {/* Keterangan */}
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${keteranganColor[pr.keterangan]}`}>
-                            {pr.keterangan}
-                          </span>
-                        </td>
-                        {/* Nama Bank */}
-                        <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">
-                          {pr.bankName}
-                        </td>
-                        {/* No Rekening */}
-                        <td className="py-2.5 px-3 whitespace-nowrap font-mono text-xs text-muted-foreground">
-                          {pr.accountNumber}
-                        </td>
-                        {/* Jumlah */}
-                        <td className="py-2.5 px-3 text-right whitespace-nowrap font-semibold">
-                          {formatShort(pr.jumlah)}
-                          <div className="text-[10px] font-normal text-muted-foreground">{formatCurrency(pr.jumlah)}</div>
-                        </td>
-                        {/* No PKS — hanya baris pertama, rowspan */}
-                        {idx === 0 && (
-                          <td className="py-2.5 px-3 font-mono text-xs text-muted-foreground whitespace-nowrap align-top" rowSpan={rowCount}>
-                            {task.mou.id}
+                      return (
+                        <tr
+                          key={rowKey}
+                          className={`border-b border-border/50 ${rowClass} ${idx === 0 ? "border-t-2 border-t-border" : ""}`}
+                        >
+                          {/* Nama */}
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span className={rowDone ? "line-through text-muted-foreground" : "font-medium"}>
+                              {pr.nama}
+                            </span>
                           </td>
-                        )}
-                        {/* Deadline — hanya baris pertama, rowspan */}
-                        {idx === 0 && (
-                          <td className="py-2.5 px-3 whitespace-nowrap align-top" rowSpan={rowCount}>
-                            {dayLabel}
-                            <div className="text-[10px] text-muted-foreground mt-0.5">{formatDate(task.endDateStr)}</div>
+                          {/* Keterangan */}
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${keteranganColor[pr.keterangan]}`}>
+                              {pr.keterangan}
+                            </span>
                           </td>
-                        )}
-                        {/* Status — hanya baris pertama, rowspan */}
-                        {idx === 0 && (
-                          <td className="py-2.5 px-3 text-center align-top" rowSpan={rowCount}>
+                          {/* Nama Bank */}
+                          <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">
+                            {pr.bankName}
+                          </td>
+                          {/* No Rekening */}
+                          <td className="py-2.5 px-3 whitespace-nowrap font-mono text-xs text-muted-foreground">
+                            {pr.accountNumber}
+                          </td>
+                          {/* Jumlah */}
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap font-semibold">
+                            {formatShort(pr.jumlah)}
+                            <div className="text-[10px] font-normal text-muted-foreground">{formatCurrency(pr.jumlah)}</div>
+                          </td>
+                          {/* No PKS — hanya baris pertama, rowspan */}
+                          {idx === 0 && (
+                            <td
+                              className="py-2.5 px-3 font-mono text-xs font-bold text-foreground whitespace-nowrap align-top border-l-[3px] border-l-border"
+                              rowSpan={rowCount}
+                            >
+                              {task.mou.id}
+                            </td>
+                          )}
+                          {/* Deadline — hanya baris pertama, rowspan */}
+                          {idx === 0 && (
+                            <td className="py-2.5 px-3 whitespace-nowrap align-top" rowSpan={rowCount}>
+                              {dayLabel}
+                              <div className="text-[10px] text-muted-foreground mt-0.5">{formatDate(task.endDateStr)}</div>
+                            </td>
+                          )}
+                          {/* Status — 1 ceklis per baris */}
+                          <td className="py-2.5 px-3 text-center">
                             <TooltipProvider delayDuration={200}>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -442,23 +470,23 @@ export function ReminderContent() {
                                     size="icon"
                                     className="h-8 w-8"
                                     disabled={isLoading}
-                                    onClick={() => handleToggle(task.mou)}
+                                    onClick={() => handleToggleRow(task.mou, pr.keterangan, pr)}
                                   >
-                                    {done
+                                    {rowDone
                                       ? <CheckCircle2 className="h-5 w-5 text-green-500" />
                                       : <Circle className="h-5 w-5 text-muted-foreground" />
                                     }
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent side="left" className="text-xs">
-                                  {done ? "Tandai belum selesai" : "Tandai sudah selesai"}
+                                  {rowDone ? "Tandai belum dibayar" : "Tandai sudah dibayar"}
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
                           </td>
-                        )}
-                      </tr>
-                    ));
+                        </tr>
+                      );
+                    });
                   })}
                 </tbody>
               </table>

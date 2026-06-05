@@ -26,6 +26,7 @@ export interface MoU {
   bagiHasilPK:  number;   // % Pihak Kedua      (default 35)
   isTerminated?: boolean;
   bagiHasilDone?: boolean;
+  bagiHasilChecks?: Record<string, boolean>; // { Investor: true, Broker: false, ... }
   esignPihakPertama1?: string;
   esignPihakPertama2?: string;
   esignPihakKedua?: string;
@@ -91,6 +92,10 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
     bagiHasilPK:        (r.bagiHasilPK       as number) ?? 35,
     isTerminated:       (r.isTerminated      as boolean) || false,
     bagiHasilDone:      (r.bagiHasilDone     as boolean) || false,
+    bagiHasilChecks:    (() => {
+      try { return JSON.parse((r.bagiHasilChecks as string) || "{}") as Record<string, boolean>; }
+      catch { return {}; }
+    })(),
     esignPihakPertama1: pbFileUrl(pbRecordId, r.esignPihakPertama1),
     esignPihakPertama2: pbFileUrl(pbRecordId, r.esignPihakPertama2),
     esignPihakKedua:    pbFileUrl(pbRecordId, r.esignPihakKedua),
@@ -296,7 +301,14 @@ export function MouProvider({ children }: { children: ReactNode }) {
       ...regularUpdates
     } = updates;
 
-    let record = await pb.collection("mous").update(pbId, { ...regularUpdates, updatedBy: currentUserId() });
+    // Serialisasi bagiHasilChecks ke JSON string sebelum kirim ke PocketBase
+    const { bagiHasilChecks, ...restUpdates } = regularUpdates;
+    const pbUpdates: Record<string, unknown> = { ...restUpdates, updatedBy: currentUserId() };
+    if (bagiHasilChecks !== undefined) {
+      pbUpdates.bagiHasilChecks = JSON.stringify(bagiHasilChecks);
+    }
+
+    let record = await pb.collection("mous").update(pbId, pbUpdates);
 
     // Upload esign sebagai file jika ada base64 baru
     const esignPairs: [string, string][] = (
