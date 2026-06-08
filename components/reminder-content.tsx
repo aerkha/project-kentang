@@ -383,12 +383,9 @@ export function ReminderContent() {
     setIsUploading(true);
     setToggling(key);
     try {
-      // 1. Upload bukti transfer — simpan URL untuk notifikasi
-      await uploadBuktiTransfer(mou.id, keterangan, buktiFile);
-
-      // Ambil URL bukti yang baru diupload dari mou yang sudah diupdate
-      const updatedMou  = mous.find((m) => m.id === mou.id);
-      const buktiUrl    = (updatedMou?.[BUKTI_FIELD[keterangan] as keyof MoU] as string) ?? "";
+      // 1. Upload bukti transfer — URL dikembalikan langsung dari context
+      //    (tidak membaca state mous agar tidak kena stale closure)
+      const buktiUrl = await uploadBuktiTransfer(mou.id, keterangan, buktiFile);
 
       // 2. Simpan status ceklis
       await updateMou(mou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });

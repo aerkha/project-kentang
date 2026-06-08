@@ -39,32 +39,34 @@ function fmtRp(n: number) {
 // ── History helpers ────────────────────────────────────────────────────────────
 
 interface MouRecord {
-  id: string;          // PB internal id
-  customId: string;    // MOU-YYYYMM-NNN
-  date: string;
-  contractPeriod: number;
+  id:               string;   // PB internal id
+  customId:         string;   // MOU-YYYYMM-NNN
+  date:             string;
+  contractPeriod:   number;
   investmentAmount: number;
-  status: string;
+  bagiHasilPK:      number;   // % bagi hasil PKS (default 35)
+  status:           string;
   bagiHasilChecks?: Record<string, boolean>;
-  bagiHasilDone?: boolean;
+  bagiHasilDone?:   boolean;
 }
 
 interface TiRecord {
-  transaksiId: string;
-  investorId:  string;
+  transaksiId:    string;
+  investorId:     string;
   nilaiInvestasi: number;
-  pctTrader:   number;
-  pctMinBun:   number;
-  pctBrokerI:  number;
-  pctBrokerII: number;
+  pctTrader:      number;
+  pctMinBun:      number;
+  pctBrokerI:     number;
+  pctBrokerII:    number;
 }
 
 interface TrxRecord {
-  id: string;
-  hpp: number;
+  id:             string;
+  date:           string;  // dibutuhkan untuk filter per periode MoU
+  hpp:            number;
   kebutuhanModal: number;
-  ongkirPerKg: number;
-  hargaJual: number;
+  ongkirPerKg:    number;
+  hargaJual:      number;
 }
 
 interface BagiHasil {
@@ -74,16 +76,30 @@ interface BagiHasil {
   broker:   number;
 }
 
-function calcBagiHasil(profit: number, ti: TiRecord, totalModal: number): BagiHasil {
+/**
+ * Hitung bagi hasil untuk satu investor dalam satu transaksi.
+ *
+ * @param profit       - profit bersih transaksi
+ * @param pkPct        - persentase bagi hasil PKS (mis. 0.35)
+ * @param ti           - TI record investor ini
+ * @param totalModal   - jumlah SEMUA nilaiInvestasi dalam transaksi ini (semua investor)
+ */
+function calcBagiHasil(
+  profit:     number,
+  pkPct:      number,
+  ti:         TiRecord,
+  totalModal: number,
+): BagiHasil {
   if (totalModal <= 0 || profit <= 0) return { investor: 0, trader: 0, minbun: 0, broker: 0 };
-  const ratio       = ti.nilaiInvestasi / totalModal;
-  const share       = profit * ratio;
-  const trader      = share * (ti.pctTrader  / 100);
-  const minbun      = share * (ti.pctMinBun  / 100);
-  const brokerI     = share * (ti.pctBrokerI / 100);
-  const brokerII    = share * (ti.pctBrokerII / 100);
-  const broker      = brokerI + brokerII;
-  const investor    = share - trader - minbun - broker;
+  const ratio    = ti.nilaiInvestasi / totalModal;
+  // Hanya porsi pkPct dari profit yang dibagi (misal 35%)
+  const share    = profit * pkPct * ratio;
+  const trader   = share * (ti.pctTrader  / 100);
+  const minbun   = share * (ti.pctMinBun  / 100);
+  const brokerI  = share * (ti.pctBrokerI  / 100);
+  const brokerII = share * (ti.pctBrokerII / 100);
+  const broker   = brokerI + brokerII;
+  const investor = share - trader - minbun - broker;
   return { investor, trader, minbun, broker };
 }
 
@@ -98,10 +114,10 @@ interface HistoryRow {
 }
 
 async function buildHistory(
-  pb: PocketBase,
-  investorId: string,  // customId of investor e.g. "INV-0001"
+  pb:         PocketBase,
+  investorId: string,   // customId investor, mis. "INV-0001"
 ): Promise<HistoryRow[]> {
-  // 1. Fetch all MoUs for this investor (using customId field)
+  // 1. Ambil semua MoU milik investor ini
   let mous: MouRecord[] = [];
   try {
     const raw = await pb.collection("mous").getFullList({
@@ -109,104 +125,113 @@ async function buildHistory(
       sort:   "date",
     });
     mous = raw.map((r) => ({
-      id:               r.id as string,
-      customId:         r.customId as string,
-      date:             r.date as string,
-      contractPeriod:   r.contractPeriod as number,
+      id:               r.id               as string,
+      customId:         r.customId         as string,
+      date:             r.date             as string,
+      contractPeriod:   r.contractPeriod   as number,
       investmentAmount: r.investmentAmount as number,
-      status:           (r.status as string) || "aktif",
+      bagiHasilPK:      (r.bagiHasilPK    as number) ?? 35,
+      status:           (r.status          as string) || "aktif",
       bagiHasilChecks:  (r.bagiHasilChecks as Record<string, boolean>) || {},
-      bagiHasilDone:    r.bagiHasilDone as boolean,
+      bagiHasilDone:    r.bagiHasilDone   as boolean,
     }));
   } catch {
     return [];
   }
-
   if (mous.length === 0) return [];
 
-  // 2. Fetch all transaksi_investors linked to these MoU investor IDs
-  //    In this system, transaksi_investors uses investorId (the customId of investor)
-  let allTi: TiRecord[] = [];
+  // 2. Ambil TI records milik investor ini
+  let myTis: TiRecord[] = [];
   try {
     const raw = await pb.collection("transaksi_investors").getFullList({
       filter: `investorId = "${investorId}"`,
     });
-    allTi = raw.map((r) => ({
-      transaksiId:    r.transaksiId as string,
-      investorId:     r.investorId  as string,
+    myTis = raw.map((r) => ({
+      transaksiId:    r.transaksiId    as string,
+      investorId:     r.investorId     as string,
       nilaiInvestasi: r.nilaiInvestasi as number,
-      pctTrader:      (r.pctTrader  as number) ?? 10,
-      pctMinBun:      (r.pctMinBun  as number) ?? 5,
-      pctBrokerI:     (r.pctBrokerI as number) ?? 0,
-      pctBrokerII:    (r.pctBrokerII as number) ?? 0,
+      pctTrader:      (r.pctTrader     as number) ?? 10,
+      pctMinBun:      (r.pctMinBun     as number) ?? 5,
+      pctBrokerI:     (r.pctBrokerI    as number) ?? 0,
+      pctBrokerII:    (r.pctBrokerII   as number) ?? 0,
     }));
   } catch {
-    // no transaksi_investors — BH will be 0
+    // koleksi belum ada atau kosong — BH akan 0
+  }
+  if (myTis.length === 0) {
+    return mous.map((mou) => ({
+      mouCustomId:      mou.customId,
+      periodeStart:     mou.date,
+      periodeEnd:       addDays(mou.date, mou.contractPeriod),
+      investmentAmount: mou.investmentAmount,
+      bh:               { investor: 0, trader: 0, minbun: 0, broker: 0 },
+      status:           mou.status,
+      lunas:            mou.bagiHasilDone === true,
+    }));
   }
 
-  // 3. Fetch transaksis referenced by those TI records
-  const trxIdSet = new Set(allTi.map((ti) => ti.transaksiId));
+  // 3. Ambil semua transaksis yang direferens oleh TI investor ini (termasuk field date)
+  const trxIdSet = new Set(myTis.map((ti) => ti.transaksiId));
   const trxMap   = new Map<string, TrxRecord>();
+  try {
+    const idFilter = [...trxIdSet].map((id) => `id = "${id}"`).join(" || ");
+    const raw = await pb.collection("transaksis").getFullList({ filter: idFilter });
+    for (const r of raw) {
+      trxMap.set(r.id as string, {
+        id:             r.id             as string,
+        date:           r.date           as string,
+        hpp:            r.hpp            as number,
+        kebutuhanModal: r.kebutuhanModal as number,
+        ongkirPerKg:    r.ongkirPerKg    as number,
+        hargaJual:      r.hargaJual      as number,
+      });
+    }
+  } catch { /* abaikan */ }
 
+  // 4. Ambil SEMUA TI untuk transaksi-transaksi tersebut (bukan hanya milik investor ini)
+  //    Diperlukan untuk menghitung totalModal yang benar (penyebut rasio)
+  const totalModalMap = new Map<string, number>(); // transaksiId → total semua investor
   if (trxIdSet.size > 0) {
     try {
-      const idFilter = [...trxIdSet].map((id) => `id = "${id}"`).join(" || ");
-      const raw = await pb.collection("transaksis").getFullList({ filter: idFilter });
+      const idFilter = [...trxIdSet].map((id) => `transaksiId = "${id}"`).join(" || ");
+      const raw = await pb.collection("transaksi_investors").getFullList({
+        filter: idFilter,
+        fields: "transaksiId,nilaiInvestasi",
+      });
       for (const r of raw) {
-        trxMap.set(r.id as string, {
-          id:             r.id as string,
-          hpp:            r.hpp as number,
-          kebutuhanModal: r.kebutuhanModal as number,
-          ongkirPerKg:    r.ongkirPerKg as number,
-          hargaJual:      r.hargaJual as number,
-        });
+        const tid = r.transaksiId as string;
+        totalModalMap.set(tid, (totalModalMap.get(tid) ?? 0) + (r.nilaiInvestasi as number));
       }
-    } catch {
-      // silently ignore
-    }
+    } catch { /* abaikan */ }
   }
 
-  // 4. For each MoU, find transaksis in its period and sum bagi hasil
-  //    A transaksi belongs to a MoU if its date falls within MoU period
-  //    and the investor participated (has TI entry with matching investorId).
-  //    Since we don't store mouId on transaksis, we match by period + investor.
+  // 5. Hitung bagi hasil per MoU — filter transaksi berdasarkan periode MoU
   return mous.map((mou) => {
-    const startDate  = mou.date;
-    const endDate    = (() => {
-      const d = new Date(mou.date);
-      d.setDate(d.getDate() + mou.contractPeriod);
-      return d.toISOString().slice(0, 10);
-    })();
+    const mouStart = new Date(mou.date).getTime();
+    const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
+    const pkPct    = (mou.bagiHasilPK ?? 35) / 100;
+    const periodeEnd = addDays(mou.date, mou.contractPeriod);
 
-    // Sum bagi hasil across all transaksis where this investor participated
-    // and transaksi date is within MoU period
     let totalBh: BagiHasil = { investor: 0, trader: 0, minbun: 0, broker: 0 };
 
-    for (const ti of allTi) {
+    for (const ti of myTis) {
       const trx = trxMap.get(ti.transaksiId);
       if (!trx) continue;
 
-      // We don't have trx.date stored in our fetch, fetch it separately would be costly.
-      // Instead, aggregate all transaksis this investor participated in per MoU.
-      // Best approximation without trx date: include all TI entries and let the
-      // MoU-level bagi hasil be the sum across all transaksis.
-      // (If investor has multiple MoUs, this will over-count — addressed below by
-      //  only fetching TI records that belong to transaksis within the MoU date range
-      //  via the trx date we DO have from the full transaksi record.)
+      // Filter: hanya transaksi yang tanggalnya masuk periode MoU ini
+      const tDate = new Date(trx.date).getTime();
+      if (tDate < mouStart || tDate > mouEnd) continue;
 
-      // We need trx date — re-fetch with date field included:
-      // Actually we already fetched transaksis with all fields, but we didn't store date.
-      // Let's just use what we have — profit calc per trx:
-      const qty   = trx.hpp > 0 ? trx.kebutuhanModal / trx.hpp : 0;
+      // Hitung profit transaksi
+      const qty         = trx.hpp > 0 ? trx.kebutuhanModal / trx.hpp : 0;
       const totalOngkir = trx.ongkirPerKg * qty;
       const income      = trx.hargaJual * qty;
       const profit      = income - (trx.kebutuhanModal + totalOngkir);
 
-      // Get all TI for this transaksi to compute totalModal
-      const trxTis = allTi.filter((t) => t.transaksiId === ti.transaksiId);
-      const totalModal = trxTis.reduce((s, t) => s + t.nilaiInvestasi, 0);
+      // totalModal = jumlah SEMUA investor dalam transaksi ini (bukan hanya investor ini)
+      const totalModal = totalModalMap.get(ti.transaksiId) ?? ti.nilaiInvestasi;
 
-      const bh = calcBagiHasil(profit, ti, totalModal);
+      const bh = calcBagiHasil(profit, pkPct, ti, totalModal);
       totalBh = {
         investor: totalBh.investor + bh.investor,
         trader:   totalBh.trader   + bh.trader,
@@ -215,19 +240,23 @@ async function buildHistory(
       };
     }
 
-    const checks = mou.bagiHasilChecks ?? {};
-    const lunas  = mou.bagiHasilDone === true;
-
     return {
       mouCustomId:      mou.customId,
-      periodeStart:     startDate,
-      periodeEnd:       endDate,
+      periodeStart:     mou.date,
+      periodeEnd,
       investmentAmount: mou.investmentAmount,
       bh:               totalBh,
       status:           mou.status,
-      lunas,
+      lunas:            mou.bagiHasilDone === true,
     };
   });
+}
+
+/** Tambahkan N hari ke tanggal string "YYYY-MM-DD" */
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 // ── Email HTML ─────────────────────────────────────────────────────────────────

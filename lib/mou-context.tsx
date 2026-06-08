@@ -52,7 +52,7 @@ interface MouContextType {
   updateMou:           (id: string, updates: Partial<MoU>) => Promise<void>;
   deleteMou:           (id: string) => Promise<void>;
   uploadSignedDoc:     (id: string, file: File) => Promise<void>;
-  uploadBuktiTransfer: (id: string, keterangan: string, file: File) => Promise<void>;
+  uploadBuktiTransfer: (id: string, keterangan: string, file: File) => Promise<string>;
 }
 
 const MouContext = createContext<MouContextType | undefined>(undefined);
@@ -369,7 +369,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const uploadBuktiTransfer = async (id: string, keterangan: string, file: File) => {
+  const uploadBuktiTransfer = async (id: string, keterangan: string, file: File): Promise<string> => {
     const pbId     = await resolvePbId(id);
     if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan.`);
     const fieldName = BUKTI_FIELD[keterangan];
@@ -379,6 +379,8 @@ export function MouProvider({ children }: { children: ReactNode }) {
     const record     = await pb.collection("mous").update(pbId, fd);
     const updatedMou = recordToMou(record, map);
     setMous((prev) => prev.map((m) => (m.id === id ? updatedMou : m)));
+    // Kembalikan URL file yang baru diupload agar caller tidak perlu membaca state (yang belum flush)
+    return (updatedMou[fieldName as keyof MoU] as string) ?? "";
   };
 
   const uploadSignedDoc = async (id: string, file: File) => {
