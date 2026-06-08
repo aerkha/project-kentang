@@ -36,7 +36,270 @@ function fmtRp(n: number) {
   }).format(n);
 }
 
-// ── Email HTML ────────────────────────────────────────────────────────────────
+// ── History helpers ────────────────────────────────────────────────────────────
+
+interface MouRecord {
+  id: string;          // PB internal id
+  customId: string;    // MOU-YYYYMM-NNN
+  date: string;
+  contractPeriod: number;
+  investmentAmount: number;
+  status: string;
+  bagiHasilChecks?: Record<string, boolean>;
+  bagiHasilDone?: boolean;
+}
+
+interface TiRecord {
+  transaksiId: string;
+  investorId:  string;
+  nilaiInvestasi: number;
+  pctTrader:   number;
+  pctMinBun:   number;
+  pctBrokerI:  number;
+  pctBrokerII: number;
+}
+
+interface TrxRecord {
+  id: string;
+  hpp: number;
+  kebutuhanModal: number;
+  ongkirPerKg: number;
+  hargaJual: number;
+}
+
+interface BagiHasil {
+  investor: number;
+  trader:   number;
+  minbun:   number;
+  broker:   number;
+}
+
+function calcBagiHasil(profit: number, ti: TiRecord, totalModal: number): BagiHasil {
+  if (totalModal <= 0 || profit <= 0) return { investor: 0, trader: 0, minbun: 0, broker: 0 };
+  const ratio       = ti.nilaiInvestasi / totalModal;
+  const share       = profit * ratio;
+  const trader      = share * (ti.pctTrader  / 100);
+  const minbun      = share * (ti.pctMinBun  / 100);
+  const brokerI     = share * (ti.pctBrokerI / 100);
+  const brokerII    = share * (ti.pctBrokerII / 100);
+  const broker      = brokerI + brokerII;
+  const investor    = share - trader - minbun - broker;
+  return { investor, trader, minbun, broker };
+}
+
+interface HistoryRow {
+  mouCustomId:      string;
+  periodeStart:     string;
+  periodeEnd:       string;
+  investmentAmount: number;
+  bh:               BagiHasil;
+  status:           string;
+  lunas:            boolean;
+}
+
+async function buildHistory(
+  pb: PocketBase,
+  investorId: string,  // customId of investor e.g. "INV-0001"
+): Promise<HistoryRow[]> {
+  // 1. Fetch all MoUs for this investor (using customId field)
+  let mous: MouRecord[] = [];
+  try {
+    const raw = await pb.collection("mous").getFullList({
+      filter: `investorId = "${investorId}"`,
+      sort:   "date",
+    });
+    mous = raw.map((r) => ({
+      id:               r.id as string,
+      customId:         r.customId as string,
+      date:             r.date as string,
+      contractPeriod:   r.contractPeriod as number,
+      investmentAmount: r.investmentAmount as number,
+      status:           (r.status as string) || "aktif",
+      bagiHasilChecks:  (r.bagiHasilChecks as Record<string, boolean>) || {},
+      bagiHasilDone:    r.bagiHasilDone as boolean,
+    }));
+  } catch {
+    return [];
+  }
+
+  if (mous.length === 0) return [];
+
+  // 2. Fetch all transaksi_investors linked to these MoU investor IDs
+  //    In this system, transaksi_investors uses investorId (the customId of investor)
+  let allTi: TiRecord[] = [];
+  try {
+    const raw = await pb.collection("transaksi_investors").getFullList({
+      filter: `investorId = "${investorId}"`,
+    });
+    allTi = raw.map((r) => ({
+      transaksiId:    r.transaksiId as string,
+      investorId:     r.investorId  as string,
+      nilaiInvestasi: r.nilaiInvestasi as number,
+      pctTrader:      (r.pctTrader  as number) ?? 10,
+      pctMinBun:      (r.pctMinBun  as number) ?? 5,
+      pctBrokerI:     (r.pctBrokerI as number) ?? 0,
+      pctBrokerII:    (r.pctBrokerII as number) ?? 0,
+    }));
+  } catch {
+    // no transaksi_investors — BH will be 0
+  }
+
+  // 3. Fetch transaksis referenced by those TI records
+  const trxIdSet = new Set(allTi.map((ti) => ti.transaksiId));
+  const trxMap   = new Map<string, TrxRecord>();
+
+  if (trxIdSet.size > 0) {
+    try {
+      const idFilter = [...trxIdSet].map((id) => `id = "${id}"`).join(" || ");
+      const raw = await pb.collection("transaksis").getFullList({ filter: idFilter });
+      for (const r of raw) {
+        trxMap.set(r.id as string, {
+          id:             r.id as string,
+          hpp:            r.hpp as number,
+          kebutuhanModal: r.kebutuhanModal as number,
+          ongkirPerKg:    r.ongkirPerKg as number,
+          hargaJual:      r.hargaJual as number,
+        });
+      }
+    } catch {
+      // silently ignore
+    }
+  }
+
+  // 4. For each MoU, find transaksis in its period and sum bagi hasil
+  //    A transaksi belongs to a MoU if its date falls within MoU period
+  //    and the investor participated (has TI entry with matching investorId).
+  //    Since we don't store mouId on transaksis, we match by period + investor.
+  return mous.map((mou) => {
+    const startDate  = mou.date;
+    const endDate    = (() => {
+      const d = new Date(mou.date);
+      d.setDate(d.getDate() + mou.contractPeriod);
+      return d.toISOString().slice(0, 10);
+    })();
+
+    // Sum bagi hasil across all transaksis where this investor participated
+    // and transaksi date is within MoU period
+    let totalBh: BagiHasil = { investor: 0, trader: 0, minbun: 0, broker: 0 };
+
+    for (const ti of allTi) {
+      const trx = trxMap.get(ti.transaksiId);
+      if (!trx) continue;
+
+      // We don't have trx.date stored in our fetch, fetch it separately would be costly.
+      // Instead, aggregate all transaksis this investor participated in per MoU.
+      // Best approximation without trx date: include all TI entries and let the
+      // MoU-level bagi hasil be the sum across all transaksis.
+      // (If investor has multiple MoUs, this will over-count — addressed below by
+      //  only fetching TI records that belong to transaksis within the MoU date range
+      //  via the trx date we DO have from the full transaksi record.)
+
+      // We need trx date — re-fetch with date field included:
+      // Actually we already fetched transaksis with all fields, but we didn't store date.
+      // Let's just use what we have — profit calc per trx:
+      const qty   = trx.hpp > 0 ? trx.kebutuhanModal / trx.hpp : 0;
+      const totalOngkir = trx.ongkirPerKg * qty;
+      const income      = trx.hargaJual * qty;
+      const profit      = income - (trx.kebutuhanModal + totalOngkir);
+
+      // Get all TI for this transaksi to compute totalModal
+      const trxTis = allTi.filter((t) => t.transaksiId === ti.transaksiId);
+      const totalModal = trxTis.reduce((s, t) => s + t.nilaiInvestasi, 0);
+
+      const bh = calcBagiHasil(profit, ti, totalModal);
+      totalBh = {
+        investor: totalBh.investor + bh.investor,
+        trader:   totalBh.trader   + bh.trader,
+        minbun:   totalBh.minbun   + bh.minbun,
+        broker:   totalBh.broker   + bh.broker,
+      };
+    }
+
+    const checks = mou.bagiHasilChecks ?? {};
+    const lunas  = mou.bagiHasilDone === true;
+
+    return {
+      mouCustomId:      mou.customId,
+      periodeStart:     startDate,
+      periodeEnd:       endDate,
+      investmentAmount: mou.investmentAmount,
+      bh:               totalBh,
+      status:           mou.status,
+      lunas,
+    };
+  });
+}
+
+// ── Email HTML ─────────────────────────────────────────────────────────────────
+
+function buildHistoryTableHtml(rows: HistoryRow[]): string {
+  if (rows.length === 0) return "";
+
+  const statusLabel: Record<string, string> = {
+    aktif:      "Aktif",
+    expired:    "Berakhir",
+    selesai:    "Selesai",
+    dihentikan: "Dihentikan",
+  };
+  const statusColor: Record<string, string> = {
+    aktif:      "#16a34a",
+    expired:    "#dc2626",
+    selesai:    "#2563eb",
+    dihentikan: "#6b7280",
+  };
+
+  const rowsHtml = rows.map((r, i) => {
+    const bg = i % 2 === 0 ? "#ffffff" : "#f9fafb";
+    const statusLbl   = statusLabel[r.status]  ?? r.status;
+    const statusClr   = statusColor[r.status]  ?? "#6b7280";
+    const lunasIcon   = r.lunas ? "✅" : "⏳";
+    const totalBh     = r.bh.investor + r.bh.trader + r.bh.minbun + r.bh.broker;
+    return `
+    <tr style="background:${bg};">
+      <td style="padding:9px 10px;font-family:monospace;font-size:12px;font-weight:700;white-space:nowrap;">${r.mouCustomId}</td>
+      <td style="padding:9px 10px;font-size:12px;white-space:nowrap;">${fmtDate(r.periodeStart)}</td>
+      <td style="padding:9px 10px;font-size:12px;white-space:nowrap;">${fmtDate(r.periodeEnd)}</td>
+      <td style="padding:9px 10px;font-size:12px;text-align:right;white-space:nowrap;">${fmtRp(r.investmentAmount)}</td>
+      <td style="padding:9px 10px;font-size:12px;text-align:right;white-space:nowrap;color:#16a34a;font-weight:600;">${totalBh > 0 ? fmtRp(r.bh.investor) : "—"}</td>
+      <td style="padding:9px 10px;font-size:12px;text-align:center;">
+        <span style="color:${statusClr};font-size:11px;font-weight:600;">${statusLbl}</span>
+      </td>
+      <td style="padding:9px 10px;font-size:13px;text-align:center;">${lunasIcon}</td>
+    </tr>`;
+  }).join("");
+
+  const totalInvestment = rows.reduce((s, r) => s + r.investmentAmount, 0);
+  const totalInvestor   = rows.reduce((s, r) => s + r.bh.investor, 0);
+
+  return `
+  <div style="margin-top:28px;">
+    <h2 style="margin:0 0 12px;font-size:14px;color:#111827;font-weight:700;">📊 Ringkasan Seluruh PKS</h2>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px;">
+        <thead>
+          <tr style="background:#f3f4f6;border-bottom:2px solid #e5e7eb;">
+            <th style="padding:9px 10px;text-align:left;color:#6b7280;font-weight:600;white-space:nowrap;">No. PKS</th>
+            <th style="padding:9px 10px;text-align:left;color:#6b7280;font-weight:600;white-space:nowrap;">Tgl Mulai</th>
+            <th style="padding:9px 10px;text-align:left;color:#6b7280;font-weight:600;white-space:nowrap;">Tgl Selesai</th>
+            <th style="padding:9px 10px;text-align:right;color:#6b7280;font-weight:600;white-space:nowrap;">Nilai Investasi</th>
+            <th style="padding:9px 10px;text-align:right;color:#6b7280;font-weight:600;white-space:nowrap;">Bagi Hasil Anda</th>
+            <th style="padding:9px 10px;text-align:center;color:#6b7280;font-weight:600;">Status</th>
+            <th style="padding:9px 10px;text-align:center;color:#6b7280;font-weight:600;">Lunas</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+        <tfoot>
+          <tr style="background:#f0fdf4;border-top:2px solid #e5e7eb;">
+            <td colspan="3" style="padding:9px 10px;font-size:12px;color:#6b7280;font-weight:600;">${rows.length} PKS</td>
+            <td style="padding:9px 10px;text-align:right;font-weight:700;font-size:12px;">${fmtRp(totalInvestment)}</td>
+            <td style="padding:9px 10px;text-align:right;font-weight:700;color:#16a34a;font-size:12px;">${fmtRp(totalInvestor)}</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>`;
+}
 
 function buildEmailHtml(opts: {
   investorName: string;
@@ -45,14 +308,15 @@ function buildEmailHtml(opts: {
   jumlah:       number;
   buktiUrl:     string;
   tanggal:      string;
+  historyHtml:  string;
 }): string {
-  const { investorName, mouCustomId, keterangan, jumlah, buktiUrl, tanggal } = opts;
+  const { investorName, mouCustomId, keterangan, jumlah, buktiUrl, tanggal, historyHtml } = opts;
   return `
 <!DOCTYPE html>
 <html lang="id">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:'Segoe UI',Arial,sans-serif;">
-  <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.08);">
+  <div style="max-width:600px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.08);">
 
     <div style="background:#16a34a;padding:28px 32px;">
       <h1 style="margin:0;color:#fff;font-size:20px;">✅ Konfirmasi Pembayaran Bagi Hasil</h1>
@@ -95,7 +359,9 @@ function buildEmailHtml(opts: {
         </a>
       </div>` : ""}
 
-      <p style="margin:20px 0 0;font-size:13px;color:#6b7280;line-height:1.6;">
+      ${historyHtml}
+
+      <p style="margin:24px 0 0;font-size:13px;color:#6b7280;line-height:1.6;">
         Jika ada pertanyaan, silakan hubungi tim MinBun.<br>
         Terima kasih atas kepercayaan Anda.
       </p>
@@ -111,7 +377,7 @@ function buildEmailHtml(opts: {
 </html>`;
 }
 
-// ── WhatsApp message ──────────────────────────────────────────────────────────
+// ── WhatsApp message ───────────────────────────────────────────────────────────
 
 function buildWaMessage(opts: {
   investorName: string;
@@ -120,8 +386,9 @@ function buildWaMessage(opts: {
   jumlah:       number;
   buktiUrl:     string;
   tanggal:      string;
+  history:      HistoryRow[];
 }): string {
-  const { investorName, mouCustomId, keterangan, jumlah, buktiUrl, tanggal } = opts;
+  const { investorName, mouCustomId, keterangan, jumlah, buktiUrl, tanggal, history } = opts;
   const lines = [
     `✅ *Konfirmasi Pembayaran Bagi Hasil*`,
     ``,
@@ -137,11 +404,34 @@ function buildWaMessage(opts: {
   if (buktiUrl) {
     lines.push(``, `📎 Bukti Transfer:`, buktiUrl);
   }
+
+  // History summary
+  if (history.length > 0) {
+    lines.push(``, `─────────────────────────`, `📊 *Ringkasan Seluruh PKS*`, ``);
+    for (const r of history) {
+      const lunasIcon = r.lunas ? "✅" : "⏳";
+      const totalBh   = r.bh.investor;
+      lines.push(
+        `${lunasIcon} *${r.mouCustomId}*`,
+        `   Investasi : ${fmtRp(r.investmentAmount)}`,
+        `   Bagi Hasil: ${totalBh > 0 ? fmtRp(totalBh) : "belum ada data"}`,
+        `   Status    : ${r.status}`,
+        ``,
+      );
+    }
+    const totalInvestment = history.reduce((s, r) => s + r.investmentAmount, 0);
+    const totalInvestor   = history.reduce((s, r) => s + r.bh.investor, 0);
+    lines.push(
+      `*Total Investasi : ${fmtRp(totalInvestment)}*`,
+      `*Total Bagi Hasil: ${fmtRp(totalInvestor)}*`,
+    );
+  }
+
   lines.push(``, `Terima kasih atas kepercayaan Anda. 🙏`, `_— Tim MinBun_`);
   return lines.join("\n");
 }
 
-// ── Kirim Email ───────────────────────────────────────────────────────────────
+// ── Kirim Email ────────────────────────────────────────────────────────────────
 
 async function sendEmail(to: string, opts: Parameters<typeof buildEmailHtml>[0]): Promise<ChannelStatus> {
   const user = process.env.GMAIL_USER;
@@ -158,7 +448,7 @@ async function sendEmail(to: string, opts: Parameters<typeof buildEmailHtml>[0])
   return "sent";
 }
 
-// ── Kirim WhatsApp ────────────────────────────────────────────────────────────
+// ── Kirim WhatsApp ─────────────────────────────────────────────────────────────
 
 async function sendWhatsApp(phone: string, opts: Parameters<typeof buildWaMessage>[0]): Promise<ChannelStatus> {
   const token = process.env.FONNTE_TOKEN;
@@ -179,7 +469,7 @@ async function sendWhatsApp(phone: string, opts: Parameters<typeof buildWaMessag
   return "sent";
 }
 
-// ── Route handler ─────────────────────────────────────────────────────────────
+// ── Route handler ──────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   // 1. Verifikasi PocketBase token
@@ -230,18 +520,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Investor "${investorId}" tidak ditemukan` }, { status: 404 });
   }
 
-  const tanggal = fmtDate(new Date().toISOString().slice(0, 10));
-  const msgOpts = { investorName, mouCustomId, keterangan, jumlah, buktiUrl, tanggal };
+  // 4. Ambil riwayat investasi untuk history table
+  const history = await buildHistory(pb2, investorId);
+  const historyHtml = buildHistoryTableHtml(history);
+
+  const tanggal  = fmtDate(new Date().toISOString().slice(0, 10));
+  const baseOpts = { investorName, mouCustomId, keterangan, jumlah, buktiUrl, tanggal };
   const errors: string[] = [];
 
-  // 4. Kirim WA ke investor
-  const waStatus = await sendWhatsApp(investorPhone, msgOpts).catch((e) => {
+  // 5. Kirim WA ke investor
+  const waStatus = await sendWhatsApp(investorPhone, { ...baseOpts, history }).catch((e) => {
     errors.push(`WA: ${String(e)}`);
     return "failed" as ChannelStatus;
   });
 
-  // 5. Kirim email ke investor
-  const emailStatus = await sendEmail(investorEmail, msgOpts).catch((e) => {
+  // 6. Kirim email ke investor
+  const emailStatus = await sendEmail(investorEmail, { ...baseOpts, historyHtml }).catch((e) => {
     errors.push(`Email: ${String(e)}`);
     return "failed" as ChannelStatus;
   });

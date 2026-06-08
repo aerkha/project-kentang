@@ -277,7 +277,7 @@ export function ReminderContent() {
       .sort((a, b) => a.endDateStr.localeCompare(b.endDateStr));
   }, [mous, transaksis, investors, brokers, minbun, trader]);
 
-  // Ringkasan — jumlah per penerima yang BELUM dicentang (per baris, bukan per PKS)
+  // ── Ringkasan — jumlah per penerima yang BELUM dicentang (per baris, bukan per PKS)
   const summary = useMemo(() => {
     let investor = 0, trader = 0, minbun = 0, broker = 0;
     tasks.forEach((t) => {
