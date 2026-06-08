@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import pb from "./pocketbase";
+import { TreeLoader } from "@/components/ui/tree-loader";
 
 interface User {
   username:   string;
@@ -82,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-pulse text-muted-foreground">Loading...</div>
+        <TreeLoader />
       </div>
     );
   }
