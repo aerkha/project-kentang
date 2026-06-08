@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import pb from "@/lib/pocketbase";
+import { useInvestors } from "@/lib/investors-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -223,6 +224,8 @@ function PermissionsPanel({
 // ─────────────────────────────────────────────
 
 export function UsersContent() {
+  const { investors } = useInvestors();
+
   const [users,       setUsers]       = useState<AppUser[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [fetchError,  setFetchError]  = useState("");
@@ -495,17 +498,35 @@ export function UsersContent() {
 
               {form.role === "investor" && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="add-investorid" className="text-xs">
-                    ID Investor <span className="text-destructive">*</span>
+                  <Label className="text-xs">
+                    Investor <span className="text-destructive">*</span>
                   </Label>
-                  <Input
-                    id="add-investorid"
+                  <Select
                     value={form.investorId}
-                    onChange={(e) => setForm((f) => ({ ...f, investorId: e.target.value }))}
-                    placeholder="Contoh: INV-0001"
-                    required={form.role === "investor"}
-                  />
-                  <p className="text-[11px] text-muted-foreground">Masukkan customId investor (lihat di halaman Investor)</p>
+                    onValueChange={(v) => setForm((f) => ({ ...f, investorId: v }))}
+                    required
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Pilih investor…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {investors.length === 0 ? (
+                        <div className="py-4 text-center text-xs text-muted-foreground">
+                          Belum ada data investor
+                        </div>
+                      ) : (
+                        investors.map((inv) => (
+                          <SelectItem key={inv.id} value={inv.id}>
+                            <span className="font-mono text-xs text-muted-foreground mr-2">{inv.id}</span>
+                            {inv.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Pilih investor yang terhubung ke akun ini
+                  </p>
                 </div>
               )}
 
@@ -735,13 +756,32 @@ export function UsersContent() {
 
             {form.role === "investor" && (
               <div className="space-y-1.5">
-                <Label className="text-xs">ID Investor</Label>
-                <Input
+                <Label className="text-xs">Investor</Label>
+                <Select
                   value={form.investorId}
-                  onChange={(e) => setForm((f) => ({ ...f, investorId: e.target.value }))}
-                  placeholder="Contoh: INV-0001"
-                />
-                <p className="text-[11px] text-muted-foreground">customId investor yang terhubung ke akun ini</p>
+                  onValueChange={(v) => setForm((f) => ({ ...f, investorId: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih investor…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {investors.length === 0 ? (
+                      <div className="py-4 text-center text-xs text-muted-foreground">
+                        Belum ada data investor
+                      </div>
+                    ) : (
+                      investors.map((inv) => (
+                        <SelectItem key={inv.id} value={inv.id}>
+                          <span className="font-mono text-xs text-muted-foreground mr-2">{inv.id}</span>
+                          {inv.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Investor yang terhubung ke akun ini
+                </p>
               </div>
             )}
 
