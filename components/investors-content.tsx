@@ -6,6 +6,7 @@ import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useTransaksi, calcTransaksi } from "@/lib/transaksi-context";
 import { useMou } from "@/lib/mou-context";
+import { usePengeluaran } from "@/lib/pengeluaran-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,8 +32,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Plus, Pencil, Trash2, Search, Users, Briefcase, Building2,
+  Plus, Pencil, Trash2, Search, Users, Briefcase, Building2, ShieldCheck,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
 
@@ -54,6 +56,7 @@ interface InvestorFormData {
   heirName: string;
   heirBankName: string;
   heirAccountNumber: string;
+  isInternal: boolean;
 }
 
 interface BrokerFormData {
@@ -79,6 +82,7 @@ const initialInvestorForm: InvestorFormData = {
   heirName: "",
   heirBankName: "",
   heirAccountNumber: "",
+  isInternal: false,
 };
 
 const initialBrokerForm: BrokerFormData = {
@@ -108,6 +112,8 @@ interface InvestorFormProps {
 
 function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, previewId, brokers, isSaving = false }: InvestorFormProps) {
   const set = (key: keyof InvestorFormData, value: string) =>
+    setFormData({ ...formData, [key]: value });
+  const setFlag = (key: keyof InvestorFormData, value: boolean) =>
     setFormData({ ...formData, [key]: value });
 
   return (
@@ -296,6 +302,28 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
                 required
               />
             </div>
+          </div>
+        </div>
+
+        {/* ── Status Investor ── */}
+        <div className="space-y-3">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
+            Status Investor
+          </p>
+          <div className="flex items-start justify-between gap-4 rounded-lg border p-3 bg-muted/30">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5">
+                <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                <Label className="text-sm font-medium">Investor Internal</Label>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Tandai sebagai investor internal (MinBun). Nilai investasi, pemasukan, dan pengeluaran akan terintegrasi otomatis dengan saldo MinBun dan tercatat di halaman Arus Kas.
+              </p>
+            </div>
+            <Switch
+              checked={formData.isInternal}
+              onCheckedChange={(v) => setFlag("isInternal", v)}
+            />
           </div>
         </div>
 
@@ -504,11 +532,26 @@ function formatRp(n: number) {
   }).format(n);
 }
 
+// ─────────────────────────────────────────────
+// Helper: prefix untuk entri cash flow internal
+// ─────────────────────────────────────────────
+const INTERNAL_REF_PREFIX = "[Internal:";
+function makeInternalRef(investorId: string) {
+  return `${INTERNAL_REF_PREFIX}${investorId}]`;
+}
+function parseInternalRef(catatan: string): string | null {
+  if (!catatan.startsWith(INTERNAL_REF_PREFIX)) return null;
+  const end = catatan.indexOf("]", INTERNAL_REF_PREFIX.length);
+  if (end === -1) return null;
+  return catatan.slice(INTERNAL_REF_PREFIX.length, end);
+}
+
 export function InvestorsContent() {
   const { investors, addInvestor, updateInvestor, deleteInvestor } = useInvestors();
   const { mous } = useMou();
   const { brokers, addBroker, updateBroker, deleteBroker } = useBrokers();
   const { transaksis } = useTransaksi();
+  const { pengeluarans, addPengeluaran, updatePengeluaran, deletePengeluaran } = usePengeluaran();
   const { user, isInvestor } = useAuth();
   const isAdmin = user?.role === "admin";
   const perm    = usePermissions();
@@ -589,7 +632,7 @@ export function InvestorsContent() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      await addInvestor({
+      const newId = await addInvestor({
         name: investorForm.name,
         address: investorForm.address,
         brokerName: investorForm.brokerName,
@@ -603,7 +646,19 @@ export function InvestorsContent() {
         heirName: investorForm.heirName,
         heirBankName: investorForm.heirBankName,
         heirAccountNumber: investorForm.heirAccountNumber,
+        isInternal: investorForm.isInternal,
       });
+      // Untuk investor internal, catat modal yang di-deploy sebagai kredit (uang MinBun terpakai)
+      if (investorForm.isInternal) {
+        const today = new Date().toISOString().slice(0, 10);
+        await addPengeluaran({
+          date: today,
+          deskripsi: `Modal Internal — ${investorForm.name}`,
+          debet: 0,
+          kredit: parseFloat(investorForm.investmentAmount) || 0,
+          catatan: makeInternalRef(newId),
+        });
+      }
       toast.success("Investor berhasil ditambahkan");
       setInvestorForm(initialInvestorForm);
       setIsAddInvestorOpen(false);
@@ -633,7 +688,50 @@ export function InvestorsContent() {
         heirName: investorForm.heirName,
         heirBankName: investorForm.heirBankName,
         heirAccountNumber: investorForm.heirAccountNumber,
+        isInternal: investorForm.isInternal,
       });
+
+      // Sinkronisasi cash flow untuk investor internal
+      const wasInternal = selectedInvestor.isInternal === true;
+      const nowInternal = investorForm.isInternal;
+      const ref = makeInternalRef(selectedInvestor.id);
+      const existingEntry = pengeluarans.find((p) => p.catatan === ref);
+
+      if (wasInternal && nowInternal) {
+        // Masih internal — update nilai modal jika berubah
+        if (existingEntry) {
+          await updatePengeluaran(existingEntry.id, {
+            deskripsi: `Modal Internal — ${investorForm.name}`,
+            kredit: parseFloat(investorForm.investmentAmount) || 0,
+          });
+        } else {
+          // Entry hilang, buat ulang
+          const today = new Date().toISOString().slice(0, 10);
+          await addPengeluaran({
+            date: today,
+            deskripsi: `Modal Internal — ${investorForm.name}`,
+            debet: 0,
+            kredit: parseFloat(investorForm.investmentAmount) || 0,
+            catatan: ref,
+          });
+        }
+      } else if (!wasInternal && nowInternal) {
+        // Baru ditandai internal — buat entri modal baru
+        const today = new Date().toISOString().slice(0, 10);
+        await addPengeluaran({
+          date: today,
+          deskripsi: `Modal Internal — ${investorForm.name}`,
+          debet: 0,
+          kredit: parseFloat(investorForm.investmentAmount) || 0,
+          catatan: ref,
+        });
+      } else if (wasInternal && !nowInternal) {
+        // Flag dicabut — hapus entri cash flow terkait
+        if (existingEntry) {
+          await deletePengeluaran(existingEntry.id);
+        }
+      }
+
       toast.success("Data investor berhasil diperbarui");
       setInvestorForm(initialInvestorForm);
       setSelectedInvestor(null);
@@ -661,6 +759,7 @@ export function InvestorsContent() {
       heirName: investor.heirName,
       heirBankName: investor.heirBankName,
       heirAccountNumber: investor.heirAccountNumber,
+      isInternal: investor.isInternal === true,
     });
     setIsEditInvestorOpen(true);
   };
@@ -687,6 +786,12 @@ export function InvestorsContent() {
   const handleDeleteInvestorConfirm = async () => {
     if (!selectedInvestor) return;
     try {
+      // Hapus entri cash flow terkait terlebih dahulu jika investor internal
+      if (selectedInvestor.isInternal) {
+        const ref = makeInternalRef(selectedInvestor.id);
+        const entry = pengeluarans.find((p) => p.catatan === ref);
+        if (entry) await deletePengeluaran(entry.id);
+      }
       await deleteInvestor(selectedInvestor.id);
       toast.success("Investor berhasil dihapus");
       setSelectedInvestor(null);
@@ -895,6 +1000,15 @@ export function InvestorsContent() {
                       >
                         {investorBadge.label}
                       </Badge>
+                      {investor.isInternal && (
+                        <Badge
+                          variant="secondary"
+                          className="bg-primary/10 text-primary text-[10px] px-1.5 gap-0.5"
+                        >
+                          <ShieldCheck className="h-2.5 w-2.5" />
+                          Internal
+                        </Badge>
+                      )}
                     </div>
                     <span className="text-xs font-mono text-muted-foreground">{investor.id}</span>
                   </div>

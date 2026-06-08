@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Wallet, Download } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Wallet, Download, ShieldCheck } from "lucide-react";
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -485,7 +485,21 @@ export function PengeluaranContent() {
                         {fmt(p.saldo)}
                       </td>
                       <td className="py-3 px-4 text-xs max-w-[200px]">
-                        {p.catatan?.startsWith("[Reminder]") ? (
+                        {p.catatan?.startsWith("[Internal-Profit:") ? (
+                          <div className="flex items-center gap-1">
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 w-fit whitespace-nowrap">
+                              <ShieldCheck className="h-2.5 w-2.5" />
+                              Profit Internal
+                            </span>
+                          </div>
+                        ) : p.catatan?.startsWith("[Internal:") ? (
+                          <div className="flex items-center gap-1">
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-primary/10 text-primary w-fit whitespace-nowrap">
+                              <ShieldCheck className="h-2.5 w-2.5" />
+                              Modal Internal
+                            </span>
+                          </div>
+                        ) : p.catatan?.startsWith("[Reminder]") ? (
                           <div className="flex flex-col gap-1">
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 w-fit whitespace-nowrap">
                               🔔 Dari Reminder

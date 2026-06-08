@@ -21,11 +21,12 @@ export interface Investor {
   heirBankName: string;
   heirAccountNumber: string;
   isActive?: boolean;
+  isInternal?: boolean;
 }
 
 interface InvestorsContextType {
   investors: Investor[];
-  addInvestor:    (inv: Omit<Investor, "id">) => Promise<void>;
+  addInvestor:    (inv: Omit<Investor, "id">) => Promise<string>;
   updateInvestor: (id: string, updates: Partial<Investor>) => Promise<void>;
   deleteInvestor: (id: string) => Promise<void>;
 }
@@ -51,6 +52,7 @@ function recordToInvestor(r: Record<string, unknown>, pbIdMap: Map<string, strin
     heirBankName:     r.heirBankName     as string,
     heirAccountNumber: r.heirAccountNumber as string,
     isActive:         r.isActive === true,
+    isInternal:       r.isInternal === true,
   };
 }
 
@@ -121,9 +123,10 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
           heirBankName:     inv.heirBankName,
           heirAccountNumber: inv.heirAccountNumber,
           isActive:         inv.isActive === true,
+          isInternal:       inv.isInternal === true,
         });
         setInvestors((prev) => [...prev, recordToInvestor(record, map)]);
-        return;
+        return customId;
       } catch (err) {
         if (isCustomIdConflict(err) && attempt < 4) {
           customId = await generateCustomId();
@@ -132,6 +135,7 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
         throw err;
       }
     }
+    throw new Error("Gagal membuat ID investor unik setelah 5 percobaan");
   };
 
   const updateInvestor = async (id: string, updates: Partial<Investor>) => {

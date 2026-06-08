@@ -50,6 +50,7 @@ import {
   MessageCircle,
   Clock,
   AlertTriangle,
+  ShieldCheck,
 } from "lucide-react";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -203,12 +204,23 @@ export function ReminderContent() {
   const [showDone, setShowDone]          = useState(false);
   const [showExpired, setShowExpired]    = useState(true);
 
+  // Set investor ID yang bertanda internal
+  const internalInvestorIds = useMemo(
+    () => new Set(investors.filter((inv) => inv.isInternal).map((inv) => inv.id)),
+    [investors],
+  );
+
   // ── State dialog bukti transfer ──
   type BuktiTarget = { mou: MoU; keterangan: string; row: PaymentRow } | null;
   const [buktiTarget,   setBuktiTarget]  = useState<BuktiTarget>(null);
   const [buktiFile,     setBuktiFile]    = useState<File | null>(null);
   const [buktiPreview,  setBuktiPreview] = useState<string | null>(null);
   const [isUploading,   setIsUploading]  = useState(false);
+
+  // ── State dialog konfirmasi internal (tanpa upload bukti) ──
+  type InternalTarget = { mou: MoU; keterangan: string; row: PaymentRow } | null;
+  const [internalTarget,  setInternalTarget]  = useState<InternalTarget>(null);
+  const [isConfirmingInt, setIsConfirmingInt] = useState(false);
 
   // ── State form pengaturan rekening internal ──
   const [showSettings, setShowSettings]  = useState(false);
@@ -287,14 +299,21 @@ export function ReminderContent() {
   }, [tasks]);
 
   // Klik ceklis: jika akan dicentang → buka dialog upload bukti dulu
+  //              jika investor internal + keterangan "Investor" → dialog konfirmasi internal
   //              jika akan di-uncheck → langsung proses
   const handleToggleRow = (mou: MoU, keterangan: string, row: PaymentRow) => {
     const isChecked = !!mou.bagiHasilChecks?.[keterangan];
     if (!isChecked) {
-      // Buka dialog upload bukti transfer
-      setBuktiTarget({ mou, keterangan, row });
-      setBuktiFile(null);
-      setBuktiPreview(null);
+      const isInternalInvestor = keterangan === "Investor" && internalInvestorIds.has(mou.investorId);
+      if (isInternalInvestor) {
+        // Dialog konfirmasi internal — tidak perlu upload bukti transfer
+        setInternalTarget({ mou, keterangan, row });
+      } else {
+        // Buka dialog upload bukti transfer biasa
+        setBuktiTarget({ mou, keterangan, row });
+        setBuktiFile(null);
+        setBuktiPreview(null);
+      }
     } else {
       // Un-check langsung
       void handleUncheck(mou, keterangan);
@@ -313,6 +332,40 @@ export function ReminderContent() {
     } catch {
       toast.error("Gagal menyimpan perubahan. Coba lagi.");
     } finally {
+      setToggling(null);
+    }
+  };
+
+  // Submit dialog internal: mark check → catat profit sebagai debet ke cashflow
+  const handleConfirmInternal = async () => {
+    if (!internalTarget) return;
+    const { mou, keterangan, row } = internalTarget;
+    const key    = `${mou.id}__${keterangan}`;
+    const checks = { ...(mou.bagiHasilChecks ?? {}), [keterangan]: true };
+    const allTask = [...tasks, ...expiredPendingTasks].find((t) => t.mou.id === mou.id);
+    const allDone = allTask ? allTask.rows.every((r) => checks[r.keterangan]) : false;
+    const today   = new Date().toISOString().slice(0, 10);
+
+    setIsConfirmingInt(true);
+    setToggling(key);
+    try {
+      await updateMou(mou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+
+      // Catat profit internal sebagai debet (pemasukan) ke cash flow
+      await addPengeluaran({
+        date:      today,
+        deskripsi: `Profit Internal — ${row.nama} — PKS ${mou.id}`,
+        debet:     row.jumlah,
+        kredit:    0,
+        catatan:   `[Internal-Profit:${mou.investorId}:${mou.id}]`,
+      });
+
+      toast.success(`Profit internal ${row.nama} dicatat di Arus Kas`);
+      setInternalTarget(null);
+    } catch {
+      toast.error("Gagal menyimpan. Coba lagi.");
+    } finally {
+      setIsConfirmingInt(false);
       setToggling(null);
     }
   };
@@ -591,9 +644,16 @@ export function ReminderContent() {
                         >
                           <td className="py-2.5 px-3 whitespace-nowrap font-medium">{pr.nama}</td>
                           <td className="py-2.5 px-3 whitespace-nowrap">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${keteranganColor[pr.keterangan]}`}>
-                              {pr.keterangan}
-                            </span>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${keteranganColor[pr.keterangan]}`}>
+                                {pr.keterangan}
+                              </span>
+                              {pr.keterangan === "Investor" && internalInvestorIds.has(task.mou.investorId) && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
+                                  <ShieldCheck className="h-2.5 w-2.5" />Internal
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">{pr.bankName}</td>
                           <td className="py-2.5 px-3 whitespace-nowrap font-mono text-xs text-muted-foreground">{pr.accountNumber}</td>
@@ -630,7 +690,9 @@ export function ReminderContent() {
                                     </Button>
                                   </TooltipTrigger>
                                   <TooltipContent side="left" className="text-xs">
-                                    Upload bukti &amp; tandai selesai
+                                    {pr.keterangan === "Investor" && internalInvestorIds.has(task.mou.investorId)
+                                      ? "Konfirmasi profit internal & catat ke Arus Kas"
+                                      : "Upload bukti & tandai selesai"}
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
@@ -1093,6 +1155,47 @@ export function ReminderContent() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Dialog Konfirmasi Profit Internal ── */}
+      <Dialog open={!!internalTarget} onOpenChange={(open) => { if (!open) setInternalTarget(null); }}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              Catat Profit Internal ke Arus Kas
+            </DialogTitle>
+            <DialogDescription>
+              Profit siklus PKS <strong>{internalTarget?.mou.id}</strong> untuk investor internal akan dicatat sebagai pemasukan (debet) di Arus Kas. Tidak diperlukan bukti transfer.
+            </DialogDescription>
+          </DialogHeader>
+
+          {internalTarget && (
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Investor</span>
+                <span className="font-medium">{internalTarget.row.nama}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">PKS</span>
+                <span className="font-mono text-xs font-medium">{internalTarget.mou.id}</span>
+              </div>
+              <div className="border-t pt-2 flex justify-between font-semibold">
+                <span>Profit dicatat</span>
+                <span className="text-green-600">{formatCurrency(internalTarget.row.jumlah)}</span>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setInternalTarget(null)} disabled={isConfirmingInt}>
+              Batal
+            </Button>
+            <Button onClick={() => void handleConfirmInternal()} disabled={isConfirmingInt}>
+              {isConfirmingInt ? "Menyimpan…" : "Konfirmasi & Catat ke Kas"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Dialog Upload Bukti Transfer ── */}
       <Dialog open={!!buktiTarget} onOpenChange={(open) => { if (!open) setBuktiTarget(null); }}>
