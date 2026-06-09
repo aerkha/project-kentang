@@ -125,17 +125,28 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
   };
 }
 
+/**
+ * Parse tanggal "YYYY-MM-DD" sebagai UTC midnight.
+ * Diperlukan karena `new Date("YYYY-MM-DD")` sudah UTC, tapi `new Date()` lokal —
+ * keduanya harus berada di zona waktu yang sama agar perbandingan tidak off satu hari.
+ */
+function parseUtcDate(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
 /** Apakah sebuah MoU berstatus "aktif" (bukan expired, terminated, atau pending) */
 function isMouAktif(mou: MoU): boolean {
   if (mou.isTerminated) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const start = new Date(mou.date);
+  // Gunakan UTC agar tidak off satu hari di zona waktu non-UTC
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const today    = parseUtcDate(todayStr);
+  const start    = parseUtcDate(mou.date);
   // PKS backdate (tanggal mulai sebelum hari ini) langsung aktif tanpa perlu signedDoc
   const isBackdate = start < today;
   if (!isBackdate && !mou.hasSignedDoc) return false;
-  const end = new Date(mou.date);
-  end.setDate(end.getDate() + mou.contractPeriod);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + mou.contractPeriod);
   return end >= today;
 }
 
@@ -170,6 +181,14 @@ async function generateCustomId(date: string): Promise<string> {
 
 export function MouProvider({ children }: { children: ReactNode }) {
   const [mous, setMous] = useState<MoU[]>([]);
+  /**
+   * mousRef selalu berisi snapshot mous terbaru, termasuk perubahan yang
+   * dilakukan dalam satu async function (sebelum re-render).
+   * Diupdate secara sinkron setiap kali mous berubah (baris di bawah).
+   */
+  const mousRef = useRef<MoU[]>([]);
+  mousRef.current = mous;
+
   const { investors, updateInvestor } = useInvestors();
   const pbIdMapRef = useRef(new Map<string, string>());
   const map = pbIdMapRef.current;
@@ -302,10 +321,10 @@ export function MouProvider({ children }: { children: ReactNode }) {
     }
 
     const newMou = recordToMou(record, map);
-    // Functional update agar tidak overwrite perubahan concurrent
-    setMous((prev) => [...prev, newMou]);
-    // Untuk sync: hitung dari mous snapshot + newMou yang kita tahu pasti ditambahkan
-    await syncInvestorStatus(mou.investorId, [...mous, newMou]);
+    // Update ref segera agar sync concurrent melihat MoU terbaru
+    mousRef.current = [...mousRef.current, newMou];
+    setMous(mousRef.current);
+    await syncInvestorStatus(mou.investorId, mousRef.current);
 
     // Jika PKS langsung aktif (backdate), catat modal digunakan ke cash flow
     if (isMouAktif(newMou)) {
@@ -360,28 +379,30 @@ export function MouProvider({ children }: { children: ReactNode }) {
     }
 
     const updatedMou = recordToMou(record, map);
-    setMous((prev) => prev.map((m) => (m.id === id ? updatedMou : m)));
+    // Update ref segera agar sync concurrent melihat versi terbaru
+    mousRef.current = mousRef.current.map((m) => (m.id === id ? updatedMou : m));
+    setMous(mousRef.current);
 
     // Sync jika update menyentuh field yang bisa mengubah status PKS
-    // Gunakan snapshot mous saat ini (stale OK untuk sync — hanya baca investorId & status)
-    if ("isTerminated" in updates) {
-      const snapshot = mous.map((m) => (m.id === id ? updatedMou : m));
-      await syncInvestorStatus(updatedMou.investorId, snapshot);
+    const statusFields = ["isTerminated", "date", "contractPeriod", "hasSignedDoc"] as const;
+    if (statusFields.some((f) => f in updates)) {
+      await syncInvestorStatus(updatedMou.investorId, mousRef.current);
     }
   };
 
   const deleteMou = async (id: string) => {
     const pbId       = await resolvePbId(id);
     if (!pbId) return;
-    const mouToDelete = mous.find((m) => m.id === id);
+    const mouToDelete = mousRef.current.find((m) => m.id === id);
     await pb.collection("mous").delete(pbId);
     map.delete(id);
-    setMous((prev) => prev.filter((m) => m.id !== id));
+    // Update ref segera agar sync concurrent tidak melihat MoU yang sudah dihapus
+    mousRef.current = mousRef.current.filter((m) => m.id !== id);
+    setMous(mousRef.current);
 
     // Sync jika PKS yang dihapus berpengaruh pada status investor
     if (mouToDelete) {
-      const snapshot = mous.filter((m) => m.id !== id);
-      await syncInvestorStatus(mouToDelete.investorId, snapshot);
+      await syncInvestorStatus(mouToDelete.investorId, mousRef.current);
     }
   };
 
@@ -406,11 +427,12 @@ export function MouProvider({ children }: { children: ReactNode }) {
     fd.append("signedDoc", file);
     const record      = await pb.collection("mous").update(pbId, fd);
     const updatedMou = recordToMou(record, map);
-    setMous((prev) => prev.map((m) => (m.id === id ? updatedMou : m)));
+    // Update ref segera agar sync melihat versi terbaru (hasSignedDoc=true)
+    mousRef.current = mousRef.current.map((m) => (m.id === id ? updatedMou : m));
+    setMous(mousRef.current);
 
     // PKS kini hasSignedDoc=true → mungkin menjadi aktif → sync investor
-    const snapshot = mous.map((m) => (m.id === id ? updatedMou : m));
-    await syncInvestorStatus(updatedMou.investorId, snapshot);
+    await syncInvestorStatus(updatedMou.investorId, mousRef.current);
 
     // Jika PKS kini aktif (signed doc baru diunggah mengaktifkannya),
     // catat modal digunakan ke cash flow (duplikasi dicegah oleh tag check).

@@ -39,6 +39,13 @@ function isCustomIdConflict(err: unknown): boolean {
   return data?.data?.customId?.code === "validation_not_unique";
 }
 
+/**
+ * Buat entri cash flow.
+ * customId race condition: jika pengeluaran-context.tsx dan cashflow-auto.ts
+ * sama-sama generate ID pada saat bersamaan, keduanya mungkin menghasilkan ID yang sama.
+ * Ini ditangani oleh retry loop + unique constraint `customId` di PocketBase.
+ * Pastikan koleksi `pengeluarans` memiliki unique rule pada field `customId`.
+ */
 async function createCashflowEntry(opts: {
   date:      string;
   deskripsi: string;
@@ -63,6 +70,7 @@ async function createCashflowEntry(opts: {
       return;
     } catch (err) {
       if (isCustomIdConflict(err) && attempt < 4) {
+        // ID konflik dengan insert concurrent dari pengeluaran-context — generate ulang
         customId = await generatePglId(opts.date);
         continue;
       }
@@ -71,7 +79,10 @@ async function createCashflowEntry(opts: {
   }
 }
 
-/** Cek apakah entri dengan tag tertentu sudah ada (mencegah duplikasi). */
+/**
+ * Cek apakah entri dengan tag tertentu sudah ada (mencegah duplikasi).
+ * Rethrow error selain 404 agar caller bisa log/skip dengan sadar.
+ */
 async function cashflowTagExists(tag: string): Promise<boolean> {
   try {
     const res = await pb.collection("pengeluarans").getList(1, 1, {
@@ -79,8 +90,12 @@ async function cashflowTagExists(tag: string): Promise<boolean> {
       fields: "id",
     });
     return res.totalItems > 0;
-  } catch {
-    return false;
+  } catch (err) {
+    // Jika PB mengembalikan 404 (koleksi belum ada), anggap belum ada entri
+    const status = (err as { status?: number }).status;
+    if (status === 404) return false;
+    // Error lain (network, auth) — lempar agar caller bisa log
+    throw err;
   }
 }
 

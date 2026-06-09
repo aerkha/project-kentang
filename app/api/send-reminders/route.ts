@@ -85,6 +85,10 @@ function findDueCycles(mous: MoURecord[]): DueCycle[] {
     const daysIntoCycle = daysSinceStart % 30;        // 0 = tepat jatuh tempo, 1-2 = catch-up
     if (daysIntoCycle >= 3) continue;                 // di luar window catch-up
 
+    // Jangan kirim reminder untuk siklus yang melewati batas kontrak
+    // mis. contractPeriod=60 → hanya siklus 1 (hari 30) dan 2 (hari 60) yang valid
+    if (cycleNumber * 30 > mou.contractPeriod) continue;
+
     const cycleStart  = addDays(mou.date, (cycleNumber - 1) * 30);
     const cycleEnd    = addDays(mou.date, cycleNumber * 30);
     const dueDate     = new Date(cycleEnd);

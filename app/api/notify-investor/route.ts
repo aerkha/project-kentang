@@ -512,12 +512,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Buat satu instance PocketBase yang digunakan untuk seluruh handler
+  let pb: PocketBase;
   try {
-    const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+    pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
     pb.authStore.save(pbToken, null);
     await pb.collection("users").authRefresh();
   } catch {
-    return NextResponse.json({ error: "Token tidak valid" }, { status: 401 });
+    return NextResponse.json({ error: "Token tidak valid atau sudah kedaluwarsa" }, { status: 401 });
   }
 
   // 2. Parse body
@@ -534,22 +536,12 @@ export async function POST(req: NextRequest) {
   }
 
   // 3. Ambil data investor dari PocketBase
-  // Gunakan instance terpisah agar tidak mengotori instance verifikasi di atas.
-  // authRefresh() memastikan token masih valid dan me-refresh model auth jika perlu.
-  const pb2 = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
-  pb2.authStore.save(pbToken, null);
-  try {
-    await pb2.collection("users").authRefresh();
-  } catch {
-    return NextResponse.json({ error: "Token tidak valid atau sudah kedaluwarsa" }, { status: 401 });
-  }
-
   let investorPhone = "";
   let investorEmail = "";
   let investorName  = "";
 
   try {
-    const inv = await pb2.collection("investors").getFirstListItem(
+    const inv = await pb.collection("investors").getFirstListItem(
       `customId = "${investorId}"`,
       { fields: "name,phone,email" }
     );
@@ -561,7 +553,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 4. Ambil riwayat investasi untuk history table
-  const history = await buildHistory(pb2, investorId);
+  const history = await buildHistory(pb, investorId);
   const historyHtml = buildHistoryTableHtml(history);
 
   const tanggal  = fmtDate(new Date().toISOString().slice(0, 10));

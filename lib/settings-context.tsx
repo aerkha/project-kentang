@@ -75,7 +75,9 @@ async function setSetting(key: string, value: string): Promise<void> {
       try {
         const rec = await pb.collection("settings").getFirstListItem(`key = "${key}"`);
         await pb.collection("settings").update(rec.id, { value });
-      } catch { /* abaikan — nilai tidak kritis, akan konsisten di request berikutnya */ }
+      } catch (finalErr) {
+        console.error(`[settings] setSetting("${key}") gagal setelah 3 percobaan:`, finalErr);
+      }
     }
   }
 }

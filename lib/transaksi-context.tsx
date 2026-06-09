@@ -127,13 +127,30 @@ async function createInvestorEntries(
   );
 }
 
-/** Hapus semua junction records untuk satu transaksi */
-async function deleteInvestorEntries(transaksiPbId: string): Promise<void> {
+/**
+ * Hapus junction records lama untuk satu transaksi.
+ * @param transaksiPbId  PocketBase internal ID transaksi
+ * @param keepNewest     Jika diisi, hanya hapus entry yang dibuat SEBELUM entry-entry baru ini
+ *                       (diidentifikasi dengan mengambil N entry terbaru lalu skip, hapus sisanya).
+ *                       Ini mencegah penghapusan entry yang baru saja dibuat saat update.
+ */
+async function deleteInvestorEntries(
+  transaksiPbId: string,
+  keepNewest?: TransaksiInvestorEntry[],
+): Promise<void> {
   const existing = await pb.collection("transaksi_investors").getFullList({
     filter: `transaksiId = "${transaksiPbId}"`,
     fields: "id",
+    sort:   "created",   // urutan lama ke baru
   });
-  await Promise.all(existing.map((r) => pb.collection("transaksi_investors").delete(r.id)));
+
+  // Jika keepNewest diberikan, hapus hanya entry-entry LAMA:
+  // entry baru ada di akhir list (sort: "created"), sebanyak keepNewest.length
+  const toDelete = keepNewest
+    ? existing.slice(0, existing.length - keepNewest.length)
+    : existing;
+
+  await Promise.all(toDelete.map((r) => pb.collection("transaksi_investors").delete(r.id)));
 }
 
 // ── Provider ─────────────────────────────────────────────────────────────────
@@ -251,11 +268,13 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
       updatedBy: currentUserId(),
     });
 
-    // Jika investorEntries ikut diupdate: hapus lama, buat baru
+    // Jika investorEntries ikut diupdate:
+    // Buat entries baru DULU sebelum hapus yang lama — mencegah data loss
+    // jika createInvestorEntries gagal di tengah jalan.
     let resolvedEntries: TransaksiInvestorEntry[] | undefined;
     if (investorEntries !== undefined) {
-      await deleteInvestorEntries(pbId);
       await createInvestorEntries(pbId, investorEntries);
+      await deleteInvestorEntries(pbId, investorEntries);
       resolvedEntries = investorEntries;
     }
 

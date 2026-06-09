@@ -50,6 +50,7 @@ interface UserFormData {
   email:           string;
   role:            string;
   investorId:      string;
+  oldPassword:     string;
   password:        string;
   passwordConfirm: string;
   changePassword:  boolean;
@@ -80,7 +81,7 @@ function recordToUser(r: Record<string, unknown>): AppUser {
 
 const emptyForm = (): UserFormData => ({
   name: "", email: "", role: "user", investorId: "",
-  password: "", passwordConfirm: "", changePassword: false,
+  oldPassword: "", password: "", passwordConfirm: "", changePassword: false,
 });
 
 const ROLE_LABELS: Record<string, string> = {
@@ -351,12 +352,16 @@ export function UsersContent() {
     if (!selected) return;
     setFormError("");
     if (form.changePassword) {
+      if (!form.oldPassword) {
+        setFormError("Password lama wajib diisi");
+        return;
+      }
       if (form.password !== form.passwordConfirm) {
-        setFormError("Password tidak cocok");
+        setFormError("Password baru tidak cocok");
         return;
       }
       if (form.password.length < 8) {
-        setFormError("Password minimal 8 karakter");
+        setFormError("Password baru minimal 8 karakter");
         return;
       }
     }
@@ -368,6 +373,7 @@ export function UsersContent() {
         investorId: form.role === "investor" ? form.investorId : "",
       };
       if (form.changePassword && form.password) {
+        payload.oldPassword     = form.oldPassword;
         payload.password        = form.password;
         payload.passwordConfirm = form.passwordConfirm;
       }
@@ -795,6 +801,7 @@ export function UsersContent() {
                     setForm((f) => ({
                       ...f,
                       changePassword: e.target.checked,
+                      oldPassword: "",
                       password: "",
                       passwordConfirm: "",
                     }))
@@ -805,31 +812,48 @@ export function UsersContent() {
               </label>
 
               {form.changePassword && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-3">
                   <div className="space-y-1.5">
                     <Label className="text-xs">
-                      Password Baru <span className="text-destructive">*</span>
+                      Password Lama <span className="text-destructive">*</span>
                     </Label>
                     <Input
                       type="password"
-                      value={form.password}
-                      onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                      placeholder="Min. 8 karakter"
+                      value={form.oldPassword}
+                      onChange={(e) => setForm((f) => ({ ...f, oldPassword: e.target.value }))}
+                      placeholder="Masukkan password saat ini"
                       required
-                      minLength={8}
+                      autoComplete="current-password"
                     />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">
-                      Konfirmasi <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      type="password"
-                      value={form.passwordConfirm}
-                      onChange={(e) => setForm((f) => ({ ...f, passwordConfirm: e.target.value }))}
-                      placeholder="Ulangi"
-                      required
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">
+                        Password Baru <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        type="password"
+                        value={form.password}
+                        onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                        placeholder="Min. 8 karakter"
+                        required
+                        minLength={8}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">
+                        Konfirmasi <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        type="password"
+                        value={form.passwordConfirm}
+                        onChange={(e) => setForm((f) => ({ ...f, passwordConfirm: e.target.value }))}
+                        placeholder="Ulangi password baru"
+                        required
+                        autoComplete="new-password"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
