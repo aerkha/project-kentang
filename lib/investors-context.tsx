@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
+import { recordModalInvestorMasuk } from "./cashflow-auto";
 
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
@@ -130,6 +131,15 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
           isInternal:       inv.isInternal === true,
         });
         setInvestors((prev) => [...prev, recordToInvestor(record, map)]);
+
+        // Catat modal investor masuk ke cash flow (pemasukan / debet)
+        // Fire-and-forget: jangan blokir UI jika gagal
+        recordModalInvestorMasuk(
+          customId,
+          inv.name,
+          inv.investmentAmount,
+        ).catch((e) => console.warn("cashflow-auto: gagal catat modal investor masuk:", e));
+
         return customId;
       } catch (err) {
         if (isCustomIdConflict(err) && attempt < 4) {

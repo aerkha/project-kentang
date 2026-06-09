@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
 import { useInvestors } from "./investors-context";
+import { recordModalPksDigunakan } from "./cashflow-auto";
 
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
@@ -305,6 +306,17 @@ export function MouProvider({ children }: { children: ReactNode }) {
     setMous((prev) => [...prev, newMou]);
     // Untuk sync: hitung dari mous snapshot + newMou yang kita tahu pasti ditambahkan
     await syncInvestorStatus(mou.investorId, [...mous, newMou]);
+
+    // Jika PKS langsung aktif (backdate), catat modal digunakan ke cash flow
+    if (isMouAktif(newMou)) {
+      recordModalPksDigunakan(
+        newMou.investorId,
+        newMou.investorName,
+        newMou.id,
+        newMou.investmentAmount,
+        newMou.date,
+      ).catch((e) => console.warn("cashflow-auto: gagal catat modal PKS digunakan:", e));
+    }
   };
 
   const updateMou = async (id: string, updates: Partial<MoU>) => {
@@ -399,6 +411,18 @@ export function MouProvider({ children }: { children: ReactNode }) {
     // PKS kini hasSignedDoc=true → mungkin menjadi aktif → sync investor
     const snapshot = mous.map((m) => (m.id === id ? updatedMou : m));
     await syncInvestorStatus(updatedMou.investorId, snapshot);
+
+    // Jika PKS kini aktif (signed doc baru diunggah mengaktifkannya),
+    // catat modal digunakan ke cash flow (duplikasi dicegah oleh tag check).
+    if (isMouAktif(updatedMou)) {
+      recordModalPksDigunakan(
+        updatedMou.investorId,
+        updatedMou.investorName,
+        updatedMou.id,
+        updatedMou.investmentAmount,
+        updatedMou.date,
+      ).catch((e) => console.warn("cashflow-auto: gagal catat modal PKS digunakan:", e));
+    }
   };
 
   return (
