@@ -91,12 +91,15 @@ function isCustomIdConflict(err: unknown): boolean {
 
 async function generateCustomId(): Promise<string> {
   try {
-    const res = await pb.collection("transaksis").getList(1, 1, {
-      sort: "-customId", fields: "customId",
-    });
-    if (res.items.length === 0) return "TRX-0001";
-    const n = parseInt((res.items[0].customId as string).replace("TRX-", "")) || 0;
-    return `TRX-${String(n + 1).padStart(4, "0")}`;
+    // Cari nilai numerik tertinggi secara eksplisit — sort leksikografis tidak aman
+    // karena "TRX-0009" > "TRX-0010" secara alfabet.
+    const res = await pb.collection("transaksis").getFullList({ fields: "customId" });
+    if (res.length === 0) return "TRX-0001";
+    const max = res.reduce((m, r) => {
+      const n = parseInt((r.customId as string).replace("TRX-", "")) || 0;
+      return n > m ? n : m;
+    }, 0);
+    return `TRX-${String(max + 1).padStart(4, "0")}`;
   } catch {
     return "TRX-0001";
   }

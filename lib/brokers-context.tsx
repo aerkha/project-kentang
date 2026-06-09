@@ -46,12 +46,15 @@ function isCustomIdConflict(err: unknown): boolean {
 
 async function generateCustomId(): Promise<string> {
   try {
-    const res = await pb.collection("brokers").getList(1, 1, {
-      sort: "-customId", fields: "customId",
-    });
-    if (res.items.length === 0) return "BRK-0001";
-    const n = parseInt((res.items[0].customId as string).replace("BRK-", "")) || 0;
-    return `BRK-${String(n + 1).padStart(4, "0")}`;
+    // Cari nilai numerik tertinggi secara eksplisit — sort leksikografis tidak aman
+    // karena "BRK-0009" > "BRK-0010" secara alfabet.
+    const res = await pb.collection("brokers").getFullList({ fields: "customId" });
+    if (res.length === 0) return "BRK-0001";
+    const max = res.reduce((m, r) => {
+      const n = parseInt((r.customId as string).replace("BRK-", "")) || 0;
+      return n > m ? n : m;
+    }, 0);
+    return `BRK-${String(max + 1).padStart(4, "0")}`;
   } catch {
     return "BRK-0001";
   }

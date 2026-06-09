@@ -1195,7 +1195,7 @@ export function ReminderContent() {
       </Dialog>
 
       {/* ── Dialog Upload Bukti Transfer ── */}
-      <Dialog open={!!buktiTarget} onOpenChange={(open) => { if (!open) setBuktiTarget(null); }}>
+      <Dialog open={!!buktiTarget} onOpenChange={(open) => { if (!open) { setBuktiTarget(null); setBuktiFile(null); setBuktiPreview(null); } }}>
         <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

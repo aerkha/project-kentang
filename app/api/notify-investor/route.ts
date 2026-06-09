@@ -78,11 +78,15 @@ interface BagiHasil {
 
 /**
  * Hitung bagi hasil untuk satu investor dalam satu transaksi.
+ * Formula ini identik dengan reminder-content.tsx::calcBagiHasil:
  *
- * @param profit       - profit bersih transaksi
- * @param pkPct        - persentase bagi hasil PKS (mis. 0.35)
- * @param ti           - TI record investor ini
- * @param totalModal   - jumlah SEMUA nilaiInvestasi dalam transaksi ini (semua investor)
+ *   investor = profit × ratio × pkPct
+ *   trader   = profit × ratio × pctTrader/100
+ *   minbun   = profit × ratio × pctMinBun/100
+ *   broker   = profit × ratio × (pctBrokerI+pctBrokerII)/100
+ *
+ * investor mendapat pkPct (mis. 35%) dari porsi profit-nya.
+ * trader/minbun/broker dibayar dari sisa porsi Pihak Pertama — bukan dari investor's share.
  */
 function calcBagiHasil(
   profit:     number,
@@ -92,14 +96,11 @@ function calcBagiHasil(
 ): BagiHasil {
   if (totalModal <= 0 || profit <= 0) return { investor: 0, trader: 0, minbun: 0, broker: 0 };
   const ratio    = ti.nilaiInvestasi / totalModal;
-  // Hanya porsi pkPct dari profit yang dibagi (misal 35%)
-  const share    = profit * pkPct * ratio;
+  const share    = profit * ratio;              // porsi profit proporsional investor ini
+  const investor = share * pkPct;               // mis. 35% dari porsi profit-nya
   const trader   = share * (ti.pctTrader  / 100);
   const minbun   = share * (ti.pctMinBun  / 100);
-  const brokerI  = share * (ti.pctBrokerI  / 100);
-  const brokerII = share * (ti.pctBrokerII / 100);
-  const broker   = brokerI + brokerII;
-  const investor = share - trader - minbun - broker;
+  const broker   = share * ((ti.pctBrokerI + ti.pctBrokerII) / 100);
   return { investor, trader, minbun, broker };
 }
 
@@ -140,13 +141,15 @@ async function buildHistory(
   }
   if (mous.length === 0) return [];
 
-  // 2. Ambil TI records milik investor ini
+  // 2. Ambil 10 TI records terbaru milik investor ini.
+  //    Dibatasi 10 transaksi terakhir agar tidak timeout di serverless function.
   let myTis: TiRecord[] = [];
   try {
-    const raw = await pb.collection("transaksi_investors").getFullList({
+    const res = await pb.collection("transaksi_investors").getList(1, 10, {
       filter: `investorId = "${investorId}"`,
+      sort:   "-created",
     });
-    myTis = raw.map((r) => ({
+    myTis = res.items.map((r) => ({
       transaksiId:    r.transaksiId    as string,
       investorId:     r.investorId     as string,
       nilaiInvestasi: r.nilaiInvestasi as number,
@@ -170,7 +173,7 @@ async function buildHistory(
     }));
   }
 
-  // 3. Ambil semua transaksis yang direferens oleh TI investor ini (termasuk field date)
+  // 3. Ambil transaksis yang direferens oleh TI di atas (max 10 record, sudah dibatasi di step 2)
   const trxIdSet = new Set(myTis.map((ti) => ti.transaksiId));
   const trxMap   = new Map<string, TrxRecord>();
   try {
@@ -189,7 +192,8 @@ async function buildHistory(
   } catch { /* abaikan */ }
 
   // 4. Ambil SEMUA TI untuk transaksi-transaksi tersebut (bukan hanya milik investor ini)
-  //    Diperlukan untuk menghitung totalModal yang benar (penyebut rasio)
+  //    Diperlukan untuk menghitung totalModal yang benar (penyebut rasio).
+  //    Jumlah transaksi sudah dibatasi 10, jadi filter ini aman.
   const totalModalMap = new Map<string, number>(); // transaksiId → total semua investor
   if (trxIdSet.size > 0) {
     try {

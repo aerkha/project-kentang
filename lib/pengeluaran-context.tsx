@@ -50,6 +50,20 @@ function recordToPengeluaran(
   };
 }
 
+/**
+ * Comparator untuk mengurutkan pengeluaran berdasarkan tanggal lalu nomor urut numerik.
+ * Tidak menggunakan localeCompare pada customId karena "PGL-202505-009" > "PGL-202505-010"
+ * secara leksikografis — hasil running balance menjadi salah.
+ */
+function sortPengeluaran(a: Pengeluaran, b: Pengeluaran): number {
+  const dateDiff = a.date.localeCompare(b.date);
+  if (dateDiff !== 0) return dateDiff;
+  // Bandingkan suffix numerik: "PGL-202505-009" → 9, "PGL-202505-010" → 10
+  const numA = parseInt(a.id.split("-").pop() ?? "0") || 0;
+  const numB = parseInt(b.id.split("-").pop() ?? "0") || 0;
+  return numA - numB;
+}
+
 async function generateCustomId(date: string): Promise<string> {
   const ym     = date.slice(0, 7).replace("-", "");
   const prefix = `PGL-${ym}-`;
@@ -109,9 +123,7 @@ export function PengeluaranProvider({ children }: { children: ReactNode }) {
           catatan:   p.catatan || "",
         });
         setPengeluarans((prev) =>
-          [...prev, recordToPengeluaran(record, map)].sort(
-            (a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id),
-          ),
+          [...prev, recordToPengeluaran(record, map)].sort(sortPengeluaran),
         );
         return;
       } catch (err) {
@@ -134,7 +146,7 @@ export function PengeluaranProvider({ children }: { children: ReactNode }) {
     setPengeluarans((prev) =>
       prev
         .map((p) => (p.id === id ? recordToPengeluaran(record, map) : p))
-        .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)),
+        .sort(sortPengeluaran),
     );
   };
 

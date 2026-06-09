@@ -64,12 +64,16 @@ function isCustomIdConflict(err: unknown): boolean {
 
 async function generateCustomId(): Promise<string> {
   try {
-    const res = await pb.collection("investors").getList(1, 1, {
-      sort: "-customId", fields: "customId",
-    });
-    if (res.items.length === 0) return "INV-0001";
-    const n = parseInt((res.items[0].customId as string).replace("INV-", "")) || 0;
-    return `INV-${String(n + 1).padStart(4, "0")}`;
+    // Ambil semua customId lalu cari nilai numerik tertinggi.
+    // Tidak menggunakan sort: "-customId" karena sort itu leksikografis,
+    // sehingga "INV-0009" > "INV-0010" dan akan menghasilkan ID yang salah.
+    const res = await pb.collection("investors").getFullList({ fields: "customId" });
+    if (res.length === 0) return "INV-0001";
+    const max = res.reduce((m, r) => {
+      const n = parseInt((r.customId as string).replace("INV-", "")) || 0;
+      return n > m ? n : m;
+    }, 0);
+    return `INV-${String(max + 1).padStart(4, "0")}`;
   } catch {
     return "INV-0001";
   }

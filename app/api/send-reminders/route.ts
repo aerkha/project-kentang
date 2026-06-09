@@ -56,7 +56,13 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Temukan semua siklus 30 hari yang jatuh tempo hari ini atau terlewat */
+/**
+ * Temukan semua siklus 30 hari yang jatuh tempo hari ini ATAU dalam 3 hari terakhir.
+ *
+ * Window catch-up 3 hari mencegah siklus terlewat jika cron gagal berjalan
+ * tepat di hari jatuh tempo. Duplikasi dicegah oleh pengecekan reminder_logs
+ * di handler — siklus yang sudah pernah dikirim tidak akan dikirim ulang.
+ */
 function findDueCycles(mous: MoURecord[]): DueCycle[] {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -72,9 +78,13 @@ function findDueCycles(mous: MoURecord[]): DueCycle[] {
       (today.getTime() - start.getTime()) / 86_400_000,
     );
     if (daysSinceStart < 30) continue;
-    if (daysSinceStart % 30 !== 0) continue;
 
-    const cycleNumber = daysSinceStart / 30;
+    // Siklus yang sedang aktif = kelipatan 30 sebelum atau tepat hari ini
+    // Catch-up window 3 hari: hari ke-30..32, 60..62, 90..92, dst.
+    const cycleNumber   = Math.floor(daysSinceStart / 30);
+    const daysIntoCycle = daysSinceStart % 30;        // 0 = tepat jatuh tempo, 1-2 = catch-up
+    if (daysIntoCycle >= 3) continue;                 // di luar window catch-up
+
     const cycleStart  = addDays(mou.date, (cycleNumber - 1) * 30);
     const cycleEnd    = addDays(mou.date, cycleNumber * 30);
     const dueDate     = new Date(cycleEnd);
@@ -243,19 +253,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ sent: 0, message: "Tidak ada yang jatuh tempo hari ini" });
     }
 
-    // Filter yang belum pernah dikirim (kecuali manual — boleh kirim ulang)
+    // Filter yang belum pernah dikirim (kecuali manual — boleh kirim ulang).
+    // Semua cek dilakukan paralel agar tidak timeout jika ada banyak siklus jatuh tempo.
     const toSend: DueCycle[] = [];
-    for (const cycle of dueCycles) {
-      if (triggeredBy === "manual") {
-        toSend.push(cycle);
-        continue;
-      }
-      const existing = await pb.collection("reminder_logs")
-        .getList(1, 1, {
-          filter: `mouCustomId = "${cycle.mou.customId}" && cycleNumber = ${cycle.cycleNumber} && triggeredBy = "cron"`,
-        })
-        .catch(() => ({ totalItems: 0 }));
-      if (existing.totalItems === 0) toSend.push(cycle);
+    if (triggeredBy === "manual") {
+      toSend.push(...dueCycles);
+    } else {
+      const alreadySentFlags = await Promise.all(
+        dueCycles.map((cycle) =>
+          pb.collection("reminder_logs")
+            .getList(1, 1, {
+              filter: `mouCustomId = "${cycle.mou.customId}" && cycleNumber = ${cycle.cycleNumber} && triggeredBy = "cron"`,
+            })
+            .then((r) => r.totalItems > 0)
+            .catch(() => false),
+        ),
+      );
+      dueCycles.forEach((cycle, i) => {
+        if (!alreadySentFlags[i]) toSend.push(cycle);
+      });
     }
 
     if (toSend.length === 0) {

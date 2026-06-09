@@ -61,11 +61,14 @@ const PB_BASE = process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
 
 /** Konversi base64 data URL ke File object untuk upload ke PocketBase */
 function base64ToFile(dataUrl: string, fieldName: string): File {
-  const [header, b64] = dataUrl.split(",");
-  const mime = header.match(/:(.*?);/)?.[1] ?? "image/png";
-  const ext  = mime.split("/")[1] ?? "png";
-  const bytes = atob(b64);
-  const arr   = new Uint8Array(bytes.length);
+  const commaIdx = dataUrl.indexOf(",");
+  if (commaIdx === -1) throw new Error("base64ToFile: input bukan data URL yang valid");
+  const header = dataUrl.slice(0, commaIdx);
+  const b64    = dataUrl.slice(commaIdx + 1);
+  const mime   = header.match(/:(.*?);/)?.[1] ?? "image/png";
+  const ext    = mime.split("/")[1] ?? "png";
+  const bytes  = atob(b64);
+  const arr    = new Uint8Array(bytes.length);
   for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
   return new File([arr], `${fieldName}.${ext}`, { type: mime });
 }

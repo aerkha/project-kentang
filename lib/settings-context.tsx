@@ -65,8 +65,18 @@ async function setSetting(key: string, value: string): Promise<void> {
     const rec = await pb.collection("settings").getFirstListItem(`key = "${key}"`);
     await pb.collection("settings").update(rec.id, { value });
   } catch {
-    // Belum ada — buat baru
-    await pb.collection("settings").create({ key, value });
+    // Record belum ada — coba buat baru.
+    // Jika dua request concurrent sama-sama masuk sini dan keduanya mencoba create,
+    // yang kedua akan gagal karena duplicate key. Tangkap error itu dan coba update.
+    try {
+      await pb.collection("settings").create({ key, value });
+    } catch {
+      // Sudah dibuat concurrent — ambil id-nya lalu update
+      try {
+        const rec = await pb.collection("settings").getFirstListItem(`key = "${key}"`);
+        await pb.collection("settings").update(rec.id, { value });
+      } catch { /* abaikan — nilai tidak kritis, akan konsisten di request berikutnya */ }
+    }
   }
 }
 
