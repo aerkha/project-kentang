@@ -300,13 +300,15 @@ export function ReminderContent() {
 
   // Klik ceklis: jika akan dicentang → buka dialog upload bukti dulu
   //              jika investor internal + keterangan "Investor" → dialog konfirmasi internal
+  //              jika keterangan "MinBun" → dialog konfirmasi internal (tanpa bukti transfer)
   //              jika akan di-uncheck → langsung proses
   const handleToggleRow = (mou: MoU, keterangan: string, row: PaymentRow) => {
     const isChecked = !!mou.bagiHasilChecks?.[keterangan];
     if (!isChecked) {
       const isInternalInvestor = keterangan === "Investor" && internalInvestorIds.has(mou.investorId);
-      if (isInternalInvestor) {
-        // Dialog konfirmasi internal — tidak perlu upload bukti transfer
+      const isMinBun           = keterangan === "MinBun";
+      if (isInternalInvestor || isMinBun) {
+        // Dialog konfirmasi — tidak perlu upload bukti transfer
         setInternalTarget({ mou, keterangan, row });
       } else {
         // Buka dialog upload bukti transfer biasa
@@ -336,7 +338,8 @@ export function ReminderContent() {
     }
   };
 
-  // Submit dialog internal: mark check → catat profit sebagai debet ke cashflow
+  // Submit dialog internal: mark check → catat ke cashflow (tanpa upload bukti)
+  // Berlaku untuk: investor internal (profit internal) dan MinBun (biaya operasional internal)
   const handleConfirmInternal = async () => {
     if (!internalTarget) return;
     const { mou, keterangan, row } = internalTarget;
@@ -351,16 +354,28 @@ export function ReminderContent() {
     try {
       await updateMou(mou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
 
-      // Catat profit internal sebagai debet (pemasukan) ke cash flow
-      await addPengeluaran({
-        date:      today,
-        deskripsi: `Profit Internal — ${row.nama} — PKS ${mou.id}`,
-        debet:     row.jumlah,
-        kredit:    0,
-        catatan:   `[Internal-Profit:${mou.investorId}:${mou.id}]`,
-      });
+      if (keterangan === "MinBun") {
+        // MinBun adalah penerima internal — catat sebagai debet (pemasukan internal)
+        await addPengeluaran({
+          date:      today,
+          deskripsi: `Bagi Hasil MinBun — PKS ${mou.id}`,
+          debet:     row.jumlah,
+          kredit:    0,
+          catatan:   `[Reminder] PKS ${mou.id} · MinBun`,
+        });
+        toast.success(`Bagi hasil MinBun PKS ${mou.id} dicatat di Arus Kas`);
+      } else {
+        // Investor internal — catat profit sebagai debet (pemasukan internal)
+        await addPengeluaran({
+          date:      today,
+          deskripsi: `Profit Internal — ${row.nama} — PKS ${mou.id}`,
+          debet:     row.jumlah,
+          kredit:    0,
+          catatan:   `[Internal-Profit:${mou.investorId}:${mou.id}]`,
+        });
+        toast.success(`Profit internal ${row.nama} dicatat di Arus Kas`);
+      }
 
-      toast.success(`Profit internal ${row.nama} dicatat di Arus Kas`);
       setInternalTarget(null);
     } catch {
       toast.error("Gagal menyimpan. Coba lagi.");
@@ -687,9 +702,11 @@ export function ReminderContent() {
                                     </Button>
                                   </TooltipTrigger>
                                   <TooltipContent side="left" className="text-xs">
-                                    {pr.keterangan === "Investor" && internalInvestorIds.has(task.mou.investorId)
-                                      ? "Konfirmasi profit internal & catat ke Arus Kas"
-                                      : "Upload bukti & tandai selesai"}
+                                    {pr.keterangan === "MinBun"
+                                      ? "Konfirmasi & catat ke Arus Kas"
+                                      : pr.keterangan === "Investor" && internalInvestorIds.has(task.mou.investorId)
+                                        ? "Konfirmasi profit internal & catat ke Arus Kas"
+                                        : "Upload bukti & tandai selesai"}
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
@@ -887,7 +904,13 @@ export function ReminderContent() {
                                     </Button>
                                   </TooltipTrigger>
                                   <TooltipContent side="left" className="text-xs">
-                                    {rowDone ? "Tandai belum dibayar" : "Upload bukti & tandai selesai"}
+                                    {rowDone
+                                      ? "Tandai belum dibayar"
+                                      : pr.keterangan === "MinBun"
+                                        ? "Konfirmasi & catat ke Arus Kas"
+                                        : pr.keterangan === "Investor" && internalInvestorIds.has(task.mou.investorId)
+                                          ? "Konfirmasi profit internal & catat ke Arus Kas"
+                                          : "Upload bukti & tandai selesai"}
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
@@ -1153,23 +1176,30 @@ export function ReminderContent() {
         </CardContent>
       </Card>
 
-      {/* ── Dialog Konfirmasi Profit Internal ── */}
+      {/* ── Dialog Konfirmasi Internal (investor internal & MinBun) ── */}
       <Dialog open={!!internalTarget} onOpenChange={(open) => { if (!open) setInternalTarget(null); }}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-primary" />
-              Catat Profit Internal ke Arus Kas
+              {internalTarget?.keterangan === "MinBun"
+                ? "Konfirmasi Bagi Hasil MinBun"
+                : "Catat Profit Internal ke Arus Kas"}
             </DialogTitle>
             <DialogDescription>
-              Profit siklus PKS <strong>{internalTarget?.mou.id}</strong> untuk investor internal akan dicatat sebagai pemasukan (debet) di Arus Kas. Tidak diperlukan bukti transfer.
+              {internalTarget?.keterangan === "MinBun"
+                ? <>Bagi hasil MinBun untuk PKS <strong>{internalTarget.mou.id}</strong> akan dicatat sebagai pemasukan di Arus Kas. Tidak diperlukan bukti transfer.</>
+                : <>Profit siklus PKS <strong>{internalTarget?.mou.id}</strong> untuk investor internal akan dicatat sebagai pemasukan (debet) di Arus Kas. Tidak diperlukan bukti transfer.</>
+              }
             </DialogDescription>
           </DialogHeader>
 
           {internalTarget && (
             <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
               <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Investor</span>
+                <span className="text-muted-foreground">
+                  {internalTarget.keterangan === "MinBun" ? "Penerima" : "Investor"}
+                </span>
                 <span className="font-medium">{internalTarget.row.nama}</span>
               </div>
               <div className="flex justify-between items-center">
@@ -1177,7 +1207,7 @@ export function ReminderContent() {
                 <span className="font-mono text-xs font-medium">{internalTarget.mou.id}</span>
               </div>
               <div className="border-t pt-2 flex justify-between font-semibold">
-                <span>Profit dicatat</span>
+                <span>{internalTarget.keterangan === "MinBun" ? "Bagi hasil dicatat" : "Profit dicatat"}</span>
                 <span className="text-green-600">{formatCurrency(internalTarget.row.jumlah)}</span>
               </div>
             </div>
