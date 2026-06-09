@@ -219,9 +219,10 @@ export function MouProvider({ children }: { children: ReactNode }) {
       return [];
     });
 
-    Promise.all(syncs)
-      .then(() => { initialSyncDone.current = true; })
-      .catch(console.error);
+    // Set flag SEBELUM Promise.all agar effect tidak terpanggil ulang
+    // saat updateInvestor di dalam sync mengubah state investors.
+    initialSyncDone.current = true;
+    Promise.all(syncs).catch(console.error);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mous, investors]);
 
@@ -299,12 +300,11 @@ export function MouProvider({ children }: { children: ReactNode }) {
       record = await pb.collection("mous").update(record.id, fd);
     }
 
-    const newMou    = recordToMou(record, map);
-    const updatedMous = [...mous, newMou];
-    setMous(updatedMous);
-
-    // PKS baru selalu pending → investor nonaktif (kecuali punya PKS aktif lain)
-    await syncInvestorStatus(mou.investorId, updatedMous);
+    const newMou = recordToMou(record, map);
+    // Functional update agar tidak overwrite perubahan concurrent
+    setMous((prev) => [...prev, newMou]);
+    // Untuk sync: hitung dari mous snapshot + newMou yang kita tahu pasti ditambahkan
+    await syncInvestorStatus(mou.investorId, [...mous, newMou]);
   };
 
   const updateMou = async (id: string, updates: Partial<MoU>) => {
@@ -347,13 +347,14 @@ export function MouProvider({ children }: { children: ReactNode }) {
       record = await pb.collection("mous").update(pbId, fd);
     }
 
-    const updatedMou  = recordToMou(record, map);
-    const updatedMous = mous.map((m) => (m.id === id ? updatedMou : m));
-    setMous(updatedMous);
+    const updatedMou = recordToMou(record, map);
+    setMous((prev) => prev.map((m) => (m.id === id ? updatedMou : m)));
 
     // Sync jika update menyentuh field yang bisa mengubah status PKS
+    // Gunakan snapshot mous saat ini (stale OK untuk sync — hanya baca investorId & status)
     if ("isTerminated" in updates) {
-      await syncInvestorStatus(updatedMou.investorId, updatedMous);
+      const snapshot = mous.map((m) => (m.id === id ? updatedMou : m));
+      await syncInvestorStatus(updatedMou.investorId, snapshot);
     }
   };
 
@@ -363,12 +364,12 @@ export function MouProvider({ children }: { children: ReactNode }) {
     const mouToDelete = mous.find((m) => m.id === id);
     await pb.collection("mous").delete(pbId);
     map.delete(id);
-    const updatedMous = mous.filter((m) => m.id !== id);
-    setMous(updatedMous);
+    setMous((prev) => prev.filter((m) => m.id !== id));
 
     // Sync jika PKS yang dihapus berpengaruh pada status investor
     if (mouToDelete) {
-      await syncInvestorStatus(mouToDelete.investorId, updatedMous);
+      const snapshot = mous.filter((m) => m.id !== id);
+      await syncInvestorStatus(mouToDelete.investorId, snapshot);
     }
   };
 
@@ -392,12 +393,12 @@ export function MouProvider({ children }: { children: ReactNode }) {
     const fd = new FormData();
     fd.append("signedDoc", file);
     const record      = await pb.collection("mous").update(pbId, fd);
-    const updatedMou  = recordToMou(record, map);
-    const updatedMous = mous.map((m) => (m.id === id ? updatedMou : m));
-    setMous(updatedMous);
+    const updatedMou = recordToMou(record, map);
+    setMous((prev) => prev.map((m) => (m.id === id ? updatedMou : m)));
 
     // PKS kini hasSignedDoc=true → mungkin menjadi aktif → sync investor
-    await syncInvestorStatus(updatedMou.investorId, updatedMous);
+    const snapshot = mous.map((m) => (m.id === id ? updatedMou : m));
+    await syncInvestorStatus(updatedMou.investorId, snapshot);
   };
 
   return (

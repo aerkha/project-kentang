@@ -534,8 +534,15 @@ export async function POST(req: NextRequest) {
   }
 
   // 3. Ambil data investor dari PocketBase
+  // Gunakan instance terpisah agar tidak mengotori instance verifikasi di atas.
+  // authRefresh() memastikan token masih valid dan me-refresh model auth jika perlu.
   const pb2 = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
   pb2.authStore.save(pbToken, null);
+  try {
+    await pb2.collection("users").authRefresh();
+  } catch {
+    return NextResponse.json({ error: "Token tidak valid atau sudah kedaluwarsa" }, { status: 401 });
+  }
 
   let investorPhone = "";
   let investorEmail = "";
