@@ -834,10 +834,11 @@ export function ReminderContent() {
                 <tbody>
                   {tasks.flatMap((task) => {
                     const checks  = task.mou.bagiHasilChecks ?? {};
-                    // Filter baris sesuai tab: pending = belum dicentang, selesai = sudah dicentang
-                    const visibleRows = task.rows.filter((r) =>
-                      showDone ? !!checks[r.keterangan] : !checks[r.keterangan]
-                    );
+                    // Tab Selesai: hanya baris yang sudah done
+                    // Tab Pending: semua baris (done tampil dengan ceklis agar tidak diklik ulang)
+                    const visibleRows = showDone
+                      ? task.rows.filter((r) => !!checks[r.keterangan])
+                      : task.rows;
                     if (visibleRows.length === 0) return [];
 
                     const days     = daysUntil(task.endDateStr);
