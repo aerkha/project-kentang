@@ -114,7 +114,10 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
     buktiTrader:        pbFileUrl(pbRecordId, r.buktiTrader),
     buktiMinBun:        pbFileUrl(pbRecordId, r.buktiMinBun),
     bagiHasilChecks:    (() => {
-      try { return JSON.parse((r.bagiHasilChecks as string) || "{}") as Record<string, boolean>; }
+      const raw = r.bagiHasilChecks;
+      if (!raw) return {};
+      if (typeof raw === "object") return raw as Record<string, boolean>;
+      try { return JSON.parse(raw as string) as Record<string, boolean>; }
       catch { return {}; }
     })(),
     esignPihakPertama1: pbFileUrl(pbRecordId, r.esignPihakPertama1),

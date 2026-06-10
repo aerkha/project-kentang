@@ -840,11 +840,15 @@ export function ReminderContent() {
                 <tbody>
                   {tasks.flatMap((task) => {
                     const checks  = task.mou.bagiHasilChecks ?? {};
-                    // Tab Selesai: hanya baris yang sudah done
-                    // Tab Pending: semua baris (done tampil dengan ceklis agar tidak diklik ulang)
+                    const isRowDone = (r: PaymentRow) => {
+                      const k = `${task.mou.id}__${r.keterangan}`;
+                      return !!checks[r.keterangan] || doneKeys.has(k);
+                    };
+                    // Tab Selesai: baris yang sudah done
+                    // Tab Pending: baris yang belum done (sudah done = pindah ke Selesai)
                     const visibleRows = showDone
-                      ? task.rows.filter((r) => !!checks[r.keterangan])
-                      : task.rows;
+                      ? task.rows.filter(isRowDone)
+                      : task.rows.filter((r) => !isRowDone(r));
                     if (visibleRows.length === 0) return [];
 
                     const days     = daysUntil(task.endDateStr);
@@ -870,8 +874,7 @@ export function ReminderContent() {
                       const rowKey    = `${task.mou.id}__${pr.keterangan}`;
                       const rowDone   = !!checks[pr.keterangan] || doneKeys.has(rowKey);
                       const isLoading = toggling === rowKey;
-                      // Di tab Selesai semua baris sudah done — tampilkan normal tanpa opacity
-                      const rowClass  = `transition-colors ${rowDone && !showDone ? "opacity-50" : "hover:bg-muted/40"}`;
+                      const rowClass  = "transition-colors hover:bg-muted/40";
 
                       return (
                         <tr
@@ -880,7 +883,7 @@ export function ReminderContent() {
                         >
                           {/* Nama */}
                           <td className="py-2.5 px-3 whitespace-nowrap">
-                            <span className={rowDone && !showDone ? "line-through text-muted-foreground" : "font-medium"}>
+                            <span className={showDone ? "text-muted-foreground" : "font-medium"}>
                               {pr.nama}
                             </span>
                           </td>
