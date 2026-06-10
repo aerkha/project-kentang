@@ -663,20 +663,21 @@ export function ReminderContent() {
                 </thead>
                 <tbody>
                   {expiredPendingTasks.map((task) => {
-                    const pendingRows = task.rows.filter((r) => !task.mou.bagiHasilChecks?.[r.keterangan]);
-                    const rowCount    = pendingRows.length;
+                    const allRows     = task.rows;
+                    const rowCount    = allRows.length;
                     const expiredDays = Math.abs(daysUntil(task.endDateStr));
 
-                    return pendingRows.map((pr, idx) => {
+                    return allRows.map((pr, idx) => {
                       const rowKey    = `${task.mou.id}__${pr.keterangan}`;
                       const isLoading = toggling === rowKey;
+                      const rowDone   = !!task.mou.bagiHasilChecks?.[pr.keterangan];
 
                       return (
                         <tr
                           key={rowKey}
-                          className={`border-b border-red-200/60 dark:border-red-800/40 hover:bg-red-100/40 dark:hover:bg-red-900/20 transition-colors ${idx === 0 ? "border-t-2 border-t-red-300 dark:border-t-red-700" : ""}`}
+                          className={`border-b border-red-200/60 dark:border-red-800/40 transition-colors ${rowDone ? "opacity-60" : "hover:bg-red-100/40 dark:hover:bg-red-900/20"} ${idx === 0 ? "border-t-2 border-t-red-300 dark:border-t-red-700" : ""}`}
                         >
-                          <td className="py-2.5 px-3 whitespace-nowrap font-medium">{pr.nama}</td>
+                          <td className={`py-2.5 px-3 whitespace-nowrap font-medium ${rowDone ? "line-through text-muted-foreground" : ""}`}>{pr.nama}</td>
                           <td className="py-2.5 px-3 whitespace-nowrap">
                             <div className="flex items-center gap-1 flex-wrap">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${keteranganColor[pr.keterangan]}`}>
@@ -717,18 +718,23 @@ export function ReminderContent() {
                                       variant="ghost"
                                       size="icon"
                                       className="h-8 w-8"
-                                      disabled={isLoading}
-                                      onClick={() => handleToggleRow(task.mou, pr.keterangan, pr)}
+                                      disabled={isLoading || rowDone}
+                                      onClick={() => !rowDone && handleToggleRow(task.mou, pr.keterangan, pr)}
                                     >
-                                      <Circle className="h-5 w-5 text-red-400" />
+                                      {rowDone
+                                        ? <CheckCircle2 className="h-5 w-5 text-green-500" />
+                                        : <Circle className="h-5 w-5 text-red-400" />
+                                      }
                                     </Button>
                                   </TooltipTrigger>
                                   <TooltipContent side="left" className="text-xs">
-                                    {pr.keterangan === "MinBun"
-                                      ? "Konfirmasi & catat ke Arus Kas"
-                                      : pr.keterangan === "Investor" && internalInvestorIds.has(task.mou.investorId)
-                                        ? "Konfirmasi profit internal & catat ke Arus Kas"
-                                        : "Upload bukti & tandai selesai"}
+                                    {rowDone
+                                      ? "Sudah selesai"
+                                      : pr.keterangan === "MinBun"
+                                        ? "Konfirmasi & catat ke Arus Kas"
+                                        : pr.keterangan === "Investor" && internalInvestorIds.has(task.mou.investorId)
+                                          ? "Konfirmasi profit internal & catat ke Arus Kas"
+                                          : "Upload bukti & tandai selesai"}
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
