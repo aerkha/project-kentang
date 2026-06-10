@@ -13,6 +13,10 @@ import pb from "./pocketbase";
 
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
+function pbEsc(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 // ── ID generator (sama pola dengan pengeluaran-context) ─────────────────────
 
 async function generatePglId(date: string): Promise<string> {
@@ -86,7 +90,7 @@ async function createCashflowEntry(opts: {
 async function cashflowTagExists(tag: string): Promise<boolean> {
   try {
     const res = await pb.collection("pengeluarans").getList(1, 1, {
-      filter: `catatan ~ "${tag}"`,
+      filter: `catatan ~ "${pbEsc(tag)}"`,
       fields: "id",
     });
     return res.totalItems > 0;

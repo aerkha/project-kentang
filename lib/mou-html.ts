@@ -2,6 +2,24 @@ import type { MoU } from "./mou-context";
 import { type Transaksi, calcTransaksi } from "./transaksi-context";
 import { angkaTerbilang, terbilang } from "./terbilang";
 
+// ─── Data Pihak Pertama (ubah di sini jika ada perubahan data perusahaan) ─────
+
+const PIHAK_PERTAMA_I = {
+  nama:      "Adie Bayu Putra",
+  alamat:    "Taman Kopo Katapang Blok A4. No 6, RT 001/ RW 014, Pangauban, Katapang, Kabupaten Bandung, Jawa Barat",
+  pekerjaan: "Direktur PT. Madani Agri Lestari",
+  noKtp:     "3207152607950002",
+  noTelp:    "0852-9548-9413",
+};
+
+const PIHAK_PERTAMA_II = {
+  nama:      "Parafitra Fidiasari (Mimin Berkebun)",
+  alamat:    "Gg Sikembang RT 5/ RW 2, Podosugih, Pekalongan Barat, Jawa Tengah",
+  pekerjaan: "Karyawan Swasta",
+  noKtp:     "3321015604900001",
+  noTelp:    "0896-7070-0889",
+};
+
 const MONTHS = [
   "Januari","Februari","Maret","April","Mei","Juni",
   "Juli","Agustus","September","Oktober","November","Desember",
@@ -165,20 +183,20 @@ export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string 
     <p>Dengan menyebut nama Allah Yang Maha Pengasih lagi Maha Penyayang, pada tanggal <strong>${date}</strong> di Pangalengan, Kabupaten Bandung, yang bertanda tangan di bawah ini:</p>
 
     <div style="margin:.5em 2em;">
-      ${row("Nama","Adie Bayu Putra")}
-      ${row("Alamat","Taman Kopo Katapang Blok A4. No 6, RT 001/ RW 014, Pangauban, Katapang, Kabupaten Bandung, Jawa Barat")}
-      ${row("Pekerjaan","Direktur PT. Madani Agri Lestari")}
-      ${row("No KTP","3207152607950002")}
-      ${row("No Telepon","0852-9548-9413")}
+      ${row("Nama",      esc(PIHAK_PERTAMA_I.nama))}
+      ${row("Alamat",    esc(PIHAK_PERTAMA_I.alamat))}
+      ${row("Pekerjaan", esc(PIHAK_PERTAMA_I.pekerjaan))}
+      ${row("No KTP",    esc(PIHAK_PERTAMA_I.noKtp))}
+      ${row("No Telepon",esc(PIHAK_PERTAMA_I.noTelp))}
     </div>
     <p>Sebagai PIHAK PERTAMA I, dan</p>
 
     <div style="margin:.5em 2em;">
-      ${row("Nama","Parafitra Fidiasari (Mimin Berkebun)")}
-      ${row("Alamat","Gg Sikembang RT 5/ RW 2, Podosugih, Pekalongan Barat, Jawa Tengah")}
-      ${row("Pekerjaan","Karyawan Swasta")}
-      ${row("No KTP","3321015604900001")}
-      ${row("No Telepon","0896-7070-0889")}
+      ${row("Nama",      esc(PIHAK_PERTAMA_II.nama))}
+      ${row("Alamat",    esc(PIHAK_PERTAMA_II.alamat))}
+      ${row("Pekerjaan", esc(PIHAK_PERTAMA_II.pekerjaan))}
+      ${row("No KTP",    esc(PIHAK_PERTAMA_II.noKtp))}
+      ${row("No Telepon",esc(PIHAK_PERTAMA_II.noTelp))}
     </div>
     <p>Sebagai PIHAK PERTAMA II</p>
 

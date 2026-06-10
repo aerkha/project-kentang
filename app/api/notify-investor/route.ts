@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
 
+/** Escape nilai string untuk filter PocketBase agar aman dari injection. */
+function pbEsc(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 /**
  * POST /api/notify-investor
  *
@@ -122,7 +127,7 @@ async function buildHistory(
   let mous: MouRecord[] = [];
   try {
     const raw = await pb.collection("mous").getFullList({
-      filter: `investorId = "${investorId}"`,
+      filter: `investorId = "${pbEsc(investorId)}"`,
       sort:   "date",
     });
     mous = raw.map((r) => ({
@@ -146,7 +151,7 @@ async function buildHistory(
   let myTis: TiRecord[] = [];
   try {
     const res = await pb.collection("transaksi_investors").getList(1, 10, {
-      filter: `investorId = "${investorId}"`,
+      filter: `investorId = "${pbEsc(investorId)}"`,
       sort:   "-created",
     });
     myTis = res.items.map((r) => ({
@@ -177,7 +182,7 @@ async function buildHistory(
   const trxIdSet = new Set(myTis.map((ti) => ti.transaksiId));
   const trxMap   = new Map<string, TrxRecord>();
   try {
-    const idFilter = [...trxIdSet].map((id) => `id = "${id}"`).join(" || ");
+    const idFilter = [...trxIdSet].map((id) => `id = "${pbEsc(id)}"`).join(" || ");
     const raw = await pb.collection("transaksis").getFullList({ filter: idFilter });
     for (const r of raw) {
       trxMap.set(r.id as string, {
@@ -534,6 +539,9 @@ export async function POST(req: NextRequest) {
   if (!mouCustomId || !keterangan || !investorId) {
     return NextResponse.json({ error: "Field wajib kurang" }, { status: 400 });
   }
+  if (jumlah !== undefined && (typeof jumlah !== "number" || jumlah < 0)) {
+    return NextResponse.json({ error: "Field jumlah tidak valid" }, { status: 400 });
+  }
 
   // 3. Ambil data investor dari PocketBase
   let investorPhone = "";
@@ -542,7 +550,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const inv = await pb.collection("investors").getFirstListItem(
-      `customId = "${investorId}"`,
+      `customId = "${pbEsc(investorId)}"`,
       { fields: "name,phone,email" }
     );
     investorName  = (inv.name  as string) || "";

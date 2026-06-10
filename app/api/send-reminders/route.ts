@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
 
+function pbEsc(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface MoURecord {
@@ -243,12 +247,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ mode: "test", emailStatus, waStatus });
   }
 
+  const serviceEmail    = process.env.PB_SERVICE_EMAIL;
+  const servicePassword = process.env.PB_SERVICE_PASSWORD;
+  if (!serviceEmail || !servicePassword) {
+    return NextResponse.json({ error: "Service account tidak dikonfigurasi" }, { status: 500 });
+  }
+
   try {
     const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
-    await pb.collection("users").authWithPassword(
-      process.env.PB_SERVICE_EMAIL!,
-      process.env.PB_SERVICE_PASSWORD!,
-    );
+    await pb.collection("users").authWithPassword(serviceEmail, servicePassword);
 
     const records    = await pb.collection("mous").getFullList<MoURecord>({ sort: "date" });
     const dueCycles  = findDueCycles(records);
@@ -267,7 +274,7 @@ export async function GET(req: NextRequest) {
         dueCycles.map((cycle) =>
           pb.collection("reminder_logs")
             .getList(1, 1, {
-              filter: `mouCustomId = "${cycle.mou.customId}" && cycleNumber = ${cycle.cycleNumber} && triggeredBy = "cron"`,
+              filter: `mouCustomId = "${pbEsc(cycle.mou.customId)}" && cycleNumber = ${cycle.cycleNumber} && triggeredBy = "cron"`,
             })
             .then((r) => r.totalItems > 0)
             .catch(() => false),
