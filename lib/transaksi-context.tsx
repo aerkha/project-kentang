@@ -43,6 +43,8 @@ interface TransaksiContextType {
   addTransaksi:    (t: Omit<Transaksi, "id">) => Promise<void>;
   updateTransaksi: (id: string, updates: Partial<Transaksi>) => Promise<void>;
   deleteTransaksi: (id: string) => Promise<void>;
+  /** Sinkronkan nama & broker investor yang ter-denormalisasi di entry transaksi */
+  syncInvestorInfo: (investorId: string, investorName: string, investorBrokerName: string) => Promise<void>;
 }
 
 const TransaksiContext = createContext<TransaksiContextType | undefined>(undefined);
@@ -127,30 +129,18 @@ async function createInvestorEntries(
   );
 }
 
-/**
- * Hapus junction records lama untuk satu transaksi.
- * @param transaksiPbId  PocketBase internal ID transaksi
- * @param keepNewest     Jika diisi, hanya hapus entry yang dibuat SEBELUM entry-entry baru ini
- *                       (diidentifikasi dengan mengambil N entry terbaru lalu skip, hapus sisanya).
- *                       Ini mencegah penghapusan entry yang baru saja dibuat saat update.
- */
-async function deleteInvestorEntries(
-  transaksiPbId: string,
-  keepNewest?: TransaksiInvestorEntry[],
-): Promise<void> {
+/** Ambil ID semua junction records milik satu transaksi */
+async function listInvestorEntryIds(transaksiPbId: string): Promise<string[]> {
   const existing = await pb.collection("transaksi_investors").getFullList({
     filter: `transaksiId = "${transaksiPbId}"`,
     fields: "id",
-    sort:   "created",   // urutan lama ke baru
   });
+  return existing.map((r) => r.id);
+}
 
-  // Jika keepNewest diberikan, hapus hanya entry-entry LAMA:
-  // entry baru ada di akhir list (sort: "created"), sebanyak keepNewest.length
-  const toDelete = keepNewest
-    ? existing.slice(0, existing.length - keepNewest.length)
-    : existing;
-
-  await Promise.all(toDelete.map((r) => pb.collection("transaksi_investors").delete(r.id)));
+/** Hapus junction records berdasarkan ID */
+async function deleteInvestorEntriesByIds(ids: string[]): Promise<void> {
+  await Promise.all(ids.map((id) => pb.collection("transaksi_investors").delete(id)));
 }
 
 // ── Provider ─────────────────────────────────────────────────────────────────
@@ -269,12 +259,14 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
     });
 
     // Jika investorEntries ikut diupdate:
-    // Buat entries baru DULU sebelum hapus yang lama — mencegah data loss
-    // jika createInvestorEntries gagal di tengah jalan.
+    // Catat ID entry lama SEBELUM membuat yang baru, lalu hapus berdasarkan ID —
+    // tidak bergantung pada urutan `created` (granularitas detik, bisa tertukar).
+    // Entry baru dibuat dulu agar tidak ada data loss jika create gagal di tengah.
     let resolvedEntries: TransaksiInvestorEntry[] | undefined;
     if (investorEntries !== undefined) {
+      const oldEntryIds = await listInvestorEntryIds(pbId);
       await createInvestorEntries(pbId, investorEntries);
-      await deleteInvestorEntries(pbId, investorEntries);
+      await deleteInvestorEntriesByIds(oldEntryIds);
       resolvedEntries = investorEntries;
     }
 
@@ -295,15 +287,50 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
     if (!pbId) return;
 
     // Hapus junction records dulu, baru transaksi
-    await deleteInvestorEntries(pbId);
+    await deleteInvestorEntriesByIds(await listInvestorEntryIds(pbId));
     await pb.collection("transaksis").delete(pbId);
 
     map.delete(id);
     setTransaksis((prev) => prev.filter((t) => t.id !== id));
   };
 
+  /**
+   * Perbarui investorName / investorBrokerName di semua entry transaksi milik
+   * seorang investor. Dipanggil setelah data investor diedit agar tampilan
+   * broker & nama di halaman Transaksi tidak menyimpan data lama.
+   */
+  const syncInvestorInfo = async (
+    investorId: string,
+    investorName: string,
+    investorBrokerName: string,
+  ) => {
+    const records = await pb.collection("transaksi_investors").getFullList({
+      filter: `investorId = "${investorId}"`,
+      fields: "id,investorName,investorBrokerName",
+    });
+    const stale = records.filter(
+      (r) => r.investorName !== investorName || (r.investorBrokerName || "") !== investorBrokerName,
+    );
+    if (stale.length === 0) return;
+
+    await Promise.all(
+      stale.map((r) =>
+        pb.collection("transaksi_investors").update(r.id, { investorName, investorBrokerName }),
+      ),
+    );
+
+    setTransaksis((prev) =>
+      prev.map((t) => ({
+        ...t,
+        investorEntries: t.investorEntries.map((e) =>
+          e.investorId === investorId ? { ...e, investorName, investorBrokerName } : e,
+        ),
+      })),
+    );
+  };
+
   return (
-    <TransaksiContext.Provider value={{ transaksis, addTransaksi, updateTransaksi, deleteTransaksi }}>
+    <TransaksiContext.Provider value={{ transaksis, addTransaksi, updateTransaksi, deleteTransaksi, syncInvestorInfo }}>
       {children}
     </TransaksiContext.Provider>
   );

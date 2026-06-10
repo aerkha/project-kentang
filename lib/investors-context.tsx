@@ -2,7 +2,11 @@
 
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
-import { recordModalInvestorMasuk } from "./cashflow-auto";
+import {
+  recordModalInvestorMasuk,
+  updateModalInvestorMasuk,
+  removeModalInvestorMasuk,
+} from "./cashflow-auto";
 
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
@@ -156,9 +160,17 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
     const pbId = await resolvePbId(id);
     if (!pbId) return;
     const record = await pb.collection("investors").update(pbId, { ...updates, updatedBy: currentUserId() });
+    const updated = recordToInvestor(record, map);
     setInvestors((prev) =>
-      prev.map((inv) => (inv.id === id ? recordToInvestor(record, map) : inv))
+      prev.map((inv) => (inv.id === id ? updated : inv))
     );
+
+    // Sinkronkan entri cash flow [Modal-Investor:...] jika nama / nilai investasi berubah.
+    // Fire-and-forget: jangan blokir UI jika gagal.
+    if (updates.name !== undefined || updates.investmentAmount !== undefined) {
+      updateModalInvestorMasuk(id, updated.name, updated.investmentAmount)
+        .catch((e) => console.warn("cashflow-auto: gagal sinkron modal investor:", e));
+    }
   };
 
   const deleteInvestor = async (id: string) => {
@@ -167,6 +179,11 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
     await pb.collection("investors").delete(pbId);
     map.delete(id);
     setInvestors((prev) => prev.filter((inv) => inv.id !== id));
+
+    // Bersihkan entri cash flow modal investor agar tidak menyisakan
+    // pemasukan dari investor yang sudah dihapus.
+    removeModalInvestorMasuk(id)
+      .catch((e) => console.warn("cashflow-auto: gagal hapus entri modal investor:", e));
   };
 
   return (

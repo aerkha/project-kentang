@@ -149,12 +149,14 @@ interface TrxFormProps {
   onRemoveEntry: (i: number) => void;
   onUpdateEntry: (i: number, field: keyof InvestorEntryForm, v: string) => void;
   onInvestorSelect: (i: number, investorId: string) => void;
+  isSaving?: boolean;
 }
 
 function TrxFormFields({
   formData, setFormData, onSubmit, submitLabel, previewId,
   investors, brokers: _brokers,
   onAddEntry, onRemoveEntry, onUpdateEntry, onInvestorSelect,
+  isSaving = false,
 }: TrxFormProps) {
   const set = (k: keyof Omit<TrxFormData, "investorEntries">, v: string) =>
     setFormData({ ...formData, [k]: v });
@@ -466,7 +468,9 @@ function TrxFormFields({
       </div>
 
       <DialogFooter className="mt-4 pt-4 border-t shrink-0">
-        <Button type="submit">{submitLabel}</Button>
+        <Button type="submit" disabled={isSaving}>
+          {isSaving ? "Menyimpan…" : submitLabel}
+        </Button>
       </DialogFooter>
     </form>
   );
@@ -491,6 +495,7 @@ export function TransaksiContent() {
   const [isEditOpen, setIsEditOpen]     = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting]     = useState(false);
+  const [isSaving, setIsSaving]         = useState(false);
   const [selected, setSelected]         = useState<Transaksi | null>(null);
   const [errorInfo, setErrorInfo]       = useState<PbErrorInfo | null>(null);
   const [form, setForm]                 = useState<TrxFormData>(initialForm());
@@ -586,20 +591,36 @@ export function TransaksiContent() {
   });
 
   // ── Submit handlers ──
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    addTransaksi(formToData(form));
-    setForm(initialForm());
-    setIsAddOpen(false);
+    setIsSaving(true);
+    try {
+      await addTransaksi(formToData(form));
+      toast.success("Transaksi berhasil disimpan");
+      setForm(initialForm());
+      setIsAddOpen(false);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal menyimpan transaksi"));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleEdit = (e: React.FormEvent) => {
+  const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selected) return;
-    updateTransaksi(selected.id, formToData(form));
-    setForm(initialForm());
-    setSelected(null);
-    setIsEditOpen(false);
+    setIsSaving(true);
+    try {
+      await updateTransaksi(selected.id, formToData(form));
+      toast.success("Transaksi berhasil diperbarui");
+      setForm(initialForm());
+      setSelected(null);
+      setIsEditOpen(false);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal memperbarui transaksi"));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const openEdit = (t: Transaksi) => {
@@ -649,6 +670,7 @@ export function TransaksiContent() {
     onRemoveEntry:    handleRemoveEntry,
     onUpdateEntry:    handleUpdateEntry,
     onInvestorSelect: handleInvestorSelect,
+    isSaving,
   };
 
   return (

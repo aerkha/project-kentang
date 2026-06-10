@@ -100,7 +100,7 @@ export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string 
     estKeuntungan = fmtRp(profit);
     const roiRaw = mou.investmentAmount > 0 ? profit / mou.investmentAmount : 0;
     roiPerBulan  = `${(roiRaw * 100).toFixed(2)}%`;
-    roiSetelahBH = `${(roiRaw * pkPct * 100 / (pkPct)).toFixed(2)}% → Rp ${fmtRp(profit * pkPct)}`;
+    roiSetelahBH = `${(roiRaw * pkPct * 100).toFixed(2)}% → Rp ${fmtRp(profit * pkPct)}`;
   }
 
   return `<!DOCTYPE html>

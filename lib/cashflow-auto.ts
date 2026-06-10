@@ -5,8 +5,9 @@
  * tanpa melalui React context — aman dipanggil dari context lain.
  *
  * Tag catatan yang digunakan (bisa difilter / dicari di UI):
- *   [Modal-Investor:INV-XXXX]          → modal investor masuk (debet)
- *   [Modal-PKS:INV-XXXX:MOU-XXXXXX]   → modal digunakan untuk PKS aktif (kredit)
+ *   [Modal-Investor:INV-XXXX]                  → modal investor masuk (debet)
+ *   [Modal-PKS:INV-XXXX:MOU-XXXXXX]           → modal digunakan untuk PKS aktif (kredit)
+ *   [Modal-Kembali:INV-XXXX:MOU-XXXXXX]       → modal dikembalikan saat PKS expired (debet)
  */
 
 import pb from "./pocketbase";
@@ -136,6 +137,56 @@ export async function recordModalInvestorMasuk(
 }
 
 /**
+ * Perbarui entri modal investor masuk agar tetap sinkron saat
+ * nama atau nilai investasi investor diubah. No-op jika entri tidak ada.
+ */
+export async function updateModalInvestorMasuk(
+  investorId:       string,
+  investorName:     string,
+  investmentAmount: number,
+): Promise<void> {
+  const tag = `[Modal-Investor:${investorId}]`;
+  try {
+    const res = await pb.collection("pengeluarans").getList(1, 1, {
+      filter: `catatan ~ "${pbEsc(tag)}"`,
+      fields: "id,debet,deskripsi",
+    });
+    if (res.totalItems === 0) return;
+    const rec       = res.items[0];
+    const deskripsi = `Modal Investor — ${investorName} (${investorId})`;
+    if (rec.debet === investmentAmount && rec.deskripsi === deskripsi) return;
+    await pb.collection("pengeluarans").update(rec.id, {
+      deskripsi,
+      debet:     investmentAmount,
+      updatedBy: currentUserId(),
+    });
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status === 404) return;
+    throw err;
+  }
+}
+
+/**
+ * Hapus entri modal investor masuk — dipanggil saat investor dihapus
+ * agar arus kas tidak menyimpan pemasukan dari investor yang sudah tidak ada.
+ */
+export async function removeModalInvestorMasuk(investorId: string): Promise<void> {
+  const tag = `[Modal-Investor:${investorId}]`;
+  try {
+    const res = await pb.collection("pengeluarans").getFullList({
+      filter: `catatan ~ "${pbEsc(tag)}"`,
+      fields: "id",
+    });
+    await Promise.all(res.map((r) => pb.collection("pengeluarans").delete(r.id)));
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status === 404) return;
+    throw err;
+  }
+}
+
+/**
  * Catat modal digunakan untuk PKS aktif sebagai **pengeluaran (kredit)**.
  * Dipanggil saat PKS pertama kali menjadi aktif (addMou backdate, atau uploadSignedDoc).
  *
@@ -145,6 +196,42 @@ export async function recordModalInvestorMasuk(
  * @param investmentAmount jumlah modal yang digunakan di PKS ini
  * @param date             tanggal PKS (YYYY-MM-DD)
  */
+/**
+ * Catat modal dikembalikan saat PKS expired secara alami sebagai **pemasukan (debet)**.
+ * Dipanggil saat PKS melewati tanggal berakhir dan belum di-terminate manual.
+ *
+ * @param investorId       customId investor
+ * @param investorName     nama investor
+ * @param mouId            customId MoU
+ * @param investmentAmount jumlah modal yang dikembalikan
+ * @param date             tanggal pencatatan (YYYY-MM-DD), default hari ini
+ */
+export async function recordModalPksDiKembalikan(
+  investorId:       string,
+  investorName:     string,
+  mouId:            string,
+  investmentAmount: number,
+  date?:            string,
+): Promise<void> {
+  const tag   = `[Modal-Kembali:${investorId}:${mouId}]`;
+  const today = date ?? new Date().toISOString().slice(0, 10);
+
+  // Hanya catat pengembalian jika modal PKS ini pernah dicatat digunakan.
+  // PKS pending yang expired tanpa pernah aktif tidak boleh menghasilkan pemasukan.
+  const usedTag = `[Modal-PKS:${investorId}:${mouId}]`;
+  if (!(await cashflowTagExists(usedTag))) return;
+
+  if (await cashflowTagExists(tag)) return;
+
+  await createCashflowEntry({
+    date:      today,
+    deskripsi: `Modal Dikembalikan — ${mouId} (${investorName})`,
+    debet:     investmentAmount,
+    kredit:    0,
+    catatan:   tag,
+  });
+}
+
 export async function recordModalPksDigunakan(
   investorId:       string,
   investorName:     string,

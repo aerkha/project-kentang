@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useTransaksi, calcTransaksi } from "@/lib/transaksi-context";
-import { useMou } from "@/lib/mou-context";
+import { useMou, getMouStatus } from "@/lib/mou-context";
 import { usePengeluaran } from "@/lib/pengeluaran-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -550,7 +550,7 @@ export function InvestorsContent() {
   const { investors, addInvestor, updateInvestor, deleteInvestor } = useInvestors();
   const { mous } = useMou();
   const { brokers, addBroker, updateBroker, deleteBroker } = useBrokers();
-  const { transaksis } = useTransaksi();
+  const { transaksis, syncInvestorInfo } = useTransaksi();
   const { pengeluarans, addPengeluaran, updatePengeluaran, deletePengeluaran } = usePengeluaran();
   const { user, isInvestor } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -570,14 +570,23 @@ export function InvestorsContent() {
     transaksis.forEach((t) => {
       const c = calcTransaksi(t);
       if (c.totalInvestasi === 0) return;
+      const tTime = new Date(t.date).getTime();
       t.investorEntries.forEach((entry) => {
         const ratio = entry.nilaiInvestasi / c.totalInvestasi;
-        const bh    = c.profit > 0 ? c.profit * 0.35 * ratio : 0;
+        // Pakai % Pihak Kedua dari PKS investor yang periodenya mencakup
+        // tanggal transaksi — konsisten dengan dashboard & dokumen PKS.
+        const mou = mous.find((m) => {
+          if (m.investorId !== entry.investorId) return false;
+          const start = new Date(m.date).getTime();
+          return tTime >= start && tTime <= start + m.contractPeriod * 86_400_000;
+        });
+        const pkPct = (mou?.bagiHasilPK ?? 35) / 100;
+        const bh    = c.profit > 0 ? c.profit * pkPct * ratio : 0;
         map.set(entry.investorId, (map.get(entry.investorId) ?? 0) + bh);
       });
     });
     return map;
-  }, [transaksis]);
+  }, [transaksis, mous]);
 
   // Investor dialog state
   const [isAddInvestorOpen, setIsAddInvestorOpen] = useState(false);
@@ -691,6 +700,14 @@ export function InvestorsContent() {
         isInternal: investorForm.isInternal,
       });
 
+      // Sinkronkan nama & broker yang ter-denormalisasi di entry transaksi
+      if (
+        selectedInvestor.name !== investorForm.name ||
+        selectedInvestor.brokerName !== investorForm.brokerName
+      ) {
+        await syncInvestorInfo(selectedInvestor.id, investorForm.name, investorForm.brokerName);
+      }
+
       // Sinkronisasi cash flow untuk investor internal
       const wasInternal = selectedInvestor.isInternal === true;
       const nowInternal = investorForm.isInternal;
@@ -774,6 +791,22 @@ export function InvestorsContent() {
           field: "mous",
           code: "has_related_records",
           message: "Investor masih memiliki data PKS. Hapus semua PKS terkait terlebih dahulu sebelum menghapus investor.",
+        }],
+        raw: "",
+      });
+      return;
+    }
+    // Cek apakah investor masih tercatat di transaksi
+    const hasTransaksi = transaksis.some((t) =>
+      t.investorEntries.some((e) => e.investorId === investor.id)
+    );
+    if (hasTransaksi) {
+      setErrorInfo({
+        title: `Investor "${investor.name}" tidak dapat dihapus`,
+        fields: [{
+          field: "transaksis",
+          code: "has_related_records",
+          message: "Investor masih tercatat di data transaksi. Hapus atau ubah transaksi terkait terlebih dahulu sebelum menghapus investor.",
         }],
         raw: "",
       });
@@ -980,7 +1013,7 @@ export function InvestorsContent() {
 
             // Tentukan label & warna badge berdasarkan kondisi PKS investor
             const investorMous = mous.filter((m) => m.investorId === investor.id);
-            const hasPendingMou = investorMous.some((m) => !m.isTerminated && !m.hasSignedDoc);
+            const hasPendingMou = investorMous.some((m) => getMouStatus(m) === "pending");
             const investorBadge = isActive
               ? { label: "Aktif",   cls: "bg-green-100 text-green-800" }
               : hasPendingMou

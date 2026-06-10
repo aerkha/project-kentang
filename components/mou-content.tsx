@@ -3,7 +3,7 @@
 import { useState } from "react";
 import React from "react";
 import { toast } from "sonner";
-import { useMou, type MoU } from "@/lib/mou-context";
+import { useMou, getMouStatus, type MoU, type MouStatus } from "@/lib/mou-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
@@ -104,20 +104,8 @@ const initialForm: MouFormData = {
 // Helpers
 // ─────────────────────────────────────────────
 
-type MouStatus = "pending" | "aktif" | "expired" | "nonaktif";
-
-function getMouStatus(mou: MoU): MouStatus {
-  if (mou.isTerminated) return "nonaktif";
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const end = new Date(mou.date);
-  end.setDate(end.getDate() + mou.contractPeriod);
-  if (end < today) return "expired";
-  // PKS backdate (tanggal mulai sebelum hari ini) langsung aktif tanpa perlu signedDoc
-  const isBackdate = new Date(mou.date) < today;
-  if (!isBackdate && !mou.hasSignedDoc) return "pending";
-  return "aktif";
-}
+// Status PKS dihitung oleh getMouStatus dari lib/mou-context — satu sumber
+// kebenaran yang sama dengan logika sinkronisasi isActive investor & cash flow.
 
 function formatDate(s: string) {
   if (!s) return "-";
@@ -613,7 +601,7 @@ function MouFormFields({
 // Main component
 // ─────────────────────────────────────────────
 
-type Filter = "semua" | "pending" | "aktif" | "expired" | "nonaktif";
+type Filter = "semua" | MouStatus;
 
 export function MouContent() {
   const { mous, addMou, updateMou, deleteMou, uploadSignedDoc } = useMou();
@@ -680,8 +668,9 @@ export function MouContent() {
     if (!ttdTarget) return;
     setIsSavingTtd(true);
     try {
+      // ttdPreview "" + PKS sudah punya TTD = hapus tanda tangan di server
       await updateMou(ttdTarget.id, { esignPihakKedua: ttdPreview });
-      toast.success("Tanda tangan berhasil disimpan");
+      toast.success(ttdPreview ? "Tanda tangan berhasil disimpan" : "Tanda tangan berhasil dihapus");
       setIsTtdOpen(false);
       setTtdTarget(null);
       setTtdPreview("");
@@ -1561,8 +1550,15 @@ export function MouContent() {
 
           <DialogFooter className="pt-3 border-t">
             <Button variant="outline" onClick={() => setIsTtdOpen(false)}>Batal</Button>
-            <Button onClick={handleSaveTtd} disabled={!ttdPreview || isSavingTtd}>
-              {isSavingTtd ? "Menyimpan..." : "Simpan Tanda Tangan"}
+            <Button
+              onClick={handleSaveTtd}
+              disabled={isSavingTtd || (!ttdPreview && !ttdTarget?.esignPihakKedua)}
+            >
+              {isSavingTtd
+                ? "Menyimpan..."
+                : !ttdPreview && ttdTarget?.esignPihakKedua
+                ? "Hapus Tanda Tangan"
+                : "Simpan Tanda Tangan"}
             </Button>
           </DialogFooter>
         </DialogContent>

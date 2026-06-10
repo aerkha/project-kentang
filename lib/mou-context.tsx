@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
 import { useInvestors } from "./investors-context";
-import { recordModalPksDigunakan } from "./cashflow-auto";
+import { recordModalPksDigunakan, recordModalPksDiKembalikan } from "./cashflow-auto";
 
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
@@ -138,19 +138,45 @@ function parseUtcDate(s: string): Date {
   return new Date(Date.UTC(y, m - 1, d));
 }
 
-/** Apakah sebuah MoU berstatus "aktif" (bukan expired, terminated, atau pending) */
-function isMouAktif(mou: MoU): boolean {
-  if (mou.isTerminated) return false;
-  // Gunakan UTC agar tidak off satu hari di zona waktu non-UTC
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const today    = parseUtcDate(todayStr);
-  const start    = parseUtcDate(mou.date);
+/**
+ * Tanggal kalender LOKAL hari ini sebagai UTC midnight.
+ * Tanggal MoU (YYYY-MM-DD) di-parse sebagai UTC midnight, jadi "hari ini"
+ * juga harus dipetakan ke UTC midnight dari tanggal kalender user —
+ * bukan dari toISOString() yang bisa mundur satu hari di zona waktu UTC+.
+ */
+function todayUtc(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
+export type MouStatus = "pending" | "aktif" | "expired" | "nonaktif";
+
+/**
+ * Status sebuah PKS. Satu-satunya sumber kebenaran — dipakai oleh halaman PKS,
+ * halaman Investor, dan logika sinkronisasi isActive / cash flow di context ini
+ * agar tidak ada perbedaan perhitungan antar tempat.
+ */
+export function getMouStatus(mou: MoU): MouStatus {
+  if (mou.isTerminated) return "nonaktif";
+  const today = todayUtc();
+  const start = parseUtcDate(mou.date);
+  const end   = new Date(start);
+  end.setUTCDate(end.getUTCDate() + mou.contractPeriod);
+  if (end < today) return "expired";
   // PKS backdate (tanggal mulai sebelum hari ini) langsung aktif tanpa perlu signedDoc
   const isBackdate = start < today;
-  if (!isBackdate && !mou.hasSignedDoc) return false;
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + mou.contractPeriod);
-  return end >= today;
+  if (!isBackdate && !mou.hasSignedDoc) return "pending";
+  return "aktif";
+}
+
+/** Apakah PKS telah melewati tanggal berakhir secara alami (bukan terminate manual) */
+function isMouExpiredNatural(mou: MoU): boolean {
+  return getMouStatus(mou) === "expired";
+}
+
+/** Apakah sebuah MoU berstatus "aktif" (bukan expired, terminated, atau pending) */
+function isMouAktif(mou: MoU): boolean {
+  return getMouStatus(mou) === "aktif";
 }
 
 function isCustomIdConflict(err: unknown): boolean {
@@ -246,6 +272,19 @@ export function MouProvider({ children }: { children: ReactNode }) {
     // saat updateInvestor di dalam sync mengubah state investors.
     initialSyncDone.current = true;
     Promise.all(syncs).catch(console.error);
+
+    // Catat pengembalian modal untuk PKS yang sudah expired secara alami.
+    // cashflowTagExists di dalam recordModalPksDiKembalikan mencegah duplikasi.
+    for (const m of mous) {
+      if (isMouExpiredNatural(m)) {
+        recordModalPksDiKembalikan(
+          m.investorId,
+          m.investorName,
+          m.id,
+          m.investmentAmount,
+        ).catch((e) => console.warn("cashflow-auto: gagal catat modal PKS dikembalikan:", e));
+      }
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mous, investors]);
 
@@ -369,15 +408,23 @@ export function MouProvider({ children }: { children: ReactNode }) {
       pbUpdates.bagiHasilChecks = JSON.stringify(bagiHasilChecks);
     }
 
+    // Nilai esign "" eksplisit berarti user menghapus tanda tangan —
+    // kosongkan field file di server. URL http(s) berarti tidak berubah (skip),
+    // data URL berarti upload baru (ditangani lewat FormData di bawah).
+    const esignAll: [string, string | undefined][] = [
+      ["esignPihakPertama1", esignPihakPertama1],
+      ["esignPihakPertama2", esignPihakPertama2],
+      ["esignPihakKedua",    esignPihakKedua],
+    ];
+    for (const [key, value] of esignAll) {
+      if (value === "") pbUpdates[key] = null;
+    }
+
     let record = await pb.collection("mous").update(pbId, pbUpdates);
 
     // Upload esign sebagai file jika ada base64 baru
     const esignPairs: [string, string][] = (
-      [
-        ["esignPihakPertama1", esignPihakPertama1 ?? ""],
-        ["esignPihakPertama2", esignPihakPertama2 ?? ""],
-        ["esignPihakKedua",    esignPihakKedua    ?? ""],
-      ] as [string, string][]
+      esignAll.map(([k, v]) => [k, v ?? ""]) as [string, string][]
     ).filter(([, v]) => v.startsWith("data:"));
 
     if (esignPairs.length > 0) {
