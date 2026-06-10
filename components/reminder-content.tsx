@@ -305,7 +305,11 @@ export function ReminderContent() {
   const handleToggleRow = (mou: MoU, keterangan: string, row: PaymentRow) => {
     const isChecked = !!mou.bagiHasilChecks?.[keterangan];
     if (!isChecked) {
-      const isInternalInvestor = keterangan === "Investor" && internalInvestorIds.has(mou.investorId);
+      // Cek isInternal langsung dari investors array (bukan hanya dari Set cache)
+      // agar tidak salah jalur jika investors belum selesai di-load saat klik
+      const investor       = investors.find((inv) => inv.id === mou.investorId);
+      const isInternalInvestor = keterangan === "Investor" &&
+        (investor?.isInternal === true || internalInvestorIds.has(mou.investorId));
       const isMinBun           = keterangan === "MinBun";
       if (isInternalInvestor || isMinBun) {
         // Dialog konfirmasi — tidak perlu upload bukti transfer
@@ -342,36 +346,47 @@ export function ReminderContent() {
   // Berlaku untuk: investor internal (profit internal) dan MinBun (biaya operasional internal)
   const handleConfirmInternal = async () => {
     if (!internalTarget) return;
-    const { mou, keterangan, row } = internalTarget;
-    const key    = `${mou.id}__${keterangan}`;
-    const checks = { ...(mou.bagiHasilChecks ?? {}), [keterangan]: true };
-    const allTask = [...tasks, ...expiredPendingTasks].find((t) => t.mou.id === mou.id);
+    const { mou: snapshotMou, keterangan, row } = internalTarget;
+    const key = `${snapshotMou.id}__${keterangan}`;
+
+    // Ambil state mou terbaru agar tidak menimpa ceklis lain yang sudah di-set
+    // saat dialog ini dibuka (stale closure bug)
+    const allTask   = [...tasks, ...expiredPendingTasks].find((t) => t.mou.id === snapshotMou.id);
+    const latestMou = allTask?.mou ?? snapshotMou;
+
+    // Guard duplikasi: sudah diceklis sebelumnya, jangan catat cashflow lagi
+    if (latestMou.bagiHasilChecks?.[keterangan]) {
+      setInternalTarget(null);
+      return;
+    }
+
+    const checks  = { ...(latestMou.bagiHasilChecks ?? {}), [keterangan]: true };
     const allDone = allTask ? allTask.rows.every((r) => checks[r.keterangan]) : false;
     const today   = new Date().toISOString().slice(0, 10);
 
     setIsConfirmingInt(true);
     setToggling(key);
     try {
-      await updateMou(mou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+      await updateMou(snapshotMou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
 
       if (keterangan === "MinBun") {
         // MinBun adalah penerima internal — catat sebagai debet (pemasukan internal)
         await addPengeluaran({
           date:      today,
-          deskripsi: `Bagi Hasil MinBun — PKS ${mou.id}`,
+          deskripsi: `Bagi Hasil MinBun — PKS ${snapshotMou.id}`,
           debet:     row.jumlah,
           kredit:    0,
-          catatan:   `[Reminder] PKS ${mou.id} · MinBun`,
+          catatan:   `[Reminder] PKS ${snapshotMou.id} · MinBun`,
         });
-        toast.success(`Bagi hasil MinBun PKS ${mou.id} dicatat di Arus Kas`);
+        toast.success(`Bagi hasil MinBun PKS ${snapshotMou.id} dicatat di Arus Kas`);
       } else {
         // Investor internal — catat profit sebagai debet (pemasukan internal)
         await addPengeluaran({
           date:      today,
-          deskripsi: `Profit Internal — ${row.nama} — PKS ${mou.id}`,
+          deskripsi: `Profit Internal — ${row.nama} — PKS ${snapshotMou.id}`,
           debet:     row.jumlah,
           kredit:    0,
-          catatan:   `[Internal-Profit:${mou.investorId}:${mou.id}]`,
+          catatan:   `[Internal-Profit:${snapshotMou.investorId}:${snapshotMou.id}]`,
         });
         toast.success(`Profit internal ${row.nama} dicatat di Arus Kas`);
       }
@@ -388,35 +403,42 @@ export function ReminderContent() {
   // Submit dialog: upload bukti → mark check → catat cashflow → notif investor
   const handleConfirmBukti = async () => {
     if (!buktiTarget || !buktiFile) return;
-    const { mou, keterangan, row } = buktiTarget;
-    const key     = `${mou.id}__${keterangan}`;
-    const checks  = { ...(mou.bagiHasilChecks ?? {}), [keterangan]: true };
-    const allTask = [...tasks, ...expiredPendingTasks].find((t) => t.mou.id === mou.id);
-    const allDone = allTask ? allTask.rows.every((r) => checks[r.keterangan]) : false;
-    const today   = new Date().toISOString().slice(0, 10);
+    const { mou: snapshotMou, keterangan, row } = buktiTarget;
+    const key = `${snapshotMou.id}__${keterangan}`;
+
+    // Ambil state mou terbaru agar tidak menimpa ceklis lain yang sudah di-set
+    // saat dialog ini dibuka (stale closure bug)
+    const allTask      = [...tasks, ...expiredPendingTasks].find((t) => t.mou.id === snapshotMou.id);
+    const latestMou    = allTask?.mou ?? snapshotMou;
+    const alreadyDone  = !!latestMou.bagiHasilChecks?.[keterangan];
+    const checks       = { ...(latestMou.bagiHasilChecks ?? {}), [keterangan]: true };
+    const allDone      = allTask ? allTask.rows.every((r) => checks[r.keterangan]) : false;
+    const today        = new Date().toISOString().slice(0, 10);
 
     setIsUploading(true);
     setToggling(key);
     try {
       // 1. Upload bukti transfer — URL dikembalikan langsung dari context
       //    (tidak membaca state mous agar tidak kena stale closure)
-      const buktiUrl = await uploadBuktiTransfer(mou.id, keterangan, buktiFile);
+      const buktiUrl = await uploadBuktiTransfer(snapshotMou.id, keterangan, buktiFile);
 
       // 2. Simpan status ceklis
-      await updateMou(mou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+      await updateMou(snapshotMou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
 
-      // 3. Catat ke cashflow dengan keterangan sumber reminder
-      try {
-        await addPengeluaran({
-          date:      today,
-          deskripsi: `Bagi Hasil ${row.nama} (${keterangan}) - PKS ${mou.id}`,
-          debet:     keterangan === "MinBun" ? row.jumlah : 0,
-          kredit:    keterangan === "MinBun" ? 0 : row.jumlah,
-          catatan:   `[Reminder] PKS ${mou.id} · ${keterangan}`,
-        });
-        toast.success(`${keterangan} — ${row.nama} dicatat di Cash Flow`);
-      } catch {
-        toast.error(`Ceklis tersimpan, tapi gagal mencatat ${keterangan} di Cash Flow. Tambahkan manual.`);
+      // 3. Catat ke cashflow (skip jika sudah pernah dicatat sebelumnya)
+      if (!alreadyDone) {
+        try {
+          await addPengeluaran({
+            date:      today,
+            deskripsi: `Bagi Hasil ${row.nama} (${keterangan}) - PKS ${snapshotMou.id}`,
+            debet:     (keterangan === "MinBun" || (keterangan === "Investor" && internalInvestorIds.has(snapshotMou.investorId))) ? row.jumlah : 0,
+            kredit:    (keterangan === "MinBun" || (keterangan === "Investor" && internalInvestorIds.has(snapshotMou.investorId))) ? 0 : row.jumlah,
+            catatan:   `[Reminder] PKS ${snapshotMou.id} · ${keterangan}`,
+          });
+          toast.success(`${keterangan} — ${row.nama} dicatat di Cash Flow`);
+        } catch {
+          toast.error(`Ceklis tersimpan, tapi gagal mencatat ${keterangan} di Cash Flow. Tambahkan manual.`);
+        }
       }
 
       // 4. Kirim notifikasi ke investor (non-blocking — tidak gagalkan flow utama)
@@ -429,9 +451,9 @@ export function ReminderContent() {
             "Content-Type":  "application/json",
           },
           body: JSON.stringify({
-            mouCustomId:  mou.id,
+            mouCustomId:  snapshotMou.id,
             keterangan,
-            investorId:   mou.investorId,
+            investorId:   snapshotMou.investorId,
             jumlah:       row.jumlah,
             buktiUrl,
           }),
