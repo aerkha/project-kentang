@@ -203,6 +203,8 @@ export function ReminderContent() {
   const [toggling, setToggling]          = useState<string | null>(null);
   const [showDone, setShowDone]          = useState(false);
   const [showExpired, setShowExpired]    = useState(true);
+  // Optimistic update: tandai selesai seketika tanpa menunggu context re-render dari PocketBase
+  const [doneKeys, setDoneKeys]          = useState<Set<string>>(new Set());
 
   // Set investor ID yang bertanda internal
   const internalInvestorIds = useMemo(
@@ -334,6 +336,7 @@ export function ReminderContent() {
     setToggling(key);
     try {
       await updateMou(mou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+      setDoneKeys((prev) => { const s = new Set(prev); s.delete(key); return s; });
       toast.info(`${keterangan} ditandai belum dibayar. Entri Cash Flow tidak dihapus otomatis.`);
     } catch {
       toast.error("Gagal menyimpan perubahan. Coba lagi.");
@@ -355,7 +358,7 @@ export function ReminderContent() {
     const latestMou = allTask?.mou ?? snapshotMou;
 
     // Guard duplikasi: sudah diceklis sebelumnya, jangan catat cashflow lagi
-    if (latestMou.bagiHasilChecks?.[keterangan]) {
+    if (latestMou.bagiHasilChecks?.[keterangan] || doneKeys.has(key)) {
       setInternalTarget(null);
       return;
     }
@@ -368,6 +371,7 @@ export function ReminderContent() {
     setToggling(key);
     try {
       await updateMou(snapshotMou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+      setDoneKeys((prev) => new Set(prev).add(key));
 
       if (keterangan === "MinBun") {
         // MinBun adalah penerima internal — catat sebagai debet (pemasukan internal)
@@ -410,7 +414,7 @@ export function ReminderContent() {
     // saat dialog ini dibuka (stale closure bug)
     const allTask      = [...tasks, ...expiredPendingTasks].find((t) => t.mou.id === snapshotMou.id);
     const latestMou    = allTask?.mou ?? snapshotMou;
-    const alreadyDone  = !!latestMou.bagiHasilChecks?.[keterangan];
+    const alreadyDone  = !!latestMou.bagiHasilChecks?.[keterangan] || doneKeys.has(key);
     const checks       = { ...(latestMou.bagiHasilChecks ?? {}), [keterangan]: true };
     const allDone      = allTask ? allTask.rows.every((r) => checks[r.keterangan]) : false;
     const today        = new Date().toISOString().slice(0, 10);
@@ -424,6 +428,7 @@ export function ReminderContent() {
 
       // 2. Simpan status ceklis
       await updateMou(snapshotMou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+      setDoneKeys((prev) => new Set(prev).add(key));
 
       // 3. Catat ke cashflow (skip jika sudah pernah dicatat sebelumnya)
       if (!alreadyDone) {
@@ -670,7 +675,7 @@ export function ReminderContent() {
                     return allRows.map((pr, idx) => {
                       const rowKey    = `${task.mou.id}__${pr.keterangan}`;
                       const isLoading = toggling === rowKey;
-                      const rowDone   = !!task.mou.bagiHasilChecks?.[pr.keterangan];
+                      const rowDone   = !!task.mou.bagiHasilChecks?.[pr.keterangan] || doneKeys.has(rowKey);
 
                       return (
                         <tr
@@ -861,8 +866,8 @@ export function ReminderContent() {
                     }
 
                     return visibleRows.map((pr, idx) => {
-                      const rowDone   = !!checks[pr.keterangan];
                       const rowKey    = `${task.mou.id}__${pr.keterangan}`;
+                      const rowDone   = !!checks[pr.keterangan] || doneKeys.has(rowKey);
                       const isLoading = toggling === rowKey;
                       // Di tab Selesai semua baris sudah done — tampilkan normal tanpa opacity
                       const rowClass  = `transition-colors ${rowDone && !showDone ? "opacity-50" : "hover:bg-muted/40"}`;
