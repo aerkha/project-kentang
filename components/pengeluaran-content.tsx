@@ -8,6 +8,7 @@ import {
   type Pengeluaran,
 } from "@/lib/pengeluaran-context";
 import { useAuth } from "@/lib/auth-context";
+import { todayWibStr } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,6 +61,24 @@ interface FormData {
 const emptyForm: FormData = {
   date: "", deskripsi: "", debet: "", kredit: "", catatan: "",
 };
+
+// ── Entri otomatis ──
+// Entri dengan tag berikut dibuat & dikelola otomatis oleh sistem (Reminder,
+// modal investor/PKS). Tag di kolom catatan dipakai untuk dedup & sinkronisasi —
+// mengubah/menghapusnya manual bisa membuat sistem mencatat ulang atau
+// kehilangan jejak. Tampilkan peringatan saat user mengedit/menghapusnya.
+const AUTO_TAG_PREFIXES = [
+  "[Reminder]",
+  "[Internal:",
+  "[Internal-Profit:",
+  "[Modal-Investor:",
+  "[Modal-PKS:",
+  "[Modal-Kembali:",
+];
+
+function isAutoEntry(p: Pengeluaran | null): boolean {
+  return !!p?.catatan && AUTO_TAG_PREFIXES.some((t) => p.catatan!.startsWith(t));
+}
 
 // ─────────────────────────────────────────────
 // Form component
@@ -173,10 +192,9 @@ export function PengeluaranContent() {
   const { user, canEdit } = useAuth();
   const isAdmin = canEdit; // owner dan admin sama-sama bisa edit cash flow
 
-  // ── Navigasi bulan ──
-  const today = new Date();
-  const [year,  setYear]  = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth() + 1); // 1–12
+  // ── Navigasi bulan (default: bulan berjalan menurut kalender WIB) ──
+  const [year,  setYear]  = useState(() => parseInt(todayWibStr().slice(0, 4)));
+  const [month, setMonth] = useState(() => parseInt(todayWibStr().slice(5, 7))); // 1–12
 
   const prevMonth = () => {
     if (month === 1) { setYear((y) => y - 1); setMonth(12); }
@@ -359,10 +377,12 @@ export function PengeluaranContent() {
             <Download className="w-4 h-4 mr-2" />
             Export CSV
           </Button>
+          {isAdmin && (
           <Button onClick={openAdd}>
             <Plus className="w-4 h-4 mr-2" />
             Tambah Entri
           </Button>
+          )}
         </div>
       </div>
 
@@ -508,6 +528,18 @@ export function PengeluaranContent() {
                               {p.catatan.replace("[Reminder] ", "")}
                             </span>
                           </div>
+                        ) : p.catatan?.startsWith("[Modal-Investor:") ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 w-fit whitespace-nowrap">
+                            💰 Modal Investor Masuk
+                          </span>
+                        ) : p.catatan?.startsWith("[Modal-PKS:") ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 w-fit whitespace-nowrap">
+                            📄 Modal Digunakan PKS
+                          </span>
+                        ) : p.catatan?.startsWith("[Modal-Kembali:") ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400 w-fit whitespace-nowrap">
+                            ↩️ Modal Dikembalikan
+                          </span>
                         ) : (
                           <span className="text-muted-foreground truncate block">{p.catatan || "—"}</span>
                         )}
@@ -589,6 +621,16 @@ export function PengeluaranContent() {
               Perbarui data entri — ID tidak dapat diubah.
             </DialogDescription>
           </DialogHeader>
+          {isAutoEntry(selected) && (
+            <div className="rounded-md border border-orange-200 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-800 p-3 text-xs text-orange-800 dark:text-orange-300">
+              <p className="font-semibold mb-0.5">⚠ Entri otomatis dari sistem</p>
+              <p>
+                Entri ini dibuat otomatis (Reminder / modal investor / modal PKS).
+                Mengubah <strong>catatan</strong>-nya dapat membuat sistem mencatat
+                ulang entri yang sama atau kehilangan jejak sinkronisasi.
+              </p>
+            </div>
+          )}
           <PengeluaranForm
             formData={form}
             setFormData={setForm}
@@ -610,6 +652,16 @@ export function PengeluaranContent() {
               <strong>{selected?.date}</strong>? Tindakan ini tidak dapat dibatalkan.
             </DialogDescription>
           </DialogHeader>
+          {isAutoEntry(selected) && (
+            <div className="rounded-md border border-orange-200 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-800 p-3 text-xs text-orange-800 dark:text-orange-300">
+              <p className="font-semibold mb-0.5">⚠ Entri otomatis dari sistem</p>
+              <p>
+                Entri ini dibuat otomatis dan tag di catatannya dipakai untuk mencegah
+                pencatatan ganda. Jika dihapus, sistem bisa mencatat ulang entri ini
+                (atau kehilangan jejak modal yang sudah digunakan/dikembalikan).
+              </p>
+            </div>
+          )}
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setIsDeleteOpen(false)}>
               Batal

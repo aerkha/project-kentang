@@ -564,7 +564,8 @@ export async function POST(req: NextRequest) {
   const history = await buildHistory(pb, investorId);
   const historyHtml = buildHistoryTableHtml(history);
 
-  const tanggal  = fmtDate(new Date().toISOString().slice(0, 10));
+  // Tanggal kalender WIB (UTC+7) — server berjalan di UTC
+  const tanggal  = fmtDate(new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10));
   const baseOpts = { investorName, mouCustomId, keterangan, jumlah, buktiUrl, tanggal };
   const errors: string[] = [];
 

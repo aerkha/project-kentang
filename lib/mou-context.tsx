@@ -8,6 +8,7 @@ import {
   recordModalPksDiKembalikan,
   removeModalPksDiKembalikan,
 } from "./cashflow-auto";
+import { todayWibStr } from "./utils";
 
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
@@ -143,14 +144,13 @@ function parseUtcDate(s: string): Date {
 }
 
 /**
- * Tanggal kalender LOKAL hari ini sebagai UTC midnight.
+ * Tanggal kalender WIB (UTC+7) hari ini sebagai UTC midnight.
  * Tanggal MoU (YYYY-MM-DD) di-parse sebagai UTC midnight, jadi "hari ini"
- * juga harus dipetakan ke UTC midnight dari tanggal kalender user —
- * bukan dari toISOString() yang bisa mundur satu hari di zona waktu UTC+.
+ * juga dipetakan ke UTC midnight dari tanggal kalender WIB — konsisten
+ * di semua zona waktu client maupun server.
  */
 function todayUtc(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  return parseUtcDate(todayWibStr());
 }
 
 export type MouStatus = "pending" | "aktif" | "expired" | "nonaktif";

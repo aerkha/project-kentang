@@ -37,6 +37,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
+import { todayWibStr } from "@/lib/utils";
 
 // ─────────────────────────────────────────────
 // Types
@@ -659,7 +660,7 @@ export function InvestorsContent() {
       });
       // Untuk investor internal, catat modal yang di-deploy sebagai kredit (uang MinBun terpakai)
       if (investorForm.isInternal) {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = todayWibStr();
         await addPengeluaran({
           date: today,
           deskripsi: `Modal Internal — ${investorForm.name}`,
@@ -723,7 +724,7 @@ export function InvestorsContent() {
           });
         } else {
           // Entry hilang, buat ulang
-          const today = new Date().toISOString().slice(0, 10);
+          const today = todayWibStr();
           await addPengeluaran({
             date: today,
             deskripsi: `Modal Internal — ${investorForm.name}`,
@@ -734,7 +735,7 @@ export function InvestorsContent() {
         }
       } else if (!wasInternal && nowInternal) {
         // Baru ditandai internal — buat entri modal baru
-        const today = new Date().toISOString().slice(0, 10);
+        const today = todayWibStr();
         await addPengeluaran({
           date: today,
           deskripsi: `Modal Internal — ${investorForm.name}`,
@@ -819,12 +820,21 @@ export function InvestorsContent() {
   const handleDeleteInvestorConfirm = async () => {
     if (!selectedInvestor) return;
     try {
-      // Hapus entri cash flow terkait terlebih dahulu jika investor internal
-      if (selectedInvestor.isInternal) {
-        const ref = makeInternalRef(selectedInvestor.id);
-        const entry = pengeluarans.find((p) => p.catatan === ref);
-        if (entry) await deletePengeluaran(entry.id);
+      // Hapus entri cash flow terkait terlebih dahulu.
+      // Dicek tanpa melihat flag isInternal — flag bisa saja sudah dicabut
+      // sementara entri lamanya masih ada.
+      const ref = makeInternalRef(selectedInvestor.id);
+      const internalEntry = pengeluarans.find((p) => p.catatan === ref);
+      if (internalEntry) await deletePengeluaran(internalEntry.id);
+
+      // Entri profit internal per-PKS ([Internal-Profit:INV-xxxx:MOU-...])
+      const profitEntries = pengeluarans.filter((p) =>
+        p.catatan?.startsWith(`[Internal-Profit:${selectedInvestor.id}:`)
+      );
+      for (const entry of profitEntries) {
+        await deletePengeluaran(entry.id);
       }
+
       await deleteInvestor(selectedInvestor.id);
       toast.success("Investor berhasil dihapus");
       setSelectedInvestor(null);

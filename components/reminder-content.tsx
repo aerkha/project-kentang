@@ -2,7 +2,8 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { toast } from "sonner";
-import { useMou, type MoU, BUKTI_FIELD } from "@/lib/mou-context";
+import { useMou, getMouStatus, type MoU, BUKTI_FIELD } from "@/lib/mou-context";
+import { todayWibStr } from "@/lib/utils";
 import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
@@ -78,15 +79,15 @@ function formatCurrency(n: number) {
 }
 
 function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
+/** Selisih hari antara sebuah tanggal dengan hari ini (kalender WIB) */
 function daysUntil(dateStr: string): number {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.ceil((new Date(dateStr).getTime() - today.getTime()) / 86_400_000);
+  const [y, m, d]    = dateStr.split("-").map(Number);
+  const [ty, tm, td] = todayWibStr().split("-").map(Number);
+  return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(ty, tm - 1, td)) / 86_400_000);
 }
 
 // ── Kalkulasi bagi hasil per PKS ─────────────────────────────────────────────
@@ -196,7 +197,7 @@ export function ReminderContent() {
   const { transaksis }                   = useTransaksi();
   const { investors }                    = useInvestors();
   const { brokers }                      = useBrokers();
-  const { addPengeluaran }               = usePengeluaran();
+  const { pengeluarans, addPengeluaran } = usePengeluaran();
   const { minbun, trader, updateMinbun, updateTrader } = useSettings();
   const { logs, isLoading: logsLoading, refresh: refreshLogs } = useReminderLogs();
   const [isSendingReminder, setIsSendingReminder] = useState(false);
@@ -239,15 +240,12 @@ export function ReminderContent() {
     setFormTrader({ nama: trader.nama, bankName: trader.bankName, accountNumber: trader.accountNumber });
   }, [trader.nama, trader.bankName, trader.accountNumber]);
 
-  // PKS aktif (tidak terminated, belum expired)
+  // PKS aktif — status dihitung getMouStatus (satu sumber kebenaran, kalender WIB).
+  // PKS pending (belum ditandatangani, bukan backdate) tidak dimasukkan:
+  // belum berjalan, belum ada kewajiban bagi hasil.
   const tasks = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     return mous
-      .filter((m) => {
-        if (m.isTerminated) return false;
-        return new Date(addDays(m.date, m.contractPeriod)) >= today;
-      })
+      .filter((m) => getMouStatus(m) === "aktif")
       .map((mou) => {
         const endDateStr = addDays(mou.date, mou.contractPeriod);
         const rows       = buildRows(mou, transaksis, investors, brokers, minbun, trader);
@@ -259,13 +257,9 @@ export function ReminderContent() {
 
   // PKS expired (tidak terminated, sudah lewat) yang MASIH ADA tugas belum selesai
   const expiredPendingTasks = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     return mous
       .filter((m) => {
-        if (m.isTerminated) return false;
-        const isExpired = new Date(addDays(m.date, m.contractPeriod)) < today;
-        if (!isExpired) return false;
+        if (getMouStatus(m) !== "expired") return false;
         // Hanya yang masih punya baris belum dicentang
         const rows = buildRows(m, transaksis, investors, brokers, minbun, trader);
         return rows.some((r) => !m.bagiHasilChecks?.[r.keterangan]);
@@ -280,25 +274,34 @@ export function ReminderContent() {
   }, [mous, transaksis, investors, brokers, minbun, trader]);
 
   // ── Ringkasan — jumlah per penerima yang BELUM dicentang (per baris, bukan per PKS)
+  // Mencakup PKS aktif DAN PKS expired yang masih punya tunggakan, agar kartu
+  // ringkasan & header tidak menampilkan "selesai" selagi masih ada tunggakan.
+  // activeTotal/activeDone dihitung terpisah untuk badge tab tabel PKS aktif.
   const summary = useMemo(() => {
     let investor = 0, trader = 0, minbun = 0, broker = 0;
-    tasks.forEach((t) => {
+    let totalTasks = 0, doneTasks = 0, activeTotal = 0, activeDone = 0;
+
+    const tally = (t: { mou: MoU; rows: PaymentRow[] }, isActive: boolean) => {
       t.rows.forEach((r) => {
-        if (t.mou.bagiHasilChecks?.[r.keterangan]) return; // sudah dicentang, skip
+        const checked = !!t.mou.bagiHasilChecks?.[r.keterangan];
+        totalTasks++;
+        if (isActive) activeTotal++;
+        if (checked) {
+          doneTasks++;
+          if (isActive) activeDone++;
+          return;
+        }
         if (r.keterangan === "Investor") investor += r.jumlah;
         else if (r.keterangan === "Trader") trader  += r.jumlah;
         else if (r.keterangan === "MinBun") minbun  += r.jumlah;
         else if (r.keterangan === "Broker") broker  += r.jumlah;
       });
-    });
-    return {
-      investor, trader, minbun, broker,
-      totalTasks: tasks.reduce((s, t) => s + t.rows.length, 0),
-      doneTasks:  tasks.reduce((s, t) =>
-        s + t.rows.filter((r) => !!t.mou.bagiHasilChecks?.[r.keterangan]).length, 0
-      ),
     };
-  }, [tasks]);
+    tasks.forEach((t) => tally(t, true));
+    expiredPendingTasks.forEach((t) => tally(t, false));
+
+    return { investor, trader, minbun, broker, totalTasks, doneTasks, activeTotal, activeDone };
+  }, [tasks, expiredPendingTasks]);
 
   // Klik ceklis: jika akan dicentang → buka dialog upload bukti dulu
   //              jika investor internal + keterangan "Investor" → dialog konfirmasi internal
@@ -345,6 +348,12 @@ export function ReminderContent() {
     }
   };
 
+  // Cek apakah entri Arus Kas dengan tag tertentu sudah pernah dicatat.
+  // Mencegah entri ganda saat ceklis di-uncheck lalu dicentang ulang —
+  // uncheck sengaja tidak menghapus entri kas, jadi pencatatan ulang harus skip.
+  const cashflowTagRecorded = (tag: string) =>
+    pengeluarans.some((p) => p.catatan === tag);
+
   // Submit dialog internal: mark check → catat ke cashflow (tanpa upload bukti)
   // Berlaku untuk: investor internal (profit internal) dan MinBun (biaya operasional internal)
   const handleConfirmInternal = async () => {
@@ -365,7 +374,7 @@ export function ReminderContent() {
 
     const checks  = { ...(latestMou.bagiHasilChecks ?? {}), [keterangan]: true };
     const allDone = allTask ? allTask.rows.every((r) => checks[r.keterangan]) : false;
-    const today   = new Date().toISOString().slice(0, 10);
+    const today   = todayWibStr();
 
     setIsConfirmingInt(true);
     setToggling(key);
@@ -373,14 +382,22 @@ export function ReminderContent() {
       await updateMou(snapshotMou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
       setDoneKeys((prev) => new Set(prev).add(key));
 
-      if (keterangan === "MinBun") {
+      const isMinBun = keterangan === "MinBun";
+      const tag = isMinBun
+        ? `[Reminder] PKS ${snapshotMou.id} · MinBun`
+        : `[Internal-Profit:${snapshotMou.investorId}:${snapshotMou.id}]`;
+
+      if (cashflowTagRecorded(tag)) {
+        // Sudah pernah dicatat (mis. ceklis pernah dibuka lalu dicentang ulang)
+        toast.info("Entri Arus Kas untuk tugas ini sudah ada — tidak dicatat ulang.");
+      } else if (isMinBun) {
         // MinBun adalah penerima internal — catat sebagai debet (pemasukan internal)
         await addPengeluaran({
           date:      today,
           deskripsi: `Bagi Hasil MinBun — PKS ${snapshotMou.id}`,
           debet:     row.jumlah,
           kredit:    0,
-          catatan:   `[Reminder] PKS ${snapshotMou.id} · MinBun`,
+          catatan:   tag,
         });
         toast.success(`Bagi hasil MinBun PKS ${snapshotMou.id} dicatat di Arus Kas`);
       } else {
@@ -390,7 +407,7 @@ export function ReminderContent() {
           deskripsi: `Profit Internal — ${row.nama} — PKS ${snapshotMou.id}`,
           debet:     row.jumlah,
           kredit:    0,
-          catatan:   `[Internal-Profit:${snapshotMou.investorId}:${snapshotMou.id}]`,
+          catatan:   tag,
         });
         toast.success(`Profit internal ${row.nama} dicatat di Arus Kas`);
       }
@@ -417,7 +434,7 @@ export function ReminderContent() {
     const alreadyDone  = !!latestMou.bagiHasilChecks?.[keterangan] || doneKeys.has(key);
     const checks       = { ...(latestMou.bagiHasilChecks ?? {}), [keterangan]: true };
     const allDone      = allTask ? allTask.rows.every((r) => checks[r.keterangan]) : false;
-    const today        = new Date().toISOString().slice(0, 10);
+    const today        = todayWibStr();
 
     setIsUploading(true);
     setToggling(key);
@@ -430,19 +447,25 @@ export function ReminderContent() {
       await updateMou(snapshotMou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
       setDoneKeys((prev) => new Set(prev).add(key));
 
-      // 3. Catat ke cashflow (skip jika sudah pernah dicatat sebelumnya)
+      // 3. Catat ke cashflow (skip jika sudah pernah dicatat sebelumnya —
+      //    baik dari sesi ini maupun dari ceklis lama yang pernah di-uncheck)
+      const cashflowTag = `[Reminder] PKS ${snapshotMou.id} · ${keterangan}`;
       if (!alreadyDone) {
-        try {
-          await addPengeluaran({
-            date:      today,
-            deskripsi: `Bagi Hasil ${row.nama} (${keterangan}) - PKS ${snapshotMou.id}`,
-            debet:     (keterangan === "MinBun" || (keterangan === "Investor" && internalInvestorIds.has(snapshotMou.investorId))) ? row.jumlah : 0,
-            kredit:    (keterangan === "MinBun" || (keterangan === "Investor" && internalInvestorIds.has(snapshotMou.investorId))) ? 0 : row.jumlah,
-            catatan:   `[Reminder] PKS ${snapshotMou.id} · ${keterangan}`,
-          });
-          toast.success(`${keterangan} — ${row.nama} dicatat di Cash Flow`);
-        } catch {
-          toast.error(`Ceklis tersimpan, tapi gagal mencatat ${keterangan} di Cash Flow. Tambahkan manual.`);
+        if (cashflowTagRecorded(cashflowTag)) {
+          toast.info("Entri Arus Kas untuk tugas ini sudah ada — tidak dicatat ulang.");
+        } else {
+          try {
+            await addPengeluaran({
+              date:      today,
+              deskripsi: `Bagi Hasil ${row.nama} (${keterangan}) - PKS ${snapshotMou.id}`,
+              debet:     (keterangan === "MinBun" || (keterangan === "Investor" && internalInvestorIds.has(snapshotMou.investorId))) ? row.jumlah : 0,
+              kredit:    (keterangan === "MinBun" || (keterangan === "Investor" && internalInvestorIds.has(snapshotMou.investorId))) ? 0 : row.jumlah,
+              catatan:   cashflowTag,
+            });
+            toast.success(`${keterangan} — ${row.nama} dicatat di Cash Flow`);
+          } catch {
+            toast.error(`Ceklis tersimpan, tapi gagal mencatat ${keterangan} di Cash Flow. Tambahkan manual.`);
+          }
         }
       }
 
@@ -795,7 +818,7 @@ export function ReminderContent() {
                 <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
                   !showDone ? "bg-orange-100 text-orange-700" : "bg-muted text-muted-foreground"
                 }`}>
-                  {summary.totalTasks - summary.doneTasks}
+                  {summary.activeTotal - summary.activeDone}
                 </span>
               </button>
               <button
@@ -810,7 +833,7 @@ export function ReminderContent() {
                 <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
                   showDone ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"
                 }`}>
-                  {summary.doneTasks}
+                  {summary.activeDone}
                 </span>
               </button>
             </div>

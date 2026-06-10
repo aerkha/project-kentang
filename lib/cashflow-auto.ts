@@ -11,6 +11,7 @@
  */
 
 import pb from "./pocketbase";
+import { todayWibStr } from "./utils";
 
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
@@ -122,7 +123,7 @@ export async function recordModalInvestorMasuk(
   date?:            string,
 ): Promise<void> {
   const tag     = `[Modal-Investor:${investorId}]`;
-  const today   = date ?? new Date().toISOString().slice(0, 10);
+  const today   = date ?? todayWibStr();
 
   // Jangan duplikasi jika sudah pernah dicatat
   if (await cashflowTagExists(tag)) return;
@@ -214,7 +215,7 @@ export async function recordModalPksDiKembalikan(
   date?:            string,
 ): Promise<void> {
   const tag   = `[Modal-Kembali:${investorId}:${mouId}]`;
-  const today = date ?? new Date().toISOString().slice(0, 10);
+  const today = date ?? todayWibStr();
 
   // Hanya catat pengembalian jika modal PKS ini pernah dicatat digunakan.
   // PKS pending yang expired tanpa pernah aktif tidak boleh menghasilkan pemasukan.

@@ -6,6 +6,23 @@ function pbEsc(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+// ── Zona waktu aplikasi: WIB (UTC+7) ─────────────────────────────────────────
+// Server (Vercel) berjalan di UTC — semua "hari ini" dihitung dari kalender WIB
+// agar konsisten dengan client.
+
+const WIB_OFFSET_MS = 7 * 3_600_000;
+
+/** Tanggal kalender WIB hari ini sebagai "YYYY-MM-DD" */
+function todayWibStr(): string {
+  return new Date(Date.now() + WIB_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** Parse "YYYY-MM-DD" ke epoch ms pada UTC midnight (untuk aritmetika hari) */
+function dateUtcMs(s: string): number {
+  const [y, m, d] = s.split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface MoURecord {
@@ -24,12 +41,9 @@ interface MoURecord {
 
 function isMouExpiredNatural(mou: MoURecord): boolean {
   if (mou.isTerminated) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const end = new Date(mou.date);
-  end.setDate(end.getDate() + mou.contractPeriod);
-  end.setHours(0, 0, 0, 0);
-  return end < today;
+  // mou.date dari PocketBase bisa berformat "YYYY-MM-DD HH:mm:ss" — ambil tanggalnya saja
+  const end = addDays(mou.date.slice(0, 10), mou.contractPeriod);
+  return end < todayWibStr(); // perbandingan string "YYYY-MM-DD" aman
 }
 
 async function recordExpiredReturns(pb: PocketBase, mous: MoURecord[]): Promise<number> {
@@ -38,6 +52,16 @@ async function recordExpiredReturns(pb: PocketBase, mous: MoURecord[]): Promise<
   for (const mou of expired) {
     const tag = `[Modal-Kembali:${mou.investorId}:${mou.customId}]`;
     try {
+      // Hanya catat pengembalian jika modal PKS ini pernah dicatat digunakan —
+      // PKS pending yang expired tanpa pernah aktif tidak boleh menghasilkan
+      // pemasukan (guard yang sama dengan recordModalPksDiKembalikan di client).
+      const usedTag = `[Modal-PKS:${mou.investorId}:${mou.customId}]`;
+      const used = await pb.collection("pengeluarans").getList(1, 1, {
+        filter: `catatan ~ "${pbEsc(usedTag)}"`,
+        fields: "id",
+      });
+      if (used.totalItems === 0) continue;
+
       const existing = await pb.collection("pengeluarans").getList(1, 1, {
         filter: `catatan ~ "${pbEsc(tag)}"`,
         fields: "id",
@@ -45,7 +69,7 @@ async function recordExpiredReturns(pb: PocketBase, mous: MoURecord[]): Promise<
       if (existing.totalItems > 0) continue;
 
       // Generate PGL ID
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayWibStr();
       const ym = today.slice(0, 7).replace("-", "");
       const prefix = `PGL-${ym}-`;
       const existing2 = await pb.collection("pengeluarans").getFullList({
@@ -98,8 +122,8 @@ const MONTHS_ID = [
 ];
 
 function fmtDate(s: string) {
-  const d = new Date(s);
-  return `${d.getDate()} ${MONTHS_ID[d.getMonth()]} ${d.getFullYear()}`;
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+  return `${d} ${MONTHS_ID[m - 1]} ${y}`;
 }
 
 function fmtRp(n: number) {
@@ -109,9 +133,8 @@ function fmtRp(n: number) {
 }
 
 function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
 /**
@@ -122,19 +145,17 @@ function addDays(dateStr: string, days: number): string {
  * di handler — siklus yang sudah pernah dikirim tidak akan dikirim ulang.
  */
 function findDueCycles(mous: MoURecord[]): DueCycle[] {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Seluruh aritmetika hari memakai UTC midnight dari tanggal kalender WIB —
+  // bebas dari zona waktu server.
+  const todayMs = dateUtcMs(todayWibStr());
   const result: DueCycle[] = [];
 
   for (const mou of mous) {
     if (mou.isTerminated) continue;
 
-    const start = new Date(mou.date);
-    start.setHours(0, 0, 0, 0);
+    const startMs = dateUtcMs(mou.date.slice(0, 10));
 
-    const daysSinceStart = Math.floor(
-      (today.getTime() - start.getTime()) / 86_400_000,
-    );
+    const daysSinceStart = Math.round((todayMs - startMs) / 86_400_000);
     if (daysSinceStart < 30) continue;
 
     // Siklus yang sedang aktif = kelipatan 30 sebelum atau tepat hari ini
@@ -149,11 +170,7 @@ function findDueCycles(mous: MoURecord[]): DueCycle[] {
 
     const cycleStart  = addDays(mou.date, (cycleNumber - 1) * 30);
     const cycleEnd    = addDays(mou.date, cycleNumber * 30);
-    const dueDate     = new Date(cycleEnd);
-    dueDate.setHours(0, 0, 0, 0);
-    const daysOverdue = Math.floor(
-      (today.getTime() - dueDate.getTime()) / 86_400_000,
-    );
+    const daysOverdue = Math.round((todayMs - dateUtcMs(cycleEnd)) / 86_400_000);
 
     result.push({ mou, cycleNumber, cycleStart, cycleEnd, daysOverdue });
   }
@@ -286,7 +303,7 @@ export async function GET(req: NextRequest) {
 
   // ── Mode test ──
   if (isTest) {
-    const todayStr = fmtDate(new Date().toISOString().slice(0, 10));
+    const todayStr = fmtDate(todayWibStr());
     const dummy: DueCycle[] = [{
       mou: {
         id: "pb-test-id", customId: "MOU-202505-001", date: "2025-04-01",
@@ -351,7 +368,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ sent: 0, message: "Semua reminder hari ini sudah terkirim" });
     }
 
-    const todayStr = fmtDate(new Date().toISOString().slice(0, 10));
+    const todayStr = fmtDate(todayWibStr());
     const errors: string[] = [];
 
     // Kirim email
