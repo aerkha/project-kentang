@@ -232,6 +232,29 @@ export async function recordModalPksDiKembalikan(
   });
 }
 
+/**
+ * Hapus entri modal dikembalikan untuk satu PKS — dipanggil saat PKS yang
+ * di-nonaktifkan manual diaktifkan kembali (modal dipakai lagi), agar arus kas
+ * tidak menyimpan pengembalian yang sudah tidak berlaku.
+ */
+export async function removeModalPksDiKembalikan(
+  investorId: string,
+  mouId:      string,
+): Promise<void> {
+  const tag = `[Modal-Kembali:${investorId}:${mouId}]`;
+  try {
+    const res = await pb.collection("pengeluarans").getFullList({
+      filter: `catatan ~ "${pbEsc(tag)}"`,
+      fields: "id",
+    });
+    await Promise.all(res.map((r) => pb.collection("pengeluarans").delete(r.id)));
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status === 404) return;
+    throw err;
+  }
+}
+
 export async function recordModalPksDigunakan(
   investorId:       string,
   investorName:     string,

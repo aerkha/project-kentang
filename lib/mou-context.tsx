@@ -3,7 +3,11 @@
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
 import { useInvestors } from "./investors-context";
-import { recordModalPksDigunakan, recordModalPksDiKembalikan } from "./cashflow-auto";
+import {
+  recordModalPksDigunakan,
+  recordModalPksDiKembalikan,
+  removeModalPksDiKembalikan,
+} from "./cashflow-auto";
 
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
@@ -390,6 +394,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
   const updateMou = async (id: string, updates: Partial<MoU>) => {
     const pbId = await resolvePbId(id);
     if (!pbId) return;
+    const prevMou = mousRef.current.find((m) => m.id === id);
 
     // Pisahkan field esign dari update reguler
     const {
@@ -444,6 +449,30 @@ export function MouProvider({ children }: { children: ReactNode }) {
     const statusFields = ["isTerminated", "date", "contractPeriod", "hasSignedDoc"] as const;
     if (statusFields.some((f) => f in updates)) {
       await syncInvestorStatus(updatedMou.investorId, mousRef.current);
+    }
+
+    // ── Cash flow: terminate / aktifkan kembali ──
+    // Fire-and-forget seperti pencatatan otomatis lainnya — jangan blokir UI.
+    const wasTerminated = prevMou?.isTerminated === true;
+    const nowTerminated = updatedMou.isTerminated === true;
+    if (prevMou && wasTerminated !== nowTerminated) {
+      if (nowTerminated) {
+        // PKS dihentikan manual → modal kembali ke kas hari ini.
+        // recordModalPksDiKembalikan hanya mencatat jika modal PKS ini
+        // pernah tercatat digunakan, dan mencegah duplikasi via tag.
+        recordModalPksDiKembalikan(
+          updatedMou.investorId,
+          updatedMou.investorName,
+          updatedMou.id,
+          updatedMou.investmentAmount,
+        ).catch((e) => console.warn("cashflow-auto: gagal catat modal PKS dikembalikan:", e));
+      } else if (getMouStatus(updatedMou) !== "expired") {
+        // Diaktifkan kembali dan belum melewati tanggal berakhir → modal
+        // dipakai lagi, hapus entri pengembalian agar arus kas tidak dobel.
+        // (Jika sudah expired, entri pengembalian dibiarkan — modal memang kembali.)
+        removeModalPksDiKembalikan(updatedMou.investorId, updatedMou.id)
+          .catch((e) => console.warn("cashflow-auto: gagal hapus entri modal dikembalikan:", e));
+      }
     }
   };
 
