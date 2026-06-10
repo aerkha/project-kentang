@@ -16,7 +16,9 @@ export interface ReminderLog {
   emailStatus:  ChannelStatus;
   waStatus:     ChannelStatus;
   errorMessage: string;
-  triggeredBy:  "cron" | "manual";
+  triggeredBy:  "cron" | "manual" | "notifikasi";
+  keterangan:   string;       // hanya untuk notifikasi BH: "Investor" | "Broker" dll
+  jumlah:       number;       // hanya untuk notifikasi BH
 }
 
 interface ReminderLogsContextType {
@@ -39,7 +41,9 @@ function recordToLog(r: Record<string, unknown>): ReminderLog {
     emailStatus:  (r.emailStatus as ChannelStatus) || "skipped",
     waStatus:     (r.waStatus    as ChannelStatus) || "skipped",
     errorMessage: (r.errorMessage as string) || "",
-    triggeredBy:  (r.triggeredBy as "cron" | "manual") || "cron",
+    triggeredBy:  (r.triggeredBy as "cron" | "manual" | "notifikasi") || "cron",
+    keterangan:   (r.keterangan  as string) || "",
+    jumlah:       (r.jumlah      as number) || 0,
   };
 }
 

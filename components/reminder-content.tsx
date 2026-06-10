@@ -471,6 +471,7 @@ export function ReminderContent() {
             if (data.emailStatus === "sent")    parts.push("✉️ Email terkirim");
             if (data.emailStatus === "skipped") parts.push("✉️ Email (belum diset)");
             if (parts.length) toast.info(`Notifikasi investor: ${parts.join(" · ")}`);
+            void refreshLogs();
           })
           .catch(() => toast.warning("Notifikasi investor gagal dikirim. Cek konfigurasi API."));
       }
@@ -1123,7 +1124,7 @@ export function ReminderContent() {
                 Riwayat Reminder
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Log pengiriman reminder otomatis &amp; manual via Email / WhatsApp
+                Log pengiriman reminder jatuh tempo &amp; notifikasi bagi hasil via Email / WhatsApp
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -1160,44 +1161,63 @@ export function ReminderContent() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Waktu Kirim</th>
-                    <th className="text-left py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Investor</th>
-                    <th className="text-left py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">No PKS</th>
-                    <th className="text-center py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Siklus</th>
+                    <th className="text-left   py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Waktu Kirim</th>
+                    <th className="text-left   py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Investor</th>
+                    <th className="text-left   py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">No PKS</th>
+                    <th className="text-center py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Jenis</th>
                     <th className="text-center py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Email</th>
                     <th className="text-center py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">WhatsApp</th>
-                    <th className="text-center py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Trigger</th>
+                    <th className="text-left   py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Keterangan</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {logs.slice(0, 50).map((log: ReminderLog) => (
-                    <tr key={log.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                      <td className="py-2.5 px-4 whitespace-nowrap text-muted-foreground text-xs">
-                        {new Date(log.sentAt).toLocaleString("id-ID", {
-                          day: "2-digit", month: "short", year: "numeric",
-                          hour: "2-digit", minute: "2-digit",
-                        })}
-                      </td>
-                      <td className="py-2.5 px-4 font-medium whitespace-nowrap">{log.investorName}</td>
-                      <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground whitespace-nowrap">{log.mouCustomId}</td>
-                      <td className="py-2.5 px-4 text-center text-muted-foreground">ke-{log.cycleNumber}</td>
-                      <td className="py-2.5 px-4 text-center">
-                        <ChannelBadge status={log.emailStatus} icon={<Mail className="h-3 w-3" />} />
-                      </td>
-                      <td className="py-2.5 px-4 text-center">
-                        <ChannelBadge status={log.waStatus} icon={<MessageCircle className="h-3 w-3" />} />
-                      </td>
-                      <td className="py-2.5 px-4 text-center">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                          log.triggeredBy === "manual"
-                            ? "bg-blue-100 text-blue-700"
-                            : "bg-muted text-muted-foreground"
-                        }`}>
-                          {log.triggeredBy === "manual" ? "Manual" : "Otomatis"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {logs.slice(0, 50).map((log: ReminderLog) => {
+                    const isNotif = log.triggeredBy === "notifikasi";
+                    return (
+                      <tr key={log.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                        <td className="py-2.5 px-4 whitespace-nowrap text-muted-foreground text-xs">
+                          {new Date(log.sentAt).toLocaleString("id-ID", {
+                            day: "2-digit", month: "short", year: "numeric",
+                            hour: "2-digit", minute: "2-digit",
+                          })}
+                        </td>
+                        <td className="py-2.5 px-4 font-medium whitespace-nowrap">{log.investorName}</td>
+                        <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground whitespace-nowrap">{log.mouCustomId}</td>
+                        <td className="py-2.5 px-4 text-center">
+                          {isNotif ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
+                              Bagi Hasil
+                            </span>
+                          ) : (
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                              log.triggeredBy === "manual"
+                                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
+                                : "bg-muted text-muted-foreground"
+                            }`}>
+                              {log.triggeredBy === "manual" ? "Manual" : "Otomatis"}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-4 text-center">
+                          <ChannelBadge status={log.emailStatus} icon={<Mail className="h-3 w-3" />} />
+                        </td>
+                        <td className="py-2.5 px-4 text-center">
+                          <ChannelBadge status={log.waStatus} icon={<MessageCircle className="h-3 w-3" />} />
+                        </td>
+                        <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">
+                          {isNotif
+                            ? `${log.keterangan}${log.jumlah > 0 ? ` · ${new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(log.jumlah)}` : ""}`
+                            : `Siklus ke-${log.cycleNumber}`
+                          }
+                          {log.errorMessage && (
+                            <div className="text-red-500 text-[10px] mt-0.5 max-w-[200px] truncate" title={log.errorMessage}>
+                              {log.errorMessage}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               {logs.length > 50 && (

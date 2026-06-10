@@ -580,6 +580,20 @@ export async function POST(req: NextRequest) {
     return "failed" as ChannelStatus;
   });
 
+  // 7. Simpan log ke reminder_logs (silent — tidak gagalkan response)
+  pb.collection("reminder_logs").create({
+    mouCustomId:  mouCustomId,
+    cycleNumber:  0,
+    sentAt:       new Date().toISOString(),
+    investorName: investorName,
+    emailStatus,
+    waStatus,
+    errorMessage: errors.join(" | "),
+    triggeredBy:  "notifikasi",
+    keterangan,
+    jumlah:       jumlah ?? 0,
+  }).catch(() => {});
+
   return NextResponse.json({
     waStatus,
     emailStatus,
