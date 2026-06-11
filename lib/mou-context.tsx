@@ -378,15 +378,17 @@ export function MouProvider({ children }: { children: ReactNode }) {
     setMous(mousRef.current);
     await syncInvestorStatus(mou.investorId, mousRef.current);
 
-    // Jika PKS langsung aktif (backdate), catat modal digunakan ke cash flow
+    // Jika PKS langsung aktif (backdate), catat modal digunakan ke cash flow.
+    // Gunakan tanggal hari ini (bukan tanggal PKS) agar konsisten dengan entri
+    // modal investor yang dicatat saat investor diinput, bukan saat kontrak dimulai.
     if (isMouAktif(newMou)) {
-      await recordModalPksDigunakan(
+      recordModalPksDigunakan(
         newMou.investorId,
         newMou.investorName,
         newMou.id,
         newMou.investmentAmount,
-        newMou.date,
-      );
+        todayWibStr(),
+      ).catch((e) => console.warn("cashflow-auto: gagal catat modal PKS digunakan:", e));
     }
   };
 
@@ -527,7 +529,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
         updatedMou.investorName,
         updatedMou.id,
         updatedMou.investmentAmount,
-        updatedMou.date,
+        todayWibStr(),
       ).catch((e) => console.warn("cashflow-auto: gagal catat modal PKS digunakan:", e));
     }
   };
