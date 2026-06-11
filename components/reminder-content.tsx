@@ -93,14 +93,16 @@ function daysUntil(dateStr: string): number {
 // ── Kalkulasi bagi hasil per PKS ─────────────────────────────────────────────
 
 function calcBagiHasil(mou: MoU, transaksis: Transaksi[]) {
-  const mouStart = new Date(mou.date).getTime();
+  const [sy, sm, sd] = mou.date.slice(0, 10).split("-").map(Number);
+  const mouStart = Date.UTC(sy, sm - 1, sd);
   const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
   const pkPct    = (mou.bagiHasilPK ?? 35) / 100;
 
   let investor = 0, trader = 0, minbun = 0, broker = 0;
 
   transaksis.forEach((t) => {
-    const tDate = new Date(t.date).getTime();
+    const [ty, tm, td] = (t.date as string).slice(0, 10).split("-").map(Number);
+    const tDate = Date.UTC(ty, tm - 1, td);
     if (tDate < mouStart || tDate > mouEnd) return;
 
     const entry = t.investorEntries.find((e) => e.investorId === mou.investorId);

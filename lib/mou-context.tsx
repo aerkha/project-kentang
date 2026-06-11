@@ -7,6 +7,7 @@ import {
   recordModalPksDigunakan,
   recordModalPksDiKembalikan,
   removeModalPksDiKembalikan,
+  removeModalPksDigunakan,
 } from "./cashflow-auto";
 import { todayWibStr } from "./utils";
 
@@ -486,6 +487,14 @@ export function MouProvider({ children }: { children: ReactNode }) {
     // Update ref segera agar sync concurrent tidak melihat MoU yang sudah dihapus
     mousRef.current = mousRef.current.filter((m) => m.id !== id);
     setMous(mousRef.current);
+
+    // Hapus entri cash flow yang terkait dengan PKS ini
+    if (mouToDelete) {
+      removeModalPksDigunakan(mouToDelete.investorId, mouToDelete.id)
+        .catch((e) => console.warn("cashflow-auto: gagal hapus entri modal PKS digunakan:", e));
+      removeModalPksDiKembalikan(mouToDelete.investorId, mouToDelete.id)
+        .catch((e) => console.warn("cashflow-auto: gagal hapus entri modal PKS dikembalikan:", e));
+    }
 
     // Sync jika PKS yang dihapus berpengaruh pada status investor
     if (mouToDelete) {

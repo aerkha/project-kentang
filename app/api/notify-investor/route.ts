@@ -216,7 +216,8 @@ async function buildHistory(
 
   // 5. Hitung bagi hasil per MoU — filter transaksi berdasarkan periode MoU
   return mous.map((mou) => {
-    const mouStart = new Date(mou.date).getTime();
+    const [my, mm, md] = mou.date.slice(0, 10).split("-").map(Number);
+    const mouStart = Date.UTC(my, mm - 1, md);
     const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
     const pkPct    = (mou.bagiHasilPK ?? 35) / 100;
     const periodeEnd = addDays(mou.date, mou.contractPeriod);
@@ -228,7 +229,8 @@ async function buildHistory(
       if (!trx) continue;
 
       // Filter: hanya transaksi yang tanggalnya masuk periode MoU ini
-      const tDate = new Date(trx.date).getTime();
+      const [ty, tm, td] = (trx.date as string).slice(0, 10).split("-").map(Number);
+      const tDate = Date.UTC(ty, tm - 1, td);
       if (tDate < mouStart || tDate > mouEnd) continue;
 
       // Hitung profit transaksi
@@ -261,11 +263,11 @@ async function buildHistory(
   });
 }
 
-/** Tambahkan N hari ke tanggal string "YYYY-MM-DD" */
+/** Tambahkan N hari ke tanggal string "YYYY-MM-DD" — menggunakan UTC agar aman lintas timezone */
 function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d + days));
+  return date.toISOString().slice(0, 10);
 }
 
 // ── Email HTML ─────────────────────────────────────────────────────────────────

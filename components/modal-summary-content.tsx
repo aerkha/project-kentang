@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { useMou, type MoU } from "@/lib/mou-context";
+import { useMou, getMouStatus, type MoU, type MouStatus } from "@/lib/mou-context";
 import { useTransaksi, calcTransaksi } from "@/lib/transaksi-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,14 +20,15 @@ const MONTHS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov
 
 function formatDate(s: string | Date) {
   if (!s) return "-";
-  const d = typeof s === "string" ? new Date(s) : s;
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  const d = typeof s === "string"
+    ? (() => { const [y, m, dd] = s.slice(0, 10).split("-").map(Number); return new Date(Date.UTC(y, m - 1, dd)); })()
+    : s;
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
 function addDays(dateStr: string, days: number): Date {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d;
+  const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days));
 }
 
 function formatRp(n: number) {
@@ -40,17 +41,6 @@ function toDateInput(d: Date) {
   return d.toISOString().split("T")[0];
 }
 
-type MouStatus = "pending" | "aktif" | "expired" | "nonaktif";
-
-function getMouStatus(mou: MoU): MouStatus {
-  if (mou.isTerminated) return "nonaktif";
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const end   = addDays(mou.date, mou.contractPeriod);
-  if (end < today) return "expired";
-  const isBackdate = new Date(mou.date) < today;
-  if (!isBackdate && !mou.hasSignedDoc) return "pending";
-  return "aktif";
-}
 
 // ─────────────────────────────────────────────
 // Tipe data per-PKS
