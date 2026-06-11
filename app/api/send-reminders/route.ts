@@ -37,66 +37,6 @@ interface MoURecord {
   isTerminated: boolean;
 }
 
-// ─── Expired PKS helpers ──────────────────────────────────────────────────────
-
-function isMouExpiredNatural(mou: MoURecord): boolean {
-  if (mou.isTerminated) return false;
-  // mou.date dari PocketBase bisa berformat "YYYY-MM-DD HH:mm:ss" — ambil tanggalnya saja
-  const end = addDays(mou.date.slice(0, 10), mou.contractPeriod);
-  return end < todayWibStr(); // perbandingan string "YYYY-MM-DD" aman
-}
-
-async function recordExpiredReturns(pb: PocketBase, mous: MoURecord[]): Promise<number> {
-  const expired = mous.filter(isMouExpiredNatural);
-  let recorded = 0;
-  for (const mou of expired) {
-    const tag = `[Modal-Kembali:${mou.investorId}:${mou.customId}]`;
-    try {
-      // Hanya catat pengembalian jika modal PKS ini pernah dicatat digunakan —
-      // PKS pending yang expired tanpa pernah aktif tidak boleh menghasilkan
-      // pemasukan (guard yang sama dengan recordModalPksDiKembalikan di client).
-      const usedTag = `[Modal-PKS:${mou.investorId}:${mou.customId}]`;
-      const used = await pb.collection("pengeluarans").getList(1, 1, {
-        filter: `catatan ~ "${pbEsc(usedTag)}"`,
-        fields: "id",
-      });
-      if (used.totalItems === 0) continue;
-
-      const existing = await pb.collection("pengeluarans").getList(1, 1, {
-        filter: `catatan ~ "${pbEsc(tag)}"`,
-        fields: "id",
-      });
-      if (existing.totalItems > 0) continue;
-
-      // Generate PGL ID
-      const today = todayWibStr();
-      const ym = today.slice(0, 7).replace("-", "");
-      const prefix = `PGL-${ym}-`;
-      const existing2 = await pb.collection("pengeluarans").getFullList({
-        filter: `customId ~ "${prefix}"`,
-        fields: "customId",
-      });
-      const max = existing2.reduce((m, r) => {
-        const n = parseInt((r.customId as string).slice(prefix.length)) || 0;
-        return n > m ? n : m;
-      }, 0);
-      const customId = `${prefix}${String(max + 1).padStart(3, "0")}`;
-
-      await pb.collection("pengeluarans").create({
-        customId,
-        date:      today,
-        deskripsi: `Modal Dikembalikan — ${mou.customId} (${mou.investorName})`,
-        debet:     mou.investmentAmount,
-        kredit:    0,
-        catatan:   tag,
-      });
-      recorded++;
-    } catch (e) {
-      console.warn(`[send-reminders] gagal catat modal kembali ${mou.customId}:`, e);
-    }
-  }
-  return recorded;
-}
 
 interface DueCycle {
   mou: MoURecord;
@@ -329,17 +269,12 @@ export async function GET(req: NextRequest) {
     await pb.collection("users").authWithPassword(serviceEmail, servicePassword);
 
     const records    = await pb.collection("mous").getFullList<MoURecord>({ sort: "date" });
-
-    // Catat pengembalian modal untuk PKS yang expired secara alami (tidak perlu di mode test)
-    const modalKembaliCount = await recordExpiredReturns(pb, records);
-
     const dueCycles  = findDueCycles(records);
 
     if (dueCycles.length === 0) {
       return NextResponse.json({
         sent: 0,
         message: "Tidak ada yang jatuh tempo hari ini",
-        modalKembali: modalKembaliCount,
       });
     }
 
@@ -398,12 +333,11 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
-      sent:        toSend.length,
+      sent:      toSend.length,
       emailStatus,
       waStatus,
-      modalKembali: modalKembaliCount,
-      errors:      errors.length ? errors : undefined,
-      investors:   toSend.map((c) => ({
+      errors:    errors.length ? errors : undefined,
+      investors: toSend.map((c) => ({
         name: c.mou.investorName, pks: c.mou.customId, cycle: c.cycleNumber,
       })),
     });

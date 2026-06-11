@@ -52,17 +52,17 @@ import {
 // ─── Rekap helpers ────────────────────────────────────────────────────────────
 
 function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
 function pct(n: number) { return `${n.toFixed(2)}%`; }
 
 function formatDate(s: string) {
   if (!s) return "-";
-  const d = new Date(s);
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return `${dt.getUTCDate()} ${MONTHS[dt.getUTCMonth()]} ${dt.getUTCFullYear()}`;
 }
 
 import type { MoU } from "@/lib/mou-context";
@@ -71,7 +71,8 @@ function calcMouDistribution(
   mou: MoU,
   transaksis: Transaksi[],
 ) {
-  const mouStart = new Date(mou.date).getTime();
+  const [sy, sm, sd] = mou.date.slice(0, 10).split("-").map(Number);
+  const mouStart = Date.UTC(sy, sm - 1, sd);
   const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
 
   const pp1Pct = (mou.bagiHasilPP1 ?? 50) / 100;
@@ -85,7 +86,8 @@ function calcMouDistribution(
   let pctSet = false;
 
   transaksis.forEach((t) => {
-    const tDate = new Date(t.date).getTime();
+    const [ty, tm, td] = (t.date as string).slice(0, 10).split("-").map(Number);
+    const tDate = Date.UTC(ty, tm - 1, td);
     if (tDate < mouStart || tDate > mouEnd) return;
 
     const entry = t.investorEntries.find((e) => e.investorId === mou.investorId);

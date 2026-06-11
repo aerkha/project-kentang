@@ -173,10 +173,6 @@ export function getMouStatus(mou: MoU): MouStatus {
   return "aktif";
 }
 
-/** Apakah PKS telah melewati tanggal berakhir secara alami (bukan terminate manual) */
-function isMouExpiredNatural(mou: MoU): boolean {
-  return getMouStatus(mou) === "expired";
-}
 
 /** Apakah sebuah MoU berstatus "aktif" (bukan expired, terminated, atau pending) */
 function isMouAktif(mou: MoU): boolean {
@@ -277,18 +273,6 @@ export function MouProvider({ children }: { children: ReactNode }) {
     initialSyncDone.current = true;
     Promise.all(syncs).catch(console.error);
 
-    // Catat pengembalian modal untuk PKS yang sudah expired secara alami.
-    // cashflowTagExists di dalam recordModalPksDiKembalikan mencegah duplikasi.
-    for (const m of mous) {
-      if (isMouExpiredNatural(m)) {
-        recordModalPksDiKembalikan(
-          m.investorId,
-          m.investorName,
-          m.id,
-          m.investmentAmount,
-        ).catch((e) => console.warn("cashflow-auto: gagal catat modal PKS dikembalikan:", e));
-      }
-    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mous, investors]);
 
@@ -475,6 +459,20 @@ export function MouProvider({ children }: { children: ReactNode }) {
         removeModalPksDiKembalikan(updatedMou.investorId, updatedMou.id)
           .catch((e) => console.warn("cashflow-auto: gagal hapus entri modal dikembalikan:", e));
       }
+    }
+
+    // ── Cash flow: renewal — date dimajukan sehingga expired → aktif ──
+    // isTerminated tidak berubah di sini (keduanya false).
+    // Modal yang sebelumnya "dikembalikan" saat expired harus dihapus
+    // karena modal kini digunakan kembali untuk periode perpanjangan.
+    if (
+      prevMou &&
+      !wasTerminated && !nowTerminated &&
+      getMouStatus(prevMou) === "expired" &&
+      getMouStatus(updatedMou) === "aktif"
+    ) {
+      removeModalPksDiKembalikan(updatedMou.investorId, updatedMou.id)
+        .catch((e) => console.warn("cashflow-auto: gagal hapus modal dikembalikan saat renewal:", e));
     }
   };
 

@@ -202,7 +202,7 @@ export function ReminderContent() {
   const { pengeluarans, addPengeluaran } = usePengeluaran();
   const { minbun, trader, updateMinbun, updateTrader } = useSettings();
   const { logs, isLoading: logsLoading, refresh: refreshLogs } = useReminderLogs();
-  const [isSendingReminder, setIsSendingReminder] = useState(false);
+  const [isSendingReminder,   setIsSendingReminder]   = useState(false);
   const [toggling, setToggling]          = useState<string | null>(null);
   const [showDone, setShowDone]          = useState(false);
   const [showExpired, setShowExpired]    = useState(true);
@@ -578,6 +578,7 @@ export function ReminderContent() {
         toast.success(parts.join(" · "));
         await refreshLogs();
       }
+
     } catch {
       toast.error("Gagal menghubungi server. Coba lagi.");
     } finally {

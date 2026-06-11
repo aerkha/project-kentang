@@ -50,19 +50,21 @@ interface MouRecord {
   contractPeriod:   number;
   investmentAmount: number;
   bagiHasilPK:      number;   // % bagi hasil PKS (default 35)
-  status:           string;
+  isTerminated:     boolean;
+  signedDoc:        string;
   bagiHasilChecks?: Record<string, boolean>;
   bagiHasilDone?:   boolean;
 }
 
 interface TiRecord {
-  transaksiId:    string;
-  investorId:     string;
-  nilaiInvestasi: number;
-  pctTrader:      number;
-  pctMinBun:      number;
-  pctBrokerI:     number;
-  pctBrokerII:    number;
+  transaksiId:        string;
+  investorId:         string;
+  investorBrokerName: string;
+  nilaiInvestasi:     number;
+  pctTrader:          number;
+  pctMinBun:          number;
+  pctBrokerI:         number;
+  pctBrokerII:        number;
 }
 
 interface TrxRecord {
@@ -103,9 +105,15 @@ function calcBagiHasil(
   const ratio    = ti.nilaiInvestasi / totalModal;
   const share    = profit * ratio;              // porsi profit proporsional investor ini
   const investor = share * pkPct;               // mis. 35% dari porsi profit-nya
-  const trader   = share * (ti.pctTrader  / 100);
-  const minbun   = share * (ti.pctMinBun  / 100);
-  const broker   = share * ((ti.pctBrokerI + ti.pctBrokerII) / 100);
+  const allZero   = ti.pctTrader === 0 && ti.pctMinBun === 0 && ti.pctBrokerI === 0 && ti.pctBrokerII === 0;
+  const hasBroker = !!ti.investorBrokerName;
+  const pT  = allZero ? 10                   : ti.pctTrader;
+  const pM  = allZero ? (hasBroker ? 0 : 5)  : ti.pctMinBun;
+  const pBI = allZero ? (hasBroker ? 5 : 0)  : ti.pctBrokerI;
+  const pBII= allZero ? 0                    : ti.pctBrokerII;
+  const trader   = share * pT           / 100;
+  const minbun   = share * pM           / 100;
+  const broker   = share * (pBI + pBII) / 100;
   return { investor, trader, minbun, broker };
 }
 
@@ -117,6 +125,16 @@ interface HistoryRow {
   bh:               BagiHasil;
   status:           string;
   lunas:            boolean;
+}
+
+function computeMouStatus(mou: Pick<MouRecord, "date" | "contractPeriod" | "isTerminated" | "signedDoc">): string {
+  if (mou.isTerminated) return "dihentikan";
+  const todayStr = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
+  const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
+  const endStr    = new Date(Date.UTC(y, m - 1, d + mou.contractPeriod)).toISOString().slice(0, 10);
+  if (endStr < todayStr) return "expired";
+  if (mou.date.slice(0, 10) < todayStr || mou.signedDoc) return "aktif";
+  return "pending";
 }
 
 async function buildHistory(
@@ -137,7 +155,8 @@ async function buildHistory(
       contractPeriod:   r.contractPeriod   as number,
       investmentAmount: r.investmentAmount as number,
       bagiHasilPK:      (r.bagiHasilPK    as number) ?? 35,
-      status:           (r.status          as string) || "aktif",
+      isTerminated:     r.isTerminated === true,
+      signedDoc:        Array.isArray(r.signedDoc) ? ((r.signedDoc[0] as string) || "") : ((r.signedDoc as string) || ""),
       bagiHasilChecks:  (r.bagiHasilChecks as Record<string, boolean>) || {},
       bagiHasilDone:    r.bagiHasilDone   as boolean,
     }));
@@ -155,9 +174,10 @@ async function buildHistory(
       sort:   "-created",
     });
     myTis = res.items.map((r) => ({
-      transaksiId:    r.transaksiId    as string,
-      investorId:     r.investorId     as string,
-      nilaiInvestasi: r.nilaiInvestasi as number,
+      transaksiId:        r.transaksiId        as string,
+      investorId:         r.investorId         as string,
+      investorBrokerName: (r.investorBrokerName as string) || "",
+      nilaiInvestasi:     r.nilaiInvestasi     as number,
       pctTrader:      (r.pctTrader     as number) ?? 10,
       pctMinBun:      (r.pctMinBun     as number) ?? 5,
       pctBrokerI:     (r.pctBrokerI    as number) ?? 0,
@@ -173,7 +193,7 @@ async function buildHistory(
       periodeEnd:       addDays(mou.date, mou.contractPeriod),
       investmentAmount: mou.investmentAmount,
       bh:               { investor: 0, trader: 0, minbun: 0, broker: 0 },
-      status:           mou.status,
+      status:           computeMouStatus(mou),
       lunas:            mou.bagiHasilDone === true,
     }));
   }
@@ -257,7 +277,7 @@ async function buildHistory(
       periodeEnd,
       investmentAmount: mou.investmentAmount,
       bh:               totalBh,
-      status:           mou.status,
+      status:           computeMouStatus(mou),
       lunas:            mou.bagiHasilDone === true,
     };
   });
@@ -277,12 +297,14 @@ function buildHistoryTableHtml(rows: HistoryRow[]): string {
 
   const statusLabel: Record<string, string> = {
     aktif:      "Aktif",
+    pending:    "Menunggu TTD",
     expired:    "Berakhir",
     selesai:    "Selesai",
     dihentikan: "Dihentikan",
   };
   const statusColor: Record<string, string> = {
     aktif:      "#16a34a",
+    pending:    "#d97706",
     expired:    "#dc2626",
     selesai:    "#2563eb",
     dihentikan: "#6b7280",

@@ -201,8 +201,8 @@ export async function removeModalInvestorMasuk(investorId: string): Promise<void
  * @param date             tanggal PKS (YYYY-MM-DD)
  */
 /**
- * Catat modal dikembalikan saat PKS expired secara alami sebagai **pemasukan (debet)**.
- * Dipanggil saat PKS melewati tanggal berakhir dan belum di-terminate manual.
+ * Catat modal dikembalikan sebagai **pemasukan (debet)**.
+ * Dipanggil saat PKS dinonaktifkan (isTerminated = true) secara manual.
  *
  * @param investorId       customId investor
  * @param investorName     nama investor

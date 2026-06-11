@@ -47,10 +47,16 @@ import {
   CalendarDays,
   PowerOff,
   RotateCcw,
+  RefreshCw,
   Upload,
   ChevronDown,
   PenLine,
 } from "lucide-react";
+
+function addDays(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
 
 // ─────────────────────────────────────────────
 // Types
@@ -628,6 +634,9 @@ export function MouContent() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isTerminateOpen, setIsTerminateOpen] = useState(false);
   const [terminateAction, setTerminateAction] = useState<"nonaktifkan" | "aktifkan">("nonaktifkan");
+  const [isRenewOpen, setIsRenewOpen] = useState(false);
+  const [renewTarget, setRenewTarget] = useState<MoU | null>(null);
+  const [isRenewing, setIsRenewing] = useState(false);
   const [selected, setSelected] = useState<MoU | null>(null);
   const [form, setForm] = useState<MouFormData>(initialForm);
 
@@ -719,6 +728,31 @@ export function MouContent() {
       setErrorInfo(formatPbError(err, "Gagal mengubah status PKS"));
     } finally {
       setIsConfirming(false);
+    }
+  };
+
+  // ── Renewal PKS ──
+  const openRenew = (mou: MoU) => {
+    setRenewTarget(mou);
+    setIsRenewOpen(true);
+  };
+
+  const confirmRenew = async () => {
+    if (!renewTarget) return;
+    setIsRenewing(true);
+    try {
+      await updateMou(renewTarget.id, {
+        date: addDays(renewTarget.date, renewTarget.contractPeriod),
+        bagiHasilDone: false,
+        bagiHasilChecks: {},
+      });
+      toast.success("PKS berhasil diperpanjang");
+      setRenewTarget(null);
+      setIsRenewOpen(false);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal memperpanjang PKS"));
+    } finally {
+      setIsRenewing(false);
     }
   };
 
@@ -1178,6 +1212,17 @@ export function MouContent() {
                             >
                               <Upload className={`h-3.5 w-3.5 ${mou.hasSignedDoc ? "text-green-600" : "text-blue-500"}`} />
                             </Button>
+                            {status === "expired" && mou.bagiHasilDone && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              title="Perpanjang PKS"
+                              onClick={() => openRenew(mou)}
+                            >
+                              <RefreshCw className="h-3.5 w-3.5 text-blue-600" />
+                            </Button>
+                            )}
                             </>
                             )}
                             {canDelete && (
@@ -1559,6 +1604,37 @@ export function MouContent() {
                 : !ttdPreview && ttdTarget?.esignPihakKedua
                 ? "Hapus Tanda Tangan"
                 : "Simpan Tanda Tangan"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog Perpanjang PKS ── */}
+      <Dialog open={isRenewOpen} onOpenChange={(o) => { if (!isRenewing) setIsRenewOpen(o); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Perpanjang PKS</DialogTitle>
+            <DialogDescription>
+              {renewTarget && (() => {
+                const newDate = addDays(renewTarget.date, renewTarget.contractPeriod);
+                return (
+                  <>
+                    PKS <strong>{renewTarget.id}</strong> akan diperpanjang selama{" "}
+                    <strong>{renewTarget.contractPeriod} hari</strong>. Tanggal mulai baru:{" "}
+                    <strong>{newDate}</strong>.
+                    <br /><br />
+                    Status bagi hasil akan direset. Tindakan ini tidak dapat dibatalkan.
+                  </>
+                );
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsRenewOpen(false)} disabled={isRenewing}>
+              Batal
+            </Button>
+            <Button onClick={confirmRenew} disabled={isRenewing}>
+              {isRenewing ? "Memproses..." : "Perpanjang"}
             </Button>
           </DialogFooter>
         </DialogContent>
