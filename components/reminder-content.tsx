@@ -60,8 +60,8 @@ const MONTHS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov
 
 function formatDate(s: string) {
   if (!s) return "-";
-  const d = new Date(s);
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]} ${y}`;
 }
 
 function formatShort(n: number) {

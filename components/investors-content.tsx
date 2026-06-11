@@ -571,15 +571,17 @@ export function InvestorsContent() {
     transaksis.forEach((t) => {
       const c = calcTransaksi(t);
       if (c.totalInvestasi === 0) return;
-      const tTime = new Date(t.date).getTime();
+      const [ty, tm, td] = (t.date as string).slice(0, 10).split("-").map(Number);
+      const tTime = Date.UTC(ty, tm - 1, td);
       t.investorEntries.forEach((entry) => {
         const ratio = entry.nilaiInvestasi / c.totalInvestasi;
         // Pakai % Pihak Kedua dari PKS investor yang periodenya mencakup
         // tanggal transaksi — konsisten dengan dashboard & dokumen PKS.
         const mou = mous.find((m) => {
           if (m.investorId !== entry.investorId) return false;
-          const start = new Date(m.date).getTime();
-          return tTime >= start && tTime <= start + m.contractPeriod * 86_400_000;
+          const [my, mm, md] = m.date.slice(0, 10).split("-").map(Number);
+          const start = Date.UTC(my, mm - 1, md);
+          return tTime >= start && tTime < start + m.contractPeriod * 86_400_000;
         });
         const pkPct = (mou?.bagiHasilPK ?? 35) / 100;
         const bh    = c.profit > 0 ? c.profit * pkPct * ratio : 0;

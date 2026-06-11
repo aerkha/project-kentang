@@ -26,8 +26,8 @@ const MONTHS = [
 ];
 
 function fmtDate(s: string) {
-  const d = new Date(s);
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]} ${y}`;
 }
 
 function fmtRp(n: number) {
