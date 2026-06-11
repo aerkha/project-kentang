@@ -137,12 +137,12 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
         setInvestors((prev) => [...prev, recordToInvestor(record, map)]);
 
         // Catat modal investor masuk ke cash flow (pemasukan / debet)
-        // Fire-and-forget: jangan blokir UI jika gagal
-        recordModalInvestorMasuk(
+        // Dicatat segera saat investor ditambahkan, tanpa menunggu PKS aktif.
+        await recordModalInvestorMasuk(
           customId,
           inv.name,
           inv.investmentAmount,
-        ).catch((e) => console.warn("cashflow-auto: gagal catat modal investor masuk:", e));
+        );
 
         return customId;
       } catch (err) {
