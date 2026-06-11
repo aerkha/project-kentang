@@ -59,7 +59,10 @@ async function createCashflowEntry(opts: {
   kredit:    number;
   catatan:   string;
 }): Promise<void> {
-  let customId = await generatePglId(opts.date);
+  // Normalisasi ke "YYYY-MM-DD" — PocketBase kadang mengembalikan datetime
+  // "YYYY-MM-DD HH:mm:ss.000Z" yang ditolak oleh field date tipe "date".
+  const dateStr = opts.date.slice(0, 10);
+  let customId = await generatePglId(dateStr);
 
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
@@ -67,7 +70,7 @@ async function createCashflowEntry(opts: {
         customId,
         createdBy: currentUserId(),
         updatedBy: currentUserId(),
-        date:      opts.date,
+        date:      dateStr,
         deskripsi: opts.deskripsi,
         debet:     opts.debet,
         kredit:    opts.kredit,
@@ -77,7 +80,7 @@ async function createCashflowEntry(opts: {
     } catch (err) {
       if (isCustomIdConflict(err) && attempt < 4) {
         // ID konflik dengan insert concurrent dari pengeluaran-context — generate ulang
-        customId = await generatePglId(opts.date);
+        customId = await generatePglId(dateStr);
         continue;
       }
       throw err;

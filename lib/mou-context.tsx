@@ -167,8 +167,7 @@ export function getMouStatus(mou: MoU): MouStatus {
   const end   = new Date(start);
   end.setUTCDate(end.getUTCDate() + mou.contractPeriod);
   if (end < today) return "expired";
-  // PKS yang tanggal mulainya sudah tiba (hari ini atau sebelumnya) langsung aktif tanpa perlu signedDoc
-  const isBackdate = start <= today;
+  const isBackdate = start < today;
   if (!isBackdate && !mou.hasSignedDoc) return "pending";
   return "aktif";
 }
