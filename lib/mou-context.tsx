@@ -380,13 +380,13 @@ export function MouProvider({ children }: { children: ReactNode }) {
 
     // Jika PKS langsung aktif (backdate), catat modal digunakan ke cash flow
     if (isMouAktif(newMou)) {
-      recordModalPksDigunakan(
+      await recordModalPksDigunakan(
         newMou.investorId,
         newMou.investorName,
         newMou.id,
         newMou.investmentAmount,
         newMou.date,
-      ).catch((e) => console.warn("cashflow-auto: gagal catat modal PKS digunakan:", e));
+      );
     }
   };
 
