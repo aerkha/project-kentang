@@ -139,7 +139,7 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
  * keduanya harus berada di zona waktu yang sama agar perbandingan tidak off satu hari.
  */
 function parseUtcDate(s: string): Date {
-  const [y, m, d] = s.split("-").map(Number);
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d));
 }
 
@@ -167,8 +167,8 @@ export function getMouStatus(mou: MoU): MouStatus {
   const end   = new Date(start);
   end.setUTCDate(end.getUTCDate() + mou.contractPeriod);
   if (end < today) return "expired";
-  // PKS backdate (tanggal mulai sebelum hari ini) langsung aktif tanpa perlu signedDoc
-  const isBackdate = start < today;
+  // PKS yang tanggal mulainya sudah tiba (hari ini atau sebelumnya) langsung aktif tanpa perlu signedDoc
+  const isBackdate = start <= today;
   if (!isBackdate && !mou.hasSignedDoc) return "pending";
   return "aktif";
 }
