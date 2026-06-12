@@ -335,16 +335,32 @@ export async function runRemindersTest(): Promise<ReminderResult> {
  * @param triggeredBy "cron" (otomatis, dedup aktif) atau "manual" (boleh kirim ulang)
  */
 export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderResult> {
-  const serviceEmail    = process.env.PB_SERVICE_EMAIL;
-  const servicePassword = process.env.PB_SERVICE_PASSWORD;
+  // Trim untuk menghindari spasi/newline yang sering ikut ter-paste saat mengisi
+  // environment variable di dashboard (penyebab umum "Failed to authenticate").
+  const serviceEmail    = process.env.PB_SERVICE_EMAIL?.trim();
+  const servicePassword = process.env.PB_SERVICE_PASSWORD?.trim();
   if (!serviceEmail || !servicePassword) {
     return { status: 500, body: { error: "Service account tidak dikonfigurasi" } };
   }
 
-  try {
-    const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
-    await pb.collection("users").authWithPassword(serviceEmail, servicePassword);
+  const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL?.trim());
 
+  // Autentikasi service account secara terpisah agar pesan error spesifik —
+  // bukan "Internal error" yang menyamarkan masalah kredensial.
+  try {
+    await pb.collection("users").authWithPassword(serviceEmail, servicePassword);
+  } catch (err) {
+    console.error("[send-reminders] auth service account gagal", err);
+    return {
+      status: 401,
+      body: {
+        error: "Service account gagal login ke PocketBase",
+        detail: "Periksa PB_SERVICE_EMAIL & PB_SERVICE_PASSWORD (pastikan tanpa spasi/newline, dan akun ada di koleksi 'users').",
+      },
+    };
+  }
+
+  try {
     const records = await pb.collection("mous").getFullList<MoURecord>({ sort: "date" });
     const dueMous = findDueMous(records);
 

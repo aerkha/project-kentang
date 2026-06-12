@@ -566,11 +566,11 @@ export function ReminderContent() {
       const data = await res.json() as {
         sent?: number; message?: string;
         adminEmailStatus?: string; investorEmailsSent?: number;
-        waStatus?: string; errors?: string[]; error?: string;
+        waStatus?: string; errors?: string[]; error?: string; detail?: string;
       };
 
       if (!res.ok) {
-        toast.error(`Gagal: ${data.error ?? "Unknown error"}`);
+        toast.error(`Gagal: ${data.error ?? "Unknown error"}${data.detail ? ` — ${data.detail}` : ""}`);
       } else if (data.sent === 0) {
         toast.info(data.message ?? "Tidak ada yang perlu dikirim");
       } else {
