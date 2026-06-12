@@ -166,15 +166,14 @@ async function buildHistory(
   }
   if (mous.length === 0) return [];
 
-  // 2. Ambil 10 TI records terbaru milik investor ini.
-  //    Dibatasi 10 transaksi terakhir agar tidak timeout di serverless function.
+  // 2. Ambil semua TI records milik investor ini.
   let myTis: TiRecord[] = [];
   try {
-    const res = await pb.collection("transaksi_investors").getList(1, 10, {
+    const res = await pb.collection("transaksi_investors").getFullList({
       filter: `investorId = "${pbEsc(investorId)}"`,
       sort:   "-created",
     });
-    myTis = res.items.map((r) => ({
+    myTis = res.map((r) => ({
       transaksiId:        r.transaksiId        as string,
       investorId:         r.investorId         as string,
       investorBrokerName: (r.investorBrokerName as string) || "",
@@ -223,7 +222,7 @@ async function buildHistory(
   const totalModalMap = new Map<string, number>(); // transaksiId → total semua investor
   if (trxIdSet.size > 0) {
     try {
-      const idFilter = [...trxIdSet].map((id) => `transaksiId = "${id}"`).join(" || ");
+      const idFilter = [...trxIdSet].map((id) => `transaksiId = "${pbEsc(id)}"`).join(" || ");
       const raw = await pb.collection("transaksi_investors").getFullList({
         filter: idFilter,
         fields: "transaksiId,nilaiInvestasi",

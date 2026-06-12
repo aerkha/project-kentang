@@ -339,7 +339,7 @@ export function ReminderContent() {
   const handleUncheck = async (mou: MoU, keterangan: string) => {
     const key    = `${mou.id}__${keterangan}`;
     const checks = { ...(mou.bagiHasilChecks ?? {}), [keterangan]: false };
-    const task   = tasks.find((t) => t.mou.id === mou.id);
+    const task   = [...tasks, ...expiredPendingTasks].find((t) => t.mou.id === mou.id);
     const allDone = task ? task.rows.every((r) => checks[r.keterangan]) : false;
     setToggling(key);
     try {

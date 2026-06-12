@@ -369,7 +369,8 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
     }
 
     // Filter yang belum pernah dikirim (kecuali manual — boleh kirim ulang).
-    // Dedup per PKS: satu reminder akhir periode per customId untuk channel cron.
+    // Dedup per PKS: cek semua log (cron maupun manual) agar manual trigger hari
+    // ini tidak menyebabkan cron mengirim ulang di hari catch-up berikutnya.
     const toSend: DueMou[] = [];
     if (triggeredBy === "manual") {
       toSend.push(...dueMous);
@@ -378,7 +379,7 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
         dueMous.map((d) =>
           pb.collection("reminder_logs")
             .getList(1, 1, {
-              filter: `mouCustomId = "${pbEsc(d.mou.customId)}" && triggeredBy = "cron"`,
+              filter: `mouCustomId = "${pbEsc(d.mou.customId)}"`,
             })
             .then((r) => r.totalItems > 0)
             .catch(() => false),
@@ -422,28 +423,36 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
       return "failed" as ChannelStatus;
     });
 
-    // Email per investor + simpan log per PKS
-    let investorSent = 0;
-    for (const d of toSend) {
-      const investorEmail = investorEmailMap.get(d.mou.investorId) ?? "";
-      const investorEmailStatus = await sendInvestorEmail(investorEmail, d, todayStr).catch((e) => {
-        errors.push(`Email ${d.mou.customId}: ${String(e)}`);
-        return "failed" as ChannelStatus;
-      });
-      if (investorEmailStatus === "sent") investorSent++;
+    // Email per investor + simpan log per PKS — dijalankan paralel agar tidak
+    // timeout di Vercel saat banyak PKS berakhir bersamaan.
+    // Error dikumpulkan per-PKS (bukan akumulatif) agar log setiap PKS hanya
+    // mencatat error miliknya sendiri, bukan error dari iterasi sebelumnya.
+    const results = await Promise.all(
+      toSend.map(async (d) => {
+        const perErrors: string[] = [];
+        const investorEmail = investorEmailMap.get(d.mou.investorId) ?? "";
+        const investorEmailStatus = await sendInvestorEmail(investorEmail, d, todayStr).catch((e) => {
+          perErrors.push(String(e));
+          return "failed" as ChannelStatus;
+        });
+        await pb.collection("reminder_logs").create({
+          mouCustomId:  d.mou.customId,
+          cycleNumber:  0,
+          sentAt:       new Date().toISOString(),
+          investorName: d.mou.investorName,
+          emailStatus:  investorEmailStatus,
+          waStatus,
+          errorMessage: perErrors.join(" | "),
+          triggeredBy,
+        }).catch(() => {});
+        return { investorEmailStatus, perErrors };
+      }),
+    );
 
-      await pb.collection("reminder_logs").create({
-        mouCustomId:  d.mou.customId,
-        cycleNumber:  0,
-        sentAt:       new Date().toISOString(),
-        investorName: d.mou.investorName,
-        // emailStatus mencerminkan email INVESTOR untuk PKS ini; status email admin
-        // dicatat di errorMessage bila gagal.
-        emailStatus:  investorEmailStatus,
-        waStatus,
-        errorMessage: errors.join(" | "),
-        triggeredBy,
-      }).catch(() => {});
+    let investorSent = 0;
+    for (const r of results) {
+      if (r.investorEmailStatus === "sent") investorSent++;
+      if (r.perErrors.length) errors.push(...r.perErrors);
     }
 
     return {
