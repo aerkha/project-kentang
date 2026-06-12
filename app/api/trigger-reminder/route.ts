@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
+import { runReminders } from "@/lib/send-reminders-core";
 
 /**
  * POST /api/trigger-reminder
@@ -10,9 +11,8 @@ import PocketBase from "pocketbase";
  *
  * Flow:
  *   Browser → POST /api/trigger-reminder (header: Authorization: Bearer <pb_token>)
- *     → verifikasi token ke PocketBase
- *     → pastikan user adalah admin
- *     → panggil /api/send-reminders?manual=true dengan CRON_SECRET (server-side)
+ *     → verifikasi token ke PocketBase, pastikan user adalah admin
+ *     → jalankan runReminders("manual") langsung (tanpa HTTP self-call)
  *     → kembalikan hasil ke browser
  */
 export async function POST(req: NextRequest) {
@@ -24,13 +24,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // 2. Verifikasi token ke PocketBase
+  // 2. Verifikasi token ke PocketBase — hanya admin yang boleh trigger
   try {
     const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
     pb.authStore.save(pbToken, null);
     const user = await pb.collection("users").authRefresh();
 
-    // Pastikan hanya admin yang bisa trigger
     if (user.record?.role !== "admin") {
       return NextResponse.json({ error: "Forbidden — hanya admin" }, { status: 403 });
     }
@@ -38,23 +37,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Token tidak valid atau sudah expired" }, { status: 401 });
   }
 
-  // 3. Panggil send-reminders server-side dengan CRON_SECRET (tidak pernah ke browser)
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    return NextResponse.json({ error: "CRON_SECRET belum dikonfigurasi di server" }, { status: 500 });
-  }
-
-  const baseUrl   = process.env.NEXT_PUBLIC_APP_URL ?? `http://localhost:${process.env.PORT ?? 3000}`;
-  const targetUrl = `${baseUrl}/api/send-reminders?manual=true`;
-
-  try {
-    const res  = await fetch(targetUrl, {
-      headers: { Authorization: `Bearer ${cronSecret}` },
-    });
-    const data = await res.json();
-    return NextResponse.json(data, { status: res.status });
-  } catch (err) {
-    console.error("[trigger-reminder]", err);
-    return NextResponse.json({ error: "Gagal menghubungi send-reminders", detail: String(err) }, { status: 500 });
-  }
+  // 3. Jalankan logika reminder langsung (manual → boleh kirim ulang).
+  //    Memanggil core in-process, bukan fetch ke /api/send-reminders, agar tidak
+  //    bergantung pada base URL deployment (NEXT_PUBLIC_APP_URL).
+  const { status, body } = await runReminders("manual");
+  return NextResponse.json(body, { status });
 }
