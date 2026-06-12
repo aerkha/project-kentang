@@ -564,7 +564,8 @@ export function ReminderContent() {
         headers: { Authorization: `Bearer ${pbToken}` },
       });
       const data = await res.json() as {
-        sent?: number; message?: string; emailStatus?: string;
+        sent?: number; message?: string;
+        adminEmailStatus?: string; investorEmailsSent?: number;
         waStatus?: string; errors?: string[]; error?: string;
       };
 
@@ -574,8 +575,10 @@ export function ReminderContent() {
         toast.info(data.message ?? "Tidak ada yang perlu dikirim");
       } else {
         const parts = [`${data.sent} reminder terkirim`];
-        if (data.emailStatus === "sent")    parts.push("✉️ Email OK");
-        if (data.emailStatus === "skipped") parts.push("✉️ Email (belum dikonfigurasi)");
+        if (data.adminEmailStatus === "sent")    parts.push("✉️ Email admin OK");
+        if (data.adminEmailStatus === "skipped") parts.push("✉️ Email admin (belum dikonfigurasi)");
+        if (typeof data.investorEmailsSent === "number" && data.investorEmailsSent > 0)
+          parts.push(`✉️ ${data.investorEmailsSent} email investor`);
         if (data.waStatus    === "sent")    parts.push("💬 WA OK");
         if (data.waStatus    === "skipped") parts.push("💬 WA (belum dikonfigurasi)");
         toast.success(parts.join(" · "));
