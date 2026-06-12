@@ -595,17 +595,18 @@ export async function POST(req: NextRequest) {
   const baseOpts = { investorName, mouCustomId, keterangan, jumlah, buktiUrl, tanggal };
   const errors: string[] = [];
 
-  // 5. Kirim WA ke investor
-  const waStatus = await sendWhatsApp(investorPhone, { ...baseOpts, history }).catch((e) => {
-    errors.push(`WA: ${String(e)}`);
-    return "failed" as ChannelStatus;
-  });
-
-  // 6. Kirim email ke investor
-  const emailStatus = await sendEmail(investorEmail, { ...baseOpts, historyHtml }).catch((e) => {
-    errors.push(`Email: ${String(e)}`);
-    return "failed" as ChannelStatus;
-  });
+  // 5 & 6. Kirim WA dan email ke investor secara paralel agar WA yang lambat
+  //         tidak menunda email (keduanya independen satu sama lain).
+  const [waStatus, emailStatus] = await Promise.all([
+    sendWhatsApp(investorPhone, { ...baseOpts, history }).catch((e) => {
+      errors.push(`WA: ${String(e)}`);
+      return "failed" as ChannelStatus;
+    }),
+    sendEmail(investorEmail, { ...baseOpts, historyHtml }).catch((e) => {
+      errors.push(`Email: ${String(e)}`);
+      return "failed" as ChannelStatus;
+    }),
+  ]);
 
   // 7. Simpan log ke reminder_logs (silent — tidak gagalkan response)
   pb.collection("reminder_logs").create({

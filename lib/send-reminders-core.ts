@@ -369,8 +369,9 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
     }
 
     // Filter yang belum pernah dikirim (kecuali manual — boleh kirim ulang).
-    // Dedup per PKS: cek semua log (cron maupun manual) agar manual trigger hari
-    // ini tidak menyebabkan cron mengirim ulang di hari catch-up berikutnya.
+    // Dedup per PKS: hanya cek log reminder (cron/manual), bukan log "notifikasi"
+    // dari notify-investor agar konfirmasi pembayaran tidak memblokir reminder
+    // akhir periode yang merupakan notifikasi berbeda.
     const toSend: DueMou[] = [];
     if (triggeredBy === "manual") {
       toSend.push(...dueMous);
@@ -379,7 +380,7 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
         dueMous.map((d) =>
           pb.collection("reminder_logs")
             .getList(1, 1, {
-              filter: `mouCustomId = "${pbEsc(d.mou.customId)}"`,
+              filter: `mouCustomId = "${pbEsc(d.mou.customId)}" && (triggeredBy = "cron" || triggeredBy = "manual")`,
             })
             .then((r) => r.totalItems > 0)
             .catch(() => false),
