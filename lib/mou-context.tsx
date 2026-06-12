@@ -167,7 +167,10 @@ export function getMouStatus(mou: MoU): MouStatus {
   const start = parseUtcDate(mou.date);
   const end   = new Date(start);
   end.setUTCDate(end.getUTCDate() + mou.contractPeriod);
-  if (end < today) return "expired";
+  // Periode PKS eksklusif [start, end): tepat di tanggal berakhir PKS sudah
+  // expired — sejalan dengan filter transaksi bagi hasil, dan PKS perpanjangan
+  // (mulai = tanggal berakhir PKS lama) tidak pernah aktif bersamaan.
+  if (end <= today) return "expired";
   const isBackdate = start < today;
   if (!isBackdate && !mou.hasSignedDoc) return "pending";
   return "aktif";

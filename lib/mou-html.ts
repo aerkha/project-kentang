@@ -62,12 +62,16 @@ export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string 
   const words    = esc(cap(terbilang(mou.investmentAmount)));
   const period   = `${cap(angkaTerbilang(mou.contractPeriod))} (${mou.contractPeriod}) hari`;
 
-  // Cari transaksi yang cocok: investorId sama, tanggal dalam periode PKS
-  const mouStart = new Date(mou.date).getTime();
+  // Cari transaksi yang cocok: investorId sama, tanggal dalam periode PKS.
+  // Batas akhir eksklusif [start, end) — transaksi di tanggal akhir milik
+  // periode perpanjangan, agar tidak terhitung dobel di kedua MoU.
+  const [my, mm, md] = mou.date.slice(0, 10).split("-").map(Number);
+  const mouStart = Date.UTC(my, mm - 1, md);
   const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
   const trx = transaksis.find((t) => {
-    const tDate = new Date(t.date).getTime();
-    return tDate >= mouStart && tDate <= mouEnd &&
+    const [ty, tm, td] = t.date.slice(0, 10).split("-").map(Number);
+    const tDate = Date.UTC(ty, tm - 1, td);
+    return tDate >= mouStart && tDate < mouEnd &&
       t.investorEntries.some((e) => e.investorId === mou.investorId);
   });
 

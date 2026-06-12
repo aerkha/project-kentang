@@ -103,7 +103,10 @@ function calcBagiHasil(mou: MoU, transaksis: Transaksi[]) {
   transaksis.forEach((t) => {
     const [ty, tm, td] = (t.date as string).slice(0, 10).split("-").map(Number);
     const tDate = Date.UTC(ty, tm - 1, td);
-    if (tDate < mouStart || tDate > mouEnd) return;
+    // Batas akhir EKSKLUSIF [start, end): PKS perpanjangan mulai tepat di tanggal
+    // akhir PKS lama, jadi transaksi di tanggal itu milik periode perpanjangan —
+    // inklusif akan menghitung dobel di kedua periode.
+    if (tDate < mouStart || tDate >= mouEnd) return;
 
     const entry = t.investorEntries.find((e) => e.investorId === mou.investorId);
     if (!entry) return;

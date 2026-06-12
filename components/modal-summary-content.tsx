@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useMou, getMouStatus, type MoU, type MouStatus } from "@/lib/mou-context";
 import { useTransaksi, calcTransaksi } from "@/lib/transaksi-context";
+import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -92,15 +93,29 @@ export function ModalSummaryContent() {
 
   // Hitung data per-PKS (menggunakan transaksi yang sudah difilter)
   const mouRows = useMemo<MouModalRow[]>(() => {
+    const [ty, tm, td] = todayWibStr().split("-").map(Number);
+    const todayMs = Date.UTC(ty, tm - 1, td);
+
     return activeMous.map((mou) => {
       const endDate  = addDays(mou.date, mou.contractPeriod);
-      const daysLeft = Math.ceil((endDate.getTime() - Date.now()) / 86400000);
+      // Sisa hari dihitung dari kalender WIB, bukan jam lokal browser
+      const daysLeft = Math.round((endDate.getTime() - todayMs) / 86400000);
+
+      const [my, mm, md] = mou.date.slice(0, 10).split("-").map(Number);
+      const mouStart = Date.UTC(my, mm - 1, md);
+      const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
 
       let modalDisalurkan = 0;
       let profitBersih    = 0;
       let trxCount        = 0;
 
       filteredTransaksis.forEach((t) => {
+        // Hanya transaksi dalam periode PKS ini — batas akhir eksklusif [start, end),
+        // konsisten dengan halaman lain agar PKS lama & perpanjangan tidak dobel
+        const [y, m, d] = t.date.slice(0, 10).split("-").map(Number);
+        const tDate = Date.UTC(y, m - 1, d);
+        if (tDate < mouStart || tDate >= mouEnd) return;
+
         const entry = t.investorEntries.find((e) => e.investorId === mou.investorId);
         if (!entry) return;
         const c = calcTransaksi(t);

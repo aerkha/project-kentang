@@ -132,7 +132,8 @@ function computeMouStatus(mou: Pick<MouRecord, "date" | "contractPeriod" | "isTe
   const todayStr = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
   const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
   const endStr    = new Date(Date.UTC(y, m - 1, d + mou.contractPeriod)).toISOString().slice(0, 10);
-  if (endStr < todayStr) return "expired";
+  // Periode eksklusif [start, end) — konsisten dengan getMouStatus di client
+  if (endStr <= todayStr) return "expired";
   if (mou.date.slice(0, 10) < todayStr || mou.signedDoc) return "aktif";
   return "pending";
 }
@@ -248,10 +249,12 @@ async function buildHistory(
       const trx = trxMap.get(ti.transaksiId);
       if (!trx) continue;
 
-      // Filter: hanya transaksi yang tanggalnya masuk periode MoU ini
+      // Filter: hanya transaksi yang tanggalnya masuk periode MoU ini.
+      // Batas akhir eksklusif [start, end) — transaksi di tanggal akhir milik
+      // periode perpanjangan, agar tidak terhitung dobel di kedua MoU.
       const [ty, tm, td] = (trx.date as string).slice(0, 10).split("-").map(Number);
       const tDate = Date.UTC(ty, tm - 1, td);
-      if (tDate < mouStart || tDate > mouEnd) continue;
+      if (tDate < mouStart || tDate >= mouEnd) continue;
 
       // Hitung profit transaksi
       const qty         = trx.hpp > 0 ? trx.kebutuhanModal / trx.hpp : 0;

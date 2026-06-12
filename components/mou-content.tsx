@@ -119,8 +119,10 @@ function formatDate(s: string) {
     "Jan","Feb","Mar","Apr","Mei","Jun",
     "Jul","Agu","Sep","Okt","Nov","Des",
   ];
-  const d = new Date(s);
-  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  // Parse manual "YYYY-MM-DD" — new Date(s) + getDate() memakai timezone lokal
+  // browser dan bisa meleset satu hari dari kalender WIB.
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+  return `${d} ${months[m - 1]} ${y}`;
 }
 
 function formatRp(n: number) {
@@ -132,9 +134,7 @@ function formatRp(n: number) {
 }
 
 function endDate(mou: MoU) {
-  const d = new Date(mou.date);
-  d.setDate(d.getDate() + mou.contractPeriod);
-  return d.toISOString().slice(0, 10);
+  return addDays(mou.date, mou.contractPeriod);
 }
 
 // ─────────────────────────────────────────────

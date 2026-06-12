@@ -5,6 +5,7 @@ import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
 import { useMou } from "@/lib/mou-context";
 import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
+import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -88,7 +89,9 @@ function calcMouDistribution(
   transaksis.forEach((t) => {
     const [ty, tm, td] = (t.date as string).slice(0, 10).split("-").map(Number);
     const tDate = Date.UTC(ty, tm - 1, td);
-    if (tDate < mouStart || tDate > mouEnd) return;
+    // Batas akhir eksklusif [start, end) — konsisten dengan halaman lain agar
+    // transaksi di tanggal akhir tidak terhitung dobel saat PKS diperpanjang
+    if (tDate < mouStart || tDate >= mouEnd) return;
 
     const entry = t.investorEntries.find((e) => e.investorId === mou.investorId);
     if (!entry) return;
@@ -315,7 +318,10 @@ export function DashboardContent() {
       .map((mou, idx) => {
         const dist       = calcMouDistribution(mou, transaksis);
         const modal      = mou.investmentAmount;
-        const usiaHari   = Math.max(0, Math.floor((Date.now() - new Date(mou.date).getTime()) / 86_400_000));
+        const [uy, um, ud] = mou.date.slice(0, 10).split("-").map(Number);
+        const [ty, tm, td] = todayWibStr().split("-").map(Number);
+        // Usia dihitung dari kalender WIB, bukan jam lokal browser
+        const usiaHari   = Math.max(0, Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(uy, um - 1, ud)) / 86_400_000));
         const usiaBulan  = Math.floor(usiaHari / 30);
         const endDateStr = addDays(mou.date, mou.contractPeriod);
         const roi = (v: number) => (modal > 0 ? (v / modal) * 100 : 0);
