@@ -562,12 +562,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Body tidak valid" }, { status: 400 });
   }
 
-  const { mouCustomId, keterangan, investorId, jumlah, buktiUrl } = body;
+  const { mouCustomId, keterangan, investorId, buktiUrl } = body;
+  const jumlah: number = typeof body.jumlah === "number" && body.jumlah >= 0
+    ? body.jumlah
+    : 0;
   if (!mouCustomId || !keterangan || !investorId) {
     return NextResponse.json({ error: "Field wajib kurang" }, { status: 400 });
-  }
-  if (jumlah !== undefined && (typeof jumlah !== "number" || jumlah < 0)) {
-    return NextResponse.json({ error: "Field jumlah tidak valid" }, { status: 400 });
   }
 
   // 3. Ambil data investor dari PocketBase
