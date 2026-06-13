@@ -5,6 +5,7 @@ import React from "react";
 import { toast } from "sonner";
 import { useMou, getMouStatus, type MoU, type MouStatus } from "@/lib/mou-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
+import { useBrokers } from "@/lib/brokers-context";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
 import { generateMouHtml } from "@/lib/mou-html";
@@ -65,6 +66,7 @@ function addDays(dateStr: string, days: number): string {
 const ESIGN_KEYS = {
   esignPihakPertama1: "pks_esign_pp1",
   esignPihakPertama2: "pks_esign_pp2",
+  esignPihakPertama3: "pks_esign_pp3",
 } as const;
 
 function esignInvKey(investorId: string): string {
@@ -107,6 +109,13 @@ interface MouFormData {
   esignPihakPertama1: string;
   esignPihakPertama2: string;
   esignPihakKedua: string;
+  brokerId: string;
+  brokerName: string;
+  brokerAddress: string;
+  brokerIdNumber: string;
+  brokerPhone: string;
+  bagiHasilPP3: string;
+  esignPihakPertama3: string;
 }
 
 const initialForm: MouFormData = {
@@ -129,6 +138,13 @@ const initialForm: MouFormData = {
   esignPihakPertama1: "",
   esignPihakPertama2: "",
   esignPihakKedua: "",
+  brokerId: "",
+  brokerName: "",
+  brokerAddress: "",
+  brokerIdNumber: "",
+  brokerPhone: "",
+  bagiHasilPP3: "0",
+  esignPihakPertama3: "",
 };
 
 // ─────────────────────────────────────────────
@@ -258,10 +274,12 @@ interface FormProps {
   previewId: string;
   investors: Investor[];
   onInvestorSelect: (id: string) => void;
+  onBrokerSelect: (brokerId: string) => void;
   keteranganSuggestions: string[];
   isEdit?: boolean;
   isSaving?: boolean;
   savedEsignFields?: Set<string>;
+  brokerOptions: { id: string; name: string }[];
 }
 
 function MouFormFields({
@@ -272,10 +290,12 @@ function MouFormFields({
   previewId,
   investors,
   onInvestorSelect,
+  onBrokerSelect,
   keteranganSuggestions,
   isEdit = false,
   isSaving = false,
   savedEsignFields,
+  brokerOptions,
 }: FormProps) {
   const set = (k: keyof MouFormData, v: string) =>
     setFormData({ ...formData, [k]: v });
@@ -508,10 +528,11 @@ function MouFormFields({
             Skema Bagi Hasil
           </p>
           {(() => {
-            const pp1   = parseFloat(formData.bagiHasilPP1) || 0;
-            const pp2   = parseFloat(formData.bagiHasilPP2) || 0;
-            const pk    = parseFloat(formData.bagiHasilPK)  || 0;
-            const total = pp1 + pp2 + pk;
+            const pp1   = parseFloat(formData.bagiHasilPP1)  || 0;
+            const pp2   = parseFloat(formData.bagiHasilPP2)  || 0;
+            const pp3   = parseFloat(formData.bagiHasilPP3)  || 0;
+            const pk    = parseFloat(formData.bagiHasilPK)   || 0;
+            const total = pp1 + pp2 + (formData.brokerId ? pp3 : 0) + pk;
             const valid = total === 100;
             return (
               <div className="space-y-3">
@@ -557,6 +578,63 @@ function MouFormFields({
           })()}
         </div>
 
+        {/* ── Broker (Pihak Pertama III) ── */}
+        <div className="space-y-3">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
+            Broker / Pihak Pertama III (Opsional)
+          </p>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Pilih Broker</Label>
+            <Select
+              value={formData.brokerId || "__none__"}
+              onValueChange={(val) => {
+                if (val === "__none__") {
+                  setFormData({
+                    ...formData,
+                    brokerId: "", brokerName: "", brokerAddress: "",
+                    brokerIdNumber: "", brokerPhone: "", bagiHasilPP3: "0",
+                    esignPihakPertama3: "",
+                  });
+                } else {
+                  onBrokerSelect(val);
+                }
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Tanpa broker (langsung)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">— Tanpa broker (langsung)</SelectItem>
+                {brokerOptions.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>{b.name} — {b.id}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">Pilih dari master data broker</p>
+          </div>
+          {formData.brokerId && (
+            <div className="space-y-1.5">
+              <Label htmlFor="mou-bh-pp3" className="text-xs">
+                Bagi Hasil Pihak Pertama III (%) <span className="text-destructive">*</span>
+              </Label>
+              <div className="relative">
+                <Input
+                  id="mou-bh-pp3"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={formData.bagiHasilPP3}
+                  onChange={(e) => setFormData({ ...formData, bagiHasilPP3: e.target.value })}
+                  placeholder="0"
+                  className="pr-7"
+                />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">%</span>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* ── E-Sign Tanda Tangan ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
@@ -564,11 +642,12 @@ function MouFormFields({
           </p>
           {(
             [
-              { field: "esignPihakPertama1" as const, label: "E-Sign Pihak Pertama I", hint: "Adie Bayu Putra" },
-              { field: "esignPihakPertama2" as const, label: "E-Sign Pihak Pertama II", hint: "Parafitra Fidiasari" },
-              { field: "esignPihakKedua"    as const, label: "E-Sign Pihak Kedua (Investor)", hint: formData.investorName || "Investor" },
+              { field: "esignPihakPertama1" as const, label: "E-Sign Pihak Pertama I", hint: "Adie Bayu Putra", show: true },
+              { field: "esignPihakPertama2" as const, label: "E-Sign Pihak Pertama II", hint: "Parafitra Fidiasari", show: true },
+              { field: "esignPihakPertama3" as const, label: "E-Sign Pihak Pertama III (Broker)", hint: formData.brokerName || "Broker", show: !!formData.brokerId },
+              { field: "esignPihakKedua"    as const, label: "E-Sign Pihak Kedua (Investor)", hint: formData.investorName || "Investor", show: true },
             ] as const
-          ).map(({ field, label, hint }) => (
+          ).filter(({ show }) => show).map(({ field, label, hint }) => (
             <div key={field} className="space-y-1.5">
               <Label className="text-xs">
                 {label}
@@ -644,6 +723,7 @@ type Filter = "semua" | MouStatus;
 export function MouContent() {
   const { mous, addMou, updateMou, deleteMou, uploadSignedDoc } = useMou();
   const { investors } = useInvestors();
+  const { brokers } = useBrokers();
   const { transaksis } = useTransaksi();
   const { user, isInvestor } = useAuth();
   const isAdmin   = user?.role === "admin";
@@ -809,6 +889,25 @@ export function MouContent() {
     return `${prefix}${String(max + 1).padStart(3, "0")}`;
   };
 
+  // ── Broker auto-fill ──
+  const handleBrokerSelect = (brokerId: string) => {
+    const broker = brokers.find((b) => b.id === brokerId);
+    if (!broker) return;
+    const savedPP3 = loadStoredEsign(ESIGN_KEYS.esignPihakPertama3);
+    setForm((prev) => ({
+      ...prev,
+      brokerId: broker.id,
+      brokerName: broker.name,
+      brokerAddress: broker.address,
+      brokerIdNumber: broker.idNumber,
+      brokerPhone: broker.phone,
+      esignPihakPertama3: savedPP3,
+    }));
+    if (savedPP3) {
+      setSavedEsignFields((s) => new Set([...s, "esignPihakPertama3"]));
+    }
+  };
+
   // ── Investor auto-fill ──
   const handleInvestorSelect = (investorId: string) => {
     const inv = investors.find((i) => i.id === investorId);
@@ -867,15 +966,29 @@ export function MouContent() {
         setSavedEsignFields((s) => { const n = new Set(s); n.delete("esignPihakKedua"); return n; });
       }
     }
+    if (newForm.esignPihakPertama3 !== form.esignPihakPertama3) {
+      if (newForm.esignPihakPertama3.startsWith("data:")) {
+        storeEsign(ESIGN_KEYS.esignPihakPertama3, newForm.esignPihakPertama3);
+        setSavedEsignFields((s) => new Set([...s, "esignPihakPertama3"]));
+      } else if (!newForm.esignPihakPertama3) {
+        deleteStoredEsign(ESIGN_KEYS.esignPihakPertama3);
+        setSavedEsignFields((s) => { const n = new Set(s); n.delete("esignPihakPertama3"); return n; });
+      }
+    }
+    // Reset broker esign jika broker diganti
+    if (newForm.brokerId !== form.brokerId && form.brokerId) {
+      setForm((prev) => ({ ...prev, esignPihakPertama3: "" }));
+    }
     setForm(newForm);
   };
 
   // ── Validasi bagi hasil ──
   const validateBagiHasil = () => {
     const total =
-      (parseFloat(form.bagiHasilPP1) || 0) +
-      (parseFloat(form.bagiHasilPP2) || 0) +
-      (parseFloat(form.bagiHasilPK)  || 0);
+      (parseFloat(form.bagiHasilPP1)  || 0) +
+      (parseFloat(form.bagiHasilPP2)  || 0) +
+      (parseFloat(form.bagiHasilPP3)  || 0) +
+      (parseFloat(form.bagiHasilPK)   || 0);
     if (total !== 100) {
       setErrorInfo({
         title: "Skema bagi hasil tidak valid",
@@ -910,9 +1023,16 @@ export function MouContent() {
         bagiHasilPP1: parseFloat(form.bagiHasilPP1) || 50,
         bagiHasilPP2: parseFloat(form.bagiHasilPP2) || 15,
         bagiHasilPK:  parseFloat(form.bagiHasilPK)  || 35,
+        brokerId:      form.brokerId,
+        brokerName:    form.brokerName,
+        brokerAddress: form.brokerAddress,
+        brokerIdNumber: form.brokerIdNumber,
+        brokerPhone:   form.brokerPhone,
+        bagiHasilPP3:  parseFloat(form.bagiHasilPP3) || 0,
         esignPihakPertama1: form.esignPihakPertama1,
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
+        esignPihakPertama3: form.esignPihakPertama3,
       });
       toast.success("PKS berhasil disimpan");
       setForm(initialForm);
@@ -946,9 +1066,16 @@ export function MouContent() {
         bagiHasilPP1: parseFloat(form.bagiHasilPP1) || 50,
         bagiHasilPP2: parseFloat(form.bagiHasilPP2) || 15,
         bagiHasilPK:  parseFloat(form.bagiHasilPK)  || 35,
+        brokerId:      form.brokerId,
+        brokerName:    form.brokerName,
+        brokerAddress: form.brokerAddress,
+        brokerIdNumber: form.brokerIdNumber,
+        brokerPhone:   form.brokerPhone,
+        bagiHasilPP3:  parseFloat(form.bagiHasilPP3) || 0,
         esignPihakPertama1: form.esignPihakPertama1,
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
+        esignPihakPertama3: form.esignPihakPertama3,
       });
       toast.success("PKS berhasil diperbarui");
       setForm(initialForm);
@@ -984,6 +1111,13 @@ export function MouContent() {
       esignPihakPertama1: mou.esignPihakPertama1 ?? "",
       esignPihakPertama2: mou.esignPihakPertama2 ?? "",
       esignPihakKedua: mou.esignPihakKedua ?? "",
+      brokerId:      mou.brokerId      ?? "",
+      brokerName:    mou.brokerName    ?? "",
+      brokerAddress: mou.brokerAddress ?? "",
+      brokerIdNumber: mou.brokerIdNumber ?? "",
+      brokerPhone:   mou.brokerPhone   ?? "",
+      bagiHasilPP3:  String(mou.bagiHasilPP3 ?? 0),
+      esignPihakPertama3: mou.esignPihakPertama3 ?? "",
     });
     setIsEditOpen(true);
   };
@@ -1085,10 +1219,12 @@ export function MouContent() {
           if (open) {
             const pp1 = loadStoredEsign(ESIGN_KEYS.esignPihakPertama1);
             const pp2 = loadStoredEsign(ESIGN_KEYS.esignPihakPertama2);
+            const pp3 = loadStoredEsign(ESIGN_KEYS.esignPihakPertama3);
             const saved = new Set<string>();
             const updates: Partial<MouFormData> = {};
             if (pp1) { updates.esignPihakPertama1 = pp1; saved.add("esignPihakPertama1"); }
             if (pp2) { updates.esignPihakPertama2 = pp2; saved.add("esignPihakPertama2"); }
+            if (pp3) { updates.esignPihakPertama3 = pp3; saved.add("esignPihakPertama3"); }
             if (Object.keys(updates).length) setForm((f) => ({ ...f, ...updates }));
             setSavedEsignFields(saved);
           } else {
@@ -1117,6 +1253,8 @@ export function MouContent() {
               previewId={nextId(form.date)}
               investors={investors}
               onInvestorSelect={handleInvestorSelect}
+              onBrokerSelect={handleBrokerSelect}
+              brokerOptions={brokers.map((b) => ({ id: b.id, name: b.name }))}
               keteranganSuggestions={keteranganSuggestions}
               isSaving={isSaving}
               savedEsignFields={savedEsignFields}
@@ -1424,6 +1562,8 @@ export function MouContent() {
             previewId={selected?.id ?? ""}
             investors={investors}
             onInvestorSelect={handleInvestorSelect}
+            onBrokerSelect={handleBrokerSelect}
+            brokerOptions={brokers.map((b) => ({ id: b.id, name: b.name }))}
             keteranganSuggestions={keteranganSuggestions}
             isEdit
             isSaving={isSaving}

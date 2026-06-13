@@ -41,6 +41,14 @@ export interface MoU {
   esignPihakPertama1?: string;
   esignPihakPertama2?: string;
   esignPihakKedua?: string;
+  // Broker sebagai Pihak Pertama III (opsional)
+  brokerId?: string;
+  brokerName?: string;
+  brokerAddress?: string;
+  brokerIdNumber?: string;
+  brokerPhone?: string;
+  bagiHasilPP3?: number;
+  esignPihakPertama3?: string;
   hasSignedDoc?: boolean;
   signedDocUrl?: string;
 }
@@ -129,6 +137,13 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
     esignPihakPertama1: pbFileUrl(pbRecordId, r.esignPihakPertama1),
     esignPihakPertama2: pbFileUrl(pbRecordId, r.esignPihakPertama2),
     esignPihakKedua:    pbFileUrl(pbRecordId, r.esignPihakKedua),
+    brokerId:           (r.brokerId      as string) || "",
+    brokerName:         (r.brokerName    as string) || "",
+    brokerAddress:      (r.brokerAddress as string) || "",
+    brokerIdNumber:     (r.brokerIdNumber as string) || "",
+    brokerPhone:        (r.brokerPhone   as string) || "",
+    bagiHasilPP3:       (r.bagiHasilPP3  as number) ?? 0,
+    esignPihakPertama3: pbFileUrl(pbRecordId, r.esignPihakPertama3),
     hasSignedDoc:       !!signedDocUrl,
     signedDocUrl,
   };
@@ -331,6 +346,12 @@ export function MouProvider({ children }: { children: ReactNode }) {
       bagiHasilPP1:       mou.bagiHasilPP1 ?? 50,
       bagiHasilPP2:       mou.bagiHasilPP2 ?? 15,
       bagiHasilPK:        mou.bagiHasilPK  ?? 35,
+      brokerId:           mou.brokerId     || "",
+      brokerName:         mou.brokerName   || "",
+      brokerAddress:      mou.brokerAddress || "",
+      brokerIdNumber:     mou.brokerIdNumber || "",
+      brokerPhone:        mou.brokerPhone   || "",
+      bagiHasilPP3:       mou.bagiHasilPP3 ?? 0,
       isTerminated:       false,
     });
 
@@ -346,9 +367,10 @@ export function MouProvider({ children }: { children: ReactNode }) {
     // Step 2: upload esign sebagai file jika ada (base64 data URL)
     const esignPairs: [string, string][] = (
       [
-        ["esignPihakPertama1", mou.esignPihakPertama1 ?? ""],
-        ["esignPihakPertama2", mou.esignPihakPertama2 ?? ""],
-        ["esignPihakKedua",    mou.esignPihakKedua    ?? ""],
+        ["esignPihakPertama1", mou.esignPihakPertama1  ?? ""],
+        ["esignPihakPertama2", mou.esignPihakPertama2  ?? ""],
+        ["esignPihakKedua",    mou.esignPihakKedua     ?? ""],
+        ["esignPihakPertama3", mou.esignPihakPertama3  ?? ""],
       ] as [string, string][]
     ).filter(([, v]) => v.startsWith("data:"));
 
@@ -390,6 +412,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
       esignPihakPertama1,
       esignPihakPertama2,
       esignPihakKedua,
+      esignPihakPertama3,
       hasSignedDoc: _hsd,
       signedDocUrl: _sdu,
       ...regularUpdates
@@ -409,6 +432,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
       ["esignPihakPertama1", esignPihakPertama1],
       ["esignPihakPertama2", esignPihakPertama2],
       ["esignPihakKedua",    esignPihakKedua],
+      ["esignPihakPertama3", esignPihakPertama3],
     ];
     for (const [key, value] of esignAll) {
       if (value === "") pbUpdates[key] = null;

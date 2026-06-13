@@ -63,6 +63,7 @@ interface InvestorFormData {
 interface BrokerFormData {
   name: string;
   address: string;
+  email: string;
   idNumber: string;
   bankName: string;
   accountNumber: string;
@@ -89,6 +90,7 @@ const initialInvestorForm: InvestorFormData = {
 const initialBrokerForm: BrokerFormData = {
   name: "",
   address: "",
+  email: "",
   idNumber: "",
   bankName: "",
   accountNumber: "",
@@ -438,6 +440,19 @@ function BrokerFormFields({ formData, setFormData, onSubmit, submitLabel, previe
               onChange={(e) => set("address", e.target.value)}
               placeholder="Jl. Sudirman No. 1, Jakarta"
               required
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="brk-email" className="text-xs">
+              Email <span className="text-muted-foreground font-normal">(untuk notifikasi reminder)</span>
+            </Label>
+            <Input
+              id="brk-email"
+              type="email"
+              value={formData.email}
+              onChange={(e) => set("email", e.target.value)}
+              placeholder="broker@email.com"
             />
           </div>
 
@@ -855,6 +870,7 @@ export function InvestorsContent() {
       await addBroker({
         name: brokerForm.name,
         address: brokerForm.address,
+        email: brokerForm.email,
         idNumber: brokerForm.idNumber,
         bankName: brokerForm.bankName,
         accountNumber: brokerForm.accountNumber,
@@ -878,6 +894,7 @@ export function InvestorsContent() {
       await updateBroker(selectedBroker.id, {
         name: brokerForm.name,
         address: brokerForm.address,
+        email: brokerForm.email,
         idNumber: brokerForm.idNumber,
         bankName: brokerForm.bankName,
         accountNumber: brokerForm.accountNumber,
@@ -899,6 +916,7 @@ export function InvestorsContent() {
     setBrokerForm({
       name: broker.name,
       address: broker.address,
+      email: broker.email,
       idNumber: broker.idNumber,
       bankName: broker.bankName,
       accountNumber: broker.accountNumber,

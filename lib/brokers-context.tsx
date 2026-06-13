@@ -13,6 +13,7 @@ export interface Broker {
   bankName: string;
   accountNumber: string;
   phone: string;
+  email: string;
 }
 
 interface BrokersContextType {
@@ -35,6 +36,7 @@ function recordToBroker(r: Record<string, unknown>, pbIdMap: Map<string, string>
     bankName:      r.bankName      as string,
     accountNumber: r.accountNumber as string,
     phone:         r.phone         as string,
+    email:         (r.email        as string) || "",
   };
 }
 
@@ -100,6 +102,7 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
           bankName:      broker.bankName,
           accountNumber: broker.accountNumber,
           phone:         broker.phone,
+          email:         broker.email || "",
         });
         setBrokers((prev) => [...prev, recordToBroker(record, map)]);
         return;

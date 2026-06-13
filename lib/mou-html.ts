@@ -57,6 +57,7 @@ function row(label: string, value: string, wide = false) {
 }
 
 export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string {
+  const hasBroker = !!(mou.brokerId && mou.brokerName);
   const date     = fmtDate(mou.date);
   const amount   = fmtRp(mou.investmentAmount);
   const words    = esc(cap(terbilang(mou.investmentAmount)));
@@ -78,7 +79,7 @@ export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string 
   // Kalkulasi nilai tabel dari transaksi yang ditemukan
   let trxQty = "", trxHpp = "", trxModal = fmtRp(mou.investmentAmount);
   let trxOngkir = "", trxHargaJual = "", trxIncome = "", trxProfit = "";
-  let bhOwner = "", bhMinbun = "", bhInvestor = "";
+  let bhOwner = "", bhMinbun = "", bhBroker = "", bhInvestor = "";
   let estKeuntungan = "", roiPerBulan = "", roiSetelahBH = "";
 
   if (trx) {
@@ -89,6 +90,7 @@ export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string 
     const profit  = calc.profit * ratio;
     const pp1Pct  = (mou.bagiHasilPP1 ?? 50) / 100;
     const pp2Pct  = (mou.bagiHasilPP2 ?? 15) / 100;
+    const pp3Pct  = (mou.bagiHasilPP3 ?? 0)  / 100;
     const pkPct   = (mou.bagiHasilPK  ?? 35) / 100;
 
     trxQty       = trx.hpp > 0 ? String(Math.round(trx.kebutuhanModal / trx.hpp)) : "";
@@ -100,6 +102,7 @@ export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string 
     trxProfit    = fmtRp(profit);
     bhOwner      = fmtRp(profit * pp1Pct);
     bhMinbun     = fmtRp(profit * pp2Pct);
+    bhBroker     = fmtRp(profit * pp3Pct);
     bhInvestor   = fmtRp(profit * pkPct);
     estKeuntungan = fmtRp(profit);
     const roiRaw = mou.investmentAmount > 0 ? profit / mou.investmentAmount : 0;
@@ -202,9 +205,19 @@ export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string 
       ${row("No KTP",    esc(PIHAK_PERTAMA_II.noKtp))}
       ${row("No Telepon",esc(PIHAK_PERTAMA_II.noTelp))}
     </div>
-    <p>Sebagai PIHAK PERTAMA II</p>
+    <p>Sebagai PIHAK PERTAMA II${hasBroker ? ", dan" : ""}</p>
 
-    <p>Dalam hal ini keduanya bertindak sebagai Pengelola Investasi dan atas nama PT Madani Agri Lestari, berdasarkan Akta Pendirian Nomor AHU-0059177.AH.01.01.Tahun 2021. Selain daripada itu, bertindak sebagai Pengelola Investasi yang selanjutnya disebut PIHAK PERTAMA.</p>
+    ${hasBroker ? `
+    <div style="margin:.5em 2em;">
+      ${row("Nama",       esc(mou.brokerName    ?? ""))}
+      ${row("Alamat",     esc(mou.brokerAddress ?? ""))}
+      ${row("No. KTP",   esc(mou.brokerIdNumber ?? ""))}
+      ${row("No. Telepon", esc(mou.brokerPhone  ?? ""))}
+    </div>
+    <p>Sebagai PIHAK PERTAMA III</p>
+    ` : ""}
+
+    <p>Dalam hal ini ${hasBroker ? "ketiganya" : "keduanya"} bertindak sebagai Pengelola Investasi dan atas nama PT Madani Agri Lestari, berdasarkan Akta Pendirian Nomor AHU-0059177.AH.01.01.Tahun 2021. Selain daripada itu, bertindak sebagai Pengelola Investasi yang selanjutnya disebut PIHAK PERTAMA.</p>
 
     <div style="margin:.5em 2em;">
       ${row("Nama", esc(mou.investorName))}
@@ -242,9 +255,11 @@ export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string 
   <div class="section">
     <div class="ptitle">Pasal 4<br>BAGI HASIL</div>
     <p>Bagi hasil usaha diterima oleh para pihak dalam bentuk uang tunai dari hasil usaha tersebut di atas dan para pihak sepakat bahwa besaran bagi hasil sebagai berikut:</p>
-    <p class="indent">A.&nbsp; PIHAK PERTAMA I &nbsp;&nbsp;: ${mou.bagiHasilPP1 ?? 50} %</p>
+    <p class="indent">A.&nbsp; PIHAK PERTAMA I &nbsp;&nbsp;&nbsp;: ${mou.bagiHasilPP1 ?? 50} %</p>
     <p class="indent">B.&nbsp; PIHAK PERTAMA II &nbsp;: ${mou.bagiHasilPP2 ?? 15} %</p>
-    <p class="indent">C.&nbsp; PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: ${mou.bagiHasilPK  ?? 35} %</p>
+    ${hasBroker ? `<p class="indent">C.&nbsp; PIHAK PERTAMA III : ${mou.bagiHasilPP3 ?? 0} %</p>
+    <p class="indent">D.&nbsp; PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: ${mou.bagiHasilPK ?? 35} %</p>` :
+    `<p class="indent">C.&nbsp; PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: ${mou.bagiHasilPK ?? 35} %</p>`}
     <p>Investasi ini memiliki siklus bagi hasil empat (4) minggu sesuai ketersediaan proyek dan berlaku selama periode perjanjian kerjasama. Dana investasi digunakan untuk membiayai PO <em>All Customer</em> setiap 30 (tiga puluh) hari. Bagi hasil dibayarkan paling lambat setiap 30 (tiga puluh) hari atau sesuai tanggal jatuh tempo ke rekening <strong>Bank SMBC (Jenius) 90120410660 atas nama Parafitra Fidiasari</strong>. Jika PIHAK KEDUA hendak mengubah rekening untuk transfer bagi hasil, harap memberitahukan secara tertulis melalui <em>WhatsApp</em>.</p>
   </div>
 
@@ -314,6 +329,7 @@ export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string 
           <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Profit (Rp)</th>
           <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama I<br>${mou.bagiHasilPP1 ?? 50}% (Owner)</th>
           <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama II<br>${mou.bagiHasilPP2 ?? 15}% (Mimin Berkebun)</th>
+          ${hasBroker ? `<th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama III<br>${mou.bagiHasilPP3 ?? 0}% (Broker)</th>` : ""}
           <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Kedua<br>${mou.bagiHasilPK ?? 35}% (Investor)</th>
         </tr>
       </thead>
@@ -322,6 +338,7 @@ export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string 
           <td style="border:1px solid #000;padding:6px 8px;text-align:right;">${trxProfit}</td>
           <td style="border:1px solid #000;padding:6px 8px;text-align:right;">${bhOwner}</td>
           <td style="border:1px solid #000;padding:6px 8px;text-align:right;">${bhMinbun}</td>
+          ${hasBroker ? `<td style="border:1px solid #000;padding:6px 8px;text-align:right;">${bhBroker}</td>` : ""}
           <td style="border:1px solid #000;padding:6px 8px;text-align:right;">${bhInvestor}</td>
         </tr>
       </tbody>
@@ -407,21 +424,30 @@ export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string 
   <div style="margin-top:2.5em;page-break-inside:avoid;">
     <p style="text-align:right;">Bandung, ${date}</p>
     <div class="sig">
-      <div class="sb">
+      <div style="text-align:center;${hasBroker ? "flex:1;min-width:0;" : "width:30%;"}">
         <div class="bold">PIHAK PERTAMA I</div>
         ${mou.esignPihakPertama1
           ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakPertama1)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
           : `<div class="ss"></div>`}
         <div><strong>Adie Bayu Putra</strong></div>
       </div>
-      <div class="sb">
+      <div style="text-align:center;${hasBroker ? "flex:1;min-width:0;" : "width:30%;"}">
         <div class="bold">PIHAK PERTAMA II</div>
         ${mou.esignPihakPertama2
           ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakPertama2)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
           : `<div class="ss"></div>`}
         <div><strong>Parafitra Fidiasari</strong><br>(Mimin Berkebun)</div>
       </div>
-      <div class="sb">
+      ${hasBroker ? `
+      <div style="text-align:center;flex:1;min-width:0;">
+        <div class="bold">PIHAK PERTAMA III</div>
+        ${mou.esignPihakPertama3
+          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakPertama3)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
+          : `<div class="ss"></div>`}
+        <div><strong>${esc(mou.brokerName ?? "")}</strong><br>(Broker)</div>
+      </div>
+      ` : ""}
+      <div style="text-align:center;${hasBroker ? "flex:1;min-width:0;" : "width:30%;"}">
         <div class="bold">PIHAK KEDUA</div>
         ${mou.esignPihakKedua
           ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakKedua)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`

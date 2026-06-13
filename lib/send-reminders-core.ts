@@ -43,6 +43,8 @@ interface MoURecord {
   contractPeriod: number;
   isTerminated: boolean;
   bagiHasilDone?: boolean;
+  brokerId?: string;        // customId broker jika PKS via broker
+  brokerName?: string;
 }
 
 /** Satu PKS yang mencapai akhir periode kontrak (hari-H atau dalam window catch-up). */
@@ -230,6 +232,63 @@ function buildInvestorEmailHtml(d: DueMou, date: string): string {
 </html>`;
 }
 
+// ─── Email HTML: notifikasi untuk broker ──────────────────────────────────────
+
+function buildBrokerEmailHtml(d: DueMou, date: string): string {
+  return `
+<!DOCTYPE html>
+<html lang="id">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:'Segoe UI',Arial,sans-serif;">
+  <div style="max-width:600px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.08);">
+    <div style="background:#2563eb;padding:28px 32px;">
+      <h1 style="margin:0;color:#fff;font-size:20px;">🔔 PKS Klien Anda Mencapai Akhir Periode</h1>
+      <p style="margin:6px 0 0;color:#bfdbfe;font-size:13px;">${date} · MinBun ERP</p>
+    </div>
+    <div style="padding:28px 32px;">
+      <p style="margin:0 0 16px;font-size:15px;color:#111827;">
+        Yth. <strong>${d.mou.brokerName ?? "Broker"}</strong>,
+      </p>
+      <p style="margin:0 0 20px;font-size:14px;color:#374151;line-height:1.6;">
+        Kami informasikan bahwa Perjanjian Kerja Sama (PKS) klien Anda berikut
+        <strong>${dueLabel(d.daysOverdue).toLowerCase()}</strong>.
+        Tim MinBun akan memproses pelunasan bagi hasil.
+      </p>
+
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px;">
+        <tr style="background:#f9fafb;">
+          <td style="padding:10px 14px;color:#6b7280;width:40%;">Investor</td>
+          <td style="padding:10px 14px;font-weight:600;">${d.mou.investorName}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 14px;color:#6b7280;border-top:1px solid #f3f4f6;">No. PKS</td>
+          <td style="padding:10px 14px;font-weight:600;font-family:monospace;border-top:1px solid #f3f4f6;">${d.mou.customId}</td>
+        </tr>
+        <tr style="background:#f9fafb;">
+          <td style="padding:10px 14px;color:#6b7280;">Periode Kontrak</td>
+          <td style="padding:10px 14px;font-weight:600;">${fmtDate(d.mou.date)} — ${fmtDate(d.endDate)}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 14px;color:#6b7280;border-top:1px solid #f3f4f6;">Nilai Investasi</td>
+          <td style="padding:10px 14px;font-weight:700;color:#2563eb;font-size:15px;border-top:1px solid #f3f4f6;">${fmtRp(d.mou.investmentAmount)}</td>
+        </tr>
+      </table>
+
+      <p style="margin:24px 0 0;font-size:13px;color:#6b7280;line-height:1.6;">
+        Jika ada pertanyaan, silakan hubungi tim MinBun.<br>
+        Terima kasih atas kerjasamanya.
+      </p>
+    </div>
+    <div style="padding:16px 32px;background:#f9fafb;border-top:1px solid #e5e7eb;">
+      <p style="margin:0;font-size:11px;color:#9ca3af;text-align:center;">
+        Email ini dikirim otomatis oleh MinBun ERP · Jangan membalas email ini
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 // ─── Email ────────────────────────────────────────────────────────────────────
 
 function makeTransporter() {
@@ -250,6 +309,20 @@ async function sendAdminEmail(dues: DueMou[], todayStr: string): Promise<Channel
     to:      recipients.join(", "),
     subject: `[MinBun] 🔔 ${dues.length} PKS Mencapai Akhir Periode — ${todayStr}`,
     html:    buildAdminEmailHtml(dues, todayStr),
+  });
+  return "sent";
+}
+
+/** Email notifikasi ke broker untuk PKS kliennya. */
+async function sendBrokerEmail(to: string, d: DueMou, todayStr: string): Promise<ChannelStatus> {
+  const t = makeTransporter();
+  if (!t || !to) return "skipped";
+
+  await t.transporter.sendMail({
+    from:    `"MinBun ERP" <${t.user}>`,
+    to,
+    subject: `[MinBun] 🔔 PKS Klien Anda (${d.mou.investorName}) Mencapai Akhir Periode — ${todayStr}`,
+    html:    buildBrokerEmailHtml(d, todayStr),
   });
   return "sent";
 }
@@ -409,6 +482,24 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
       }
     } catch { /* abaikan — email investor akan skipped */ }
 
+    // Ambil email broker dari koleksi brokers → map customId → email
+    const brokerEmailMap = new Map<string, string>();
+    try {
+      const brokerIds = [...new Set(
+        toSend.map((d) => d.mou.brokerId).filter((id): id is string => !!id)
+      )];
+      if (brokerIds.length > 0) {
+        const idFilter = brokerIds.map((id) => `customId = "${pbEsc(id)}"`).join(" || ");
+        const brks     = await pb.collection("brokers").getFullList({
+          filter: idFilter,
+          fields: "customId,email",
+        });
+        for (const brk of brks) {
+          brokerEmailMap.set(brk.customId as string, (brk.email as string) || "");
+        }
+      }
+    } catch { /* abaikan — email broker akan skipped */ }
+
     const todayStr = fmtDate(todayWibStr());
     const errors: string[] = [];
 
@@ -431,28 +522,39 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
     const results = await Promise.all(
       toSend.map(async (d) => {
         const perErrors: string[] = [];
+
         const investorEmail = investorEmailMap.get(d.mou.investorId) ?? "";
         const investorEmailStatus = await sendInvestorEmail(investorEmail, d, todayStr).catch((e) => {
           perErrors.push(String(e));
           return "failed" as ChannelStatus;
         });
+
+        const brokerEmail = d.mou.brokerId ? (brokerEmailMap.get(d.mou.brokerId) ?? "") : "";
+        const brokerEmailStatus = await sendBrokerEmail(brokerEmail, d, todayStr).catch((e) => {
+          perErrors.push(String(e));
+          return "failed" as ChannelStatus;
+        });
+
         await pb.collection("reminder_logs").create({
-          mouCustomId:  d.mou.customId,
-          cycleNumber:  0,
-          sentAt:       new Date().toISOString(),
-          investorName: d.mou.investorName,
-          emailStatus:  investorEmailStatus,
+          mouCustomId:       d.mou.customId,
+          cycleNumber:       0,
+          sentAt:            new Date().toISOString(),
+          investorName:      d.mou.investorName,
+          emailStatus:       investorEmailStatus,
+          brokerEmailStatus,
           waStatus,
-          errorMessage: perErrors.join(" | "),
+          errorMessage:      perErrors.join(" | "),
           triggeredBy,
         }).catch(() => {});
-        return { investorEmailStatus, perErrors };
+        return { investorEmailStatus, brokerEmailStatus, perErrors };
       }),
     );
 
     let investorSent = 0;
+    let brokerSent   = 0;
     for (const r of results) {
       if (r.investorEmailStatus === "sent") investorSent++;
+      if (r.brokerEmailStatus   === "sent") brokerSent++;
       if (r.perErrors.length) errors.push(...r.perErrors);
     }
 
@@ -462,6 +564,7 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
         sent:               toSend.length,
         adminEmailStatus,
         investorEmailsSent: investorSent,
+        brokerEmailsSent:   brokerSent,
         waStatus,
         errors:             errors.length ? errors : undefined,
         pks:                toSend.map((d) => ({
