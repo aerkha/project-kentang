@@ -59,6 +59,31 @@ function addDays(dateStr: string, days: number): string {
 }
 
 // ─────────────────────────────────────────────
+// localStorage helpers untuk simpan e-signature
+// ─────────────────────────────────────────────
+
+const ESIGN_KEYS = {
+  esignPihakPertama1: "pks_esign_pp1",
+  esignPihakPertama2: "pks_esign_pp2",
+} as const;
+
+function esignInvKey(investorId: string): string {
+  return `pks_esign_inv_${investorId}`;
+}
+
+function loadStoredEsign(key: string): string {
+  try { return localStorage.getItem(key) ?? ""; } catch { return ""; }
+}
+
+function storeEsign(key: string, dataUrl: string): void {
+  try { if (dataUrl) localStorage.setItem(key, dataUrl); } catch {}
+}
+
+function deleteStoredEsign(key: string): void {
+  try { localStorage.removeItem(key); } catch {}
+}
+
+// ─────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────
 
@@ -236,6 +261,7 @@ interface FormProps {
   keteranganSuggestions: string[];
   isEdit?: boolean;
   isSaving?: boolean;
+  savedEsignFields?: Set<string>;
 }
 
 function MouFormFields({
@@ -249,6 +275,7 @@ function MouFormFields({
   keteranganSuggestions,
   isEdit = false,
   isSaving = false,
+  savedEsignFields,
 }: FormProps) {
   const set = (k: keyof MouFormData, v: string) =>
     setFormData({ ...formData, [k]: v });
@@ -554,15 +581,20 @@ function MouFormFields({
                     alt={label}
                     className="h-14 w-auto object-contain border rounded bg-white"
                   />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => set(field, "")}
-                  >
-                    Hapus
-                  </Button>
+                  <div className="flex flex-col gap-1">
+                    {savedEsignFields?.has(field) && (
+                      <span className="text-[10px] text-green-600 font-medium">♻ Dari penyimpanan</span>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive h-7 px-2"
+                      onClick={() => set(field, "")}
+                    >
+                      Hapus
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <Input
@@ -669,7 +701,14 @@ export function MouContent() {
       return;
     }
     const reader = new FileReader();
-    reader.onload = (ev) => setTtdPreview(ev.target?.result as string ?? "");
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string ?? "";
+      setTtdPreview(dataUrl);
+      // Auto-save ke localStorage agar TTD dipakai ulang di PKS berikutnya
+      if (dataUrl && ttdTarget?.investorId) {
+        storeEsign(esignInvKey(ttdTarget.investorId), dataUrl);
+      }
+    };
     reader.readAsDataURL(file);
   };
 
@@ -774,6 +813,7 @@ export function MouContent() {
   const handleInvestorSelect = (investorId: string) => {
     const inv = investors.find((i) => i.id === investorId);
     if (inv) {
+      const savedTtd = loadStoredEsign(esignInvKey(investorId));
       setForm((prev) => ({
         ...prev,
         investorId: inv.id,
@@ -784,12 +824,51 @@ export function MouContent() {
         investorPhone: inv.phone,
         investmentAmount: inv.investmentAmount.toString(),
         heirName: inv.heirName,
+        esignPihakKedua: savedTtd,
       }));
+      if (savedTtd) {
+        setSavedEsignFields((s) => new Set([...s, "esignPihakKedua"]));
+      } else {
+        setSavedEsignFields((s) => { const n = new Set(s); n.delete("esignPihakKedua"); return n; });
+      }
     }
   };
 
   const [isSaving, setIsSaving] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [savedEsignFields, setSavedEsignFields] = useState(new Set<string>());
+
+  // Wrapper setForm: auto-save esign ke localStorage saat berubah, auto-hapus saat dikosongkan
+  const handleFormChange = (newForm: MouFormData) => {
+    if (newForm.esignPihakPertama1 !== form.esignPihakPertama1) {
+      if (newForm.esignPihakPertama1.startsWith("data:")) {
+        storeEsign(ESIGN_KEYS.esignPihakPertama1, newForm.esignPihakPertama1);
+        setSavedEsignFields((s) => new Set([...s, "esignPihakPertama1"]));
+      } else if (!newForm.esignPihakPertama1) {
+        deleteStoredEsign(ESIGN_KEYS.esignPihakPertama1);
+        setSavedEsignFields((s) => { const n = new Set(s); n.delete("esignPihakPertama1"); return n; });
+      }
+    }
+    if (newForm.esignPihakPertama2 !== form.esignPihakPertama2) {
+      if (newForm.esignPihakPertama2.startsWith("data:")) {
+        storeEsign(ESIGN_KEYS.esignPihakPertama2, newForm.esignPihakPertama2);
+        setSavedEsignFields((s) => new Set([...s, "esignPihakPertama2"]));
+      } else if (!newForm.esignPihakPertama2) {
+        deleteStoredEsign(ESIGN_KEYS.esignPihakPertama2);
+        setSavedEsignFields((s) => { const n = new Set(s); n.delete("esignPihakPertama2"); return n; });
+      }
+    }
+    if (newForm.esignPihakKedua !== form.esignPihakKedua && newForm.investorId) {
+      if (newForm.esignPihakKedua.startsWith("data:")) {
+        storeEsign(esignInvKey(newForm.investorId), newForm.esignPihakKedua);
+        setSavedEsignFields((s) => new Set([...s, "esignPihakKedua"]));
+      } else if (!newForm.esignPihakKedua) {
+        deleteStoredEsign(esignInvKey(newForm.investorId));
+        setSavedEsignFields((s) => { const n = new Set(s); n.delete("esignPihakKedua"); return n; });
+      }
+    }
+    setForm(newForm);
+  };
 
   // ── Validasi bagi hasil ──
   const validateBagiHasil = () => {
@@ -884,6 +963,7 @@ export function MouContent() {
 
   const openEdit = (mou: MoU) => {
     setSelected(mou);
+    setSavedEsignFields(new Set());
     setForm({
       date: mou.date,
       keterangan: mou.keterangan ?? "",
@@ -1001,7 +1081,21 @@ export function MouContent() {
           <h1 className="text-2xl font-bold text-foreground">Perjanjian Kerjasama</h1>
           <p className="text-muted-foreground">Kelola dokumen perjanjian kerjasama investasi</p>
         </div>
-        <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+        <Dialog open={isAddOpen} onOpenChange={(open) => {
+          if (open) {
+            const pp1 = loadStoredEsign(ESIGN_KEYS.esignPihakPertama1);
+            const pp2 = loadStoredEsign(ESIGN_KEYS.esignPihakPertama2);
+            const saved = new Set<string>();
+            const updates: Partial<MouFormData> = {};
+            if (pp1) { updates.esignPihakPertama1 = pp1; saved.add("esignPihakPertama1"); }
+            if (pp2) { updates.esignPihakPertama2 = pp2; saved.add("esignPihakPertama2"); }
+            if (Object.keys(updates).length) setForm((f) => ({ ...f, ...updates }));
+            setSavedEsignFields(saved);
+          } else {
+            setSavedEsignFields(new Set());
+          }
+          setIsAddOpen(open);
+        }}>
           {canCreate && <DialogTrigger asChild>
             <Button>
               <Plus className="w-4 h-4 mr-2" />
@@ -1017,7 +1111,7 @@ export function MouContent() {
             </DialogHeader>
             <MouFormFields
               formData={form}
-              setFormData={setForm}
+              setFormData={handleFormChange}
               onSubmit={handleAdd}
               submitLabel="Simpan MoU"
               previewId={nextId(form.date)}
@@ -1025,6 +1119,7 @@ export function MouContent() {
               onInvestorSelect={handleInvestorSelect}
               keteranganSuggestions={keteranganSuggestions}
               isSaving={isSaving}
+              savedEsignFields={savedEsignFields}
             />
           </DialogContent>
         </Dialog>
@@ -1323,7 +1418,7 @@ export function MouContent() {
           </DialogHeader>
           <MouFormFields
             formData={form}
-            setFormData={setForm}
+            setFormData={handleFormChange}
             onSubmit={handleEdit}
             submitLabel="Simpan Perubahan"
             previewId={selected?.id ?? ""}
