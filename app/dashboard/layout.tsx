@@ -7,7 +7,7 @@ import { InvestorsProvider } from "@/lib/investors-context";
 import { BrokersProvider } from "@/lib/brokers-context";
 import { MouProvider } from "@/lib/mou-context";
 import { TransaksiProvider } from "@/lib/transaksi-context";
-import { PengeluaranProvider } from "@/lib/pengeluaran-context";
+import { PengeluaranProvider } from "@/lib/cashflow-context";
 import { SettingsProvider } from "@/lib/settings-context";
 import { ReminderLogsProvider } from "@/lib/reminder-logs-context";
 import { AppSidebar } from "@/components/app-sidebar";

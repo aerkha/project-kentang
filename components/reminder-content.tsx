@@ -7,7 +7,7 @@ import { todayWibStr } from "@/lib/utils";
 import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
-import { usePengeluaran } from "@/lib/pengeluaran-context";
+import { usePengeluaran } from "@/lib/cashflow-context";
 import { useSettings } from "@/lib/settings-context";
 import { useReminderLogs, type ReminderLog } from "@/lib/reminder-logs-context";
 import pb from "@/lib/pocketbase";
@@ -404,6 +404,7 @@ export function ReminderContent() {
           deskripsi: `Bagi Hasil MinBun — PKS ${snapshotMou.id}`,
           debet:     row.jumlah,
           kredit:    0,
+          kategori:  "Fee MinBun",
           catatan:   tag,
         });
         toast.success(`Bagi hasil MinBun PKS ${snapshotMou.id} dicatat di Arus Kas`);
@@ -414,6 +415,7 @@ export function ReminderContent() {
           deskripsi: `Profit Internal — ${row.nama} — PKS ${snapshotMou.id}`,
           debet:     row.jumlah,
           kredit:    0,
+          kategori:  "Bagi hasil Modal MinBun",
           catatan:   tag,
         });
         toast.success(`Profit internal ${row.nama} dicatat di Arus Kas`);
@@ -462,11 +464,13 @@ export function ReminderContent() {
           toast.info("Entri Arus Kas untuk tugas ini sudah ada — tidak dicatat ulang.");
         } else {
           try {
+            const isInternal = keterangan === "MinBun" || (keterangan === "Investor" && internalInvestorIds.has(snapshotMou.investorId));
             await addPengeluaran({
               date:      today,
               deskripsi: `Bagi Hasil ${row.nama} (${keterangan}) - PKS ${snapshotMou.id}`,
-              debet:     (keterangan === "MinBun" || (keterangan === "Investor" && internalInvestorIds.has(snapshotMou.investorId))) ? row.jumlah : 0,
-              kredit:    (keterangan === "MinBun" || (keterangan === "Investor" && internalInvestorIds.has(snapshotMou.investorId))) ? 0 : row.jumlah,
+              debet:     isInternal ? row.jumlah : 0,
+              kredit:    isInternal ? 0 : row.jumlah,
+              kategori:  keterangan === "MinBun" ? "Fee MinBun" : "Bagi hasil Modal MinBun",
               catatan:   cashflowTag,
             });
             toast.success(`${keterangan} — ${row.nama} dicatat di Cash Flow`);

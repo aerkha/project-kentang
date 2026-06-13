@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { PengeluaranContent } from "@/components/pengeluaran-content";
+import { CashflowContent } from "@/components/cashflow-content";
 
 export default function CashFlowPage() {
   const { user } = useAuth();
@@ -16,5 +16,5 @@ export default function CashFlowPage() {
   }, [user, router]);
 
   if (!user || (user.role !== "admin" && user.role !== "user")) return null;
-  return <PengeluaranContent />;
+  return <CashflowContent />;
 }

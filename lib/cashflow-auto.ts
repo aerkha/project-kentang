@@ -19,7 +19,7 @@ function pbEsc(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-// ── ID generator (sama pola dengan pengeluaran-context) ─────────────────────
+// ── ID generator (sama pola dengan cashflow-context) ─────────────────────
 
 async function generatePglId(date: string): Promise<string> {
   const ym     = date.slice(0, 7).replace("-", "");
@@ -47,7 +47,7 @@ function isCustomIdConflict(err: unknown): boolean {
 
 /**
  * Buat entri cash flow.
- * customId race condition: jika pengeluaran-context.tsx dan cashflow-auto.ts
+ * customId race condition: jika cashflow-context.tsx dan cashflow-auto.ts
  * sama-sama generate ID pada saat bersamaan, keduanya mungkin menghasilkan ID yang sama.
  * Ini ditangani oleh retry loop + unique constraint `customId` di PocketBase.
  * Pastikan koleksi `pengeluarans` memiliki unique rule pada field `customId`.
@@ -57,6 +57,7 @@ async function createCashflowEntry(opts: {
   deskripsi: string;
   debet:     number;
   kredit:    number;
+  kategori?: string;
   catatan:   string;
 }): Promise<void> {
   // Normalisasi ke "YYYY-MM-DD" — PocketBase kadang mengembalikan datetime
@@ -74,12 +75,13 @@ async function createCashflowEntry(opts: {
         deskripsi: opts.deskripsi,
         debet:     opts.debet,
         kredit:    opts.kredit,
+        kategori:  opts.kategori ?? "",
         catatan:   opts.catatan,
       });
       return;
     } catch (err) {
       if (isCustomIdConflict(err) && attempt < 4) {
-        // ID konflik dengan insert concurrent dari pengeluaran-context — generate ulang
+        // ID konflik dengan insert concurrent dari cashflow-context — generate ulang
         customId = await generatePglId(dateStr);
         continue;
       }
@@ -136,6 +138,7 @@ export async function recordModalInvestorMasuk(
     deskripsi: `Modal Investor — ${investorName} (${investorId})`,
     debet:     investmentAmount,
     kredit:    0,
+    kategori:  "Investasi",
     catatan:   tag,
   });
 }
@@ -232,6 +235,7 @@ export async function recordModalPksDiKembalikan(
     deskripsi: `Modal Dikembalikan — ${mouId} (${investorName})`,
     debet:     investmentAmount,
     kredit:    0,
+    kategori:  "Pengembalian Modal",
     catatan:   tag,
   });
 }
@@ -294,6 +298,7 @@ export async function recordModalPksDigunakan(
     deskripsi: `Modal Digunakan — ${mouId} (${investorName})`,
     debet:     0,
     kredit:    investmentAmount,
+    kategori:  "Investasi",
     catatan:   tag,
   });
 }

@@ -6,7 +6,7 @@ import {
   usePengeluaran,
   calcRunningBalance,
   type Pengeluaran,
-} from "@/lib/pengeluaran-context";
+} from "@/lib/cashflow-context";
 import { useAuth } from "@/lib/auth-context";
 import { todayWibStr } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Wallet, Download, ShieldCheck } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { KATEGORI_OPTIONS } from "@/lib/cashflow-context";
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -55,11 +63,12 @@ interface FormData {
   deskripsi: string;
   debet: string;
   kredit: string;
+  kategori: string;
   catatan: string;
 }
 
 const emptyForm: FormData = {
-  date: "", deskripsi: "", debet: "", kredit: "", catatan: "",
+  date: "", deskripsi: "", debet: "", kredit: "", kategori: "", catatan: "",
 };
 
 // ── Entri otomatis ──
@@ -130,6 +139,27 @@ function PengeluaranForm({
         </div>
       </div>
 
+      {/* Kategori */}
+      <div className="space-y-1.5">
+        <Label htmlFor="pgl-kategori" className="text-xs">
+          Kategori <span className="text-destructive">*</span>
+        </Label>
+        <Select
+          value={formData.kategori}
+          onValueChange={(v) => set("kategori", v)}
+          required
+        >
+          <SelectTrigger id="pgl-kategori">
+            <SelectValue placeholder="Pilih kategori…" />
+          </SelectTrigger>
+          <SelectContent>
+            {KATEGORI_OPTIONS.map((k) => (
+              <SelectItem key={k} value={k}>{k}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {/* Debet & Kredit */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
@@ -186,7 +216,7 @@ function PengeluaranForm({
 // Main component
 // ─────────────────────────────────────────────
 
-export function PengeluaranContent() {
+export function CashflowContent() {
   const { pengeluarans, addPengeluaran, updatePengeluaran, deletePengeluaran } =
     usePengeluaran();
   const { user, canEdit } = useAuth();
@@ -253,6 +283,7 @@ export function PengeluaranContent() {
     e.preventDefault();
     const err = validateForm(form);
     if (err) { toast.error(err); return; }
+    if (!form.kategori) { toast.error("Pilih kategori terlebih dahulu."); return; }
     setIsSaving(true);
     try {
       await addPengeluaran({
@@ -260,6 +291,7 @@ export function PengeluaranContent() {
         deskripsi: form.deskripsi,
         debet:     parseFloat(form.debet)  || 0,
         kredit:    parseFloat(form.kredit) || 0,
+        kategori:  form.kategori,
         catatan:   form.catatan,
       });
       toast.success("Entri berhasil ditambahkan");
@@ -280,6 +312,7 @@ export function PengeluaranContent() {
       deskripsi: p.deskripsi,
       debet:     p.debet  ? String(p.debet)  : "",
       kredit:    p.kredit ? String(p.kredit) : "",
+      kategori:  p.kategori ?? "",
       catatan:   p.catatan ?? "",
     });
     setIsEditOpen(true);
@@ -290,6 +323,7 @@ export function PengeluaranContent() {
     if (!selected) return;
     const err = validateForm(form);
     if (err) { toast.error(err); return; }
+    if (!form.kategori) { toast.error("Pilih kategori terlebih dahulu."); return; }
     setIsSaving(true);
     try {
       await updatePengeluaran(selected.id, {
@@ -297,6 +331,7 @@ export function PengeluaranContent() {
         deskripsi: form.deskripsi,
         debet:     parseFloat(form.debet)  || 0,
         kredit:    parseFloat(form.kredit) || 0,
+        kategori:  form.kategori,
         catatan:   form.catatan,
       });
       toast.success("Entri berhasil diperbarui");
@@ -332,19 +367,20 @@ export function PengeluaranContent() {
 
   // ── Export CSV ──
   const exportCsv = () => {
-    const header = ["No", "Tanggal", "Deskripsi", "Debet", "Kredit", "Saldo Akhir", "Catatan"];
+    const header = ["No", "Tanggal", "Deskripsi", "Kategori", "Debet", "Kredit", "Saldo Akhir", "Catatan"];
     const rows = monthEntries.map((p, i) => [
       i + 1,
       p.date,
       `"${p.deskripsi.replace(/"/g, '""')}"`,
+      `"${(p.kategori ?? "").replace(/"/g, '""')}"`,
       p.debet  || 0,
       p.kredit || 0,
       p.saldo,
       `"${(p.catatan ?? "").replace(/"/g, '""')}"`,
     ]);
     // Baris saldo awal & total
-    const saldoAwalRow  = ["", "", "Saldo Awal", "", "", saldoAwal, ""];
-    const totalRow      = ["", "", "TOTAL", totalDebet, totalKredit, saldoAkhir, ""];
+    const saldoAwalRow  = ["", "", "Saldo Awal", "", "", "", saldoAwal, ""];
+    const totalRow      = ["", "", "TOTAL", "", totalDebet, totalKredit, saldoAkhir, ""];
     const csv = [header, saldoAwalRow, ...rows, totalRow]
       .map((r) => r.join(","))
       .join("\n");
@@ -456,6 +492,7 @@ export function PengeluaranContent() {
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground w-10">No</th>
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Tgl</th>
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Deskripsi</th>
+                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Kategori</th>
                     <th className="text-right py-3 px-4 font-medium text-green-700 dark:text-green-400">Debet</th>
                     <th className="text-right py-3 px-4 font-medium text-red-600 dark:text-red-400">Kredit</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground">Saldo Akhir</th>
@@ -470,7 +507,7 @@ export function PengeluaranContent() {
                   <tr className="border-b border-border bg-muted/40">
                     <td className="py-2.5 px-4 text-muted-foreground text-xs">—</td>
                     <td className="py-2.5 px-4 text-xs text-muted-foreground">01/{String(month).padStart(2,"0")}</td>
-                    <td className="py-2.5 px-4 text-xs font-semibold text-muted-foreground italic" colSpan={4}>
+                    <td className="py-2.5 px-4 text-xs font-semibold text-muted-foreground italic" colSpan={5}>
                       Saldo Awal {BULAN[month - 1]} {year}
                     </td>
                     <td className="py-2.5 px-4 text-right text-xs font-bold tabular-nums">
@@ -483,6 +520,9 @@ export function PengeluaranContent() {
                       <td className="py-3 px-4 text-muted-foreground">{i + 1}</td>
                       <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">{fmtDate(p.date)}</td>
                       <td className="py-3 px-4 font-medium">{p.deskripsi}</td>
+                      <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">
+                        {p.kategori || <span className="italic opacity-50">—</span>}
+                      </td>
                       <td className="py-3 px-4 text-right tabular-nums">
                         {p.debet > 0 ? (
                           <span className="text-green-700 dark:text-green-400 font-medium">
@@ -574,7 +614,7 @@ export function PengeluaranContent() {
                 {/* Footer total */}
                 <tfoot>
                   <tr className="border-t-2 border-border bg-muted/30 font-semibold">
-                    <td colSpan={3} className="py-3 px-4 text-sm">Total Bulan Ini</td>
+                    <td colSpan={4} className="py-3 px-4 text-sm">Total Bulan Ini</td>
                     <td className="py-3 px-4 text-right tabular-nums text-green-700 dark:text-green-400">
                       {fmt(totalDebet)}
                     </td>

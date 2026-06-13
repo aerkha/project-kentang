@@ -3,12 +3,29 @@
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
 
+export const KATEGORI_OPTIONS = [
+  "Transportasi",
+  "Akomodasi",
+  "Operasional",
+  "Donasi",
+  "Meeting",
+  "Retensi",
+  "Investasi",
+  "Pengembalian Modal",
+  "Bagi hasil Modal MinBun",
+  "Fee MinBun",
+  "Lain - Lain",
+] as const;
+
+export type KategoriType = typeof KATEGORI_OPTIONS[number] | "";
+
 export interface Pengeluaran {
   id: string;         // PGL-YYYYMM-NNN
   date: string;       // "YYYY-MM-DD"
   deskripsi: string;
   debet: number;      // pemasukan
   kredit: number;     // pengeluaran
+  kategori?: string;
   catatan?: string;
 }
 
@@ -46,6 +63,7 @@ function recordToPengeluaran(
     deskripsi: r.deskripsi as string,
     debet:     (r.debet    as number) || 0,
     kredit:    (r.kredit   as number) || 0,
+    kategori:  (r.kategori as string) || "",
     catatan:   (r.catatan  as string) || "",
   };
 }
@@ -120,6 +138,7 @@ export function PengeluaranProvider({ children }: { children: ReactNode }) {
           deskripsi: p.deskripsi,
           debet:     p.debet  || 0,
           kredit:    p.kredit || 0,
+          kategori:  p.kategori || "",
           catatan:   p.catatan || "",
         });
         setPengeluarans((prev) =>
@@ -141,6 +160,7 @@ export function PengeluaranProvider({ children }: { children: ReactNode }) {
     if (!pbId) return;
     const record = await pb.collection("pengeluarans").update(pbId, {
       ...updates,
+      kategori:  updates.kategori ?? undefined,
       updatedBy: currentUserId(),
     });
     setPengeluarans((prev) =>

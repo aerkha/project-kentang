@@ -6,7 +6,7 @@ import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useTransaksi, calcTransaksi } from "@/lib/transaksi-context";
 import { useMou, getMouStatus } from "@/lib/mou-context";
-import { usePengeluaran } from "@/lib/pengeluaran-context";
+import { usePengeluaran } from "@/lib/cashflow-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -683,6 +683,7 @@ export function InvestorsContent() {
           deskripsi: `Modal Internal — ${investorForm.name}`,
           debet: 0,
           kredit: parseFloat(investorForm.investmentAmount) || 0,
+          kategori: "Investasi",
           catatan: makeInternalRef(newId),
         });
       }
@@ -747,6 +748,7 @@ export function InvestorsContent() {
             deskripsi: `Modal Internal — ${investorForm.name}`,
             debet: 0,
             kredit: parseFloat(investorForm.investmentAmount) || 0,
+            kategori: "Investasi",
             catatan: ref,
           });
         }
@@ -758,6 +760,7 @@ export function InvestorsContent() {
           deskripsi: `Modal Internal — ${investorForm.name}`,
           debet: 0,
           kredit: parseFloat(investorForm.investmentAmount) || 0,
+          kategori: "Investasi",
           catatan: ref,
         });
       } else if (wasInternal && !nowInternal) {
