@@ -318,9 +318,10 @@ export function MouProvider({ children }: { children: ReactNode }) {
   const addMou = async (mou: Omit<MoU, "id">) => {
     const pp1 = mou.bagiHasilPP1 ?? 50;
     const pp2 = mou.bagiHasilPP2 ?? 15;
+    const pp3 = mou.bagiHasilPP3 ?? 0;
     const pk  = mou.bagiHasilPK  ?? 35;
-    if (pp1 + pp2 + pk !== 100) {
-      throw new Error(`Persentase bagi hasil harus berjumlah 100% (saat ini ${pp1 + pp2 + pk}%)`);
+    if (pp1 + pp2 + pp3 + pk !== 100) {
+      throw new Error(`Persentase bagi hasil harus berjumlah 100% (saat ini ${pp1 + pp2 + pp3 + pk}%)`);
     }
 
     let customId = await generateCustomId(mou.date);
