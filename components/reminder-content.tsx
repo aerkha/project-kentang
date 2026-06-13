@@ -157,14 +157,16 @@ function buildRows(
 ): PaymentRow[] {
   const bh         = calcBagiHasil(mou, transaksis);
   const inv        = investors.find((i) => i.id === mou.investorId);
-  const brokerData = brokers.find((b) => b.name === inv?.brokerName);
+  // Prioritaskan brokerId dari PKS (sistem baru), fallback ke nama broker di investor (sistem lama)
+  const brokerData = brokers.find((b) => b.id === mou.brokerId) ?? brokers.find((b) => b.name === inv?.brokerName);
+  const brokerDisplayName = mou.brokerName || inv?.brokerName || brokerData?.name || "Broker";
   const rows: PaymentRow[] = [];
 
   if (bh.investor > 0)
     rows.push({ nama: mou.investorName, keterangan: "Investor",
       bankName: inv?.bankName || "—", accountNumber: inv?.accountNumber || "—", jumlah: bh.investor });
   if (bh.broker > 0)
-    rows.push({ nama: inv?.brokerName || "Broker", keterangan: "Broker",
+    rows.push({ nama: brokerDisplayName, keterangan: "Broker",
       bankName: brokerData?.bankName || "—", accountNumber: brokerData?.accountNumber || "—", jumlah: bh.broker });
   if (bh.trader > 0)
     rows.push({ nama: traderAcc.nama || "Trader", keterangan: "Trader",
