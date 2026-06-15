@@ -987,7 +987,7 @@ export function MouContent() {
     const total =
       (parseFloat(form.bagiHasilPP1)  || 0) +
       (parseFloat(form.bagiHasilPP2)  || 0) +
-      (parseFloat(form.bagiHasilPP3)  || 0) +
+      (form.brokerId ? (parseFloat(form.bagiHasilPP3) || 0) : 0) +
       (parseFloat(form.bagiHasilPK)   || 0);
     if (total !== 100) {
       setErrorInfo({

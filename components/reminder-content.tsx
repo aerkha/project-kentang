@@ -465,12 +465,18 @@ export function ReminderContent() {
         } else {
           try {
             const isInternal = keterangan === "MinBun" || (keterangan === "Investor" && internalInvestorIds.has(snapshotMou.investorId));
+            const kategori =
+              keterangan === "MinBun"   ? "Fee MinBun"
+              : keterangan === "Broker" ? "Bagi hasil External"
+              : keterangan === "Trader" ? "Bagi hasil External"
+              : isInternal              ? "Bagi hasil Modal MinBun"
+              :                           "Bagi hasil External";
             await addPengeluaran({
               date:      today,
               deskripsi: `Bagi Hasil ${row.nama} (${keterangan}) - PKS ${snapshotMou.id}`,
               debet:     isInternal ? row.jumlah : 0,
               kredit:    isInternal ? 0 : row.jumlah,
-              kategori:  keterangan === "MinBun" ? "Fee MinBun" : "Bagi hasil Modal MinBun",
+              kategori,
               catatan:   cashflowTag,
             });
             toast.success(`${keterangan} — ${row.nama} dicatat di Cash Flow`);

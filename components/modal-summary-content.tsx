@@ -87,15 +87,30 @@ export function ModalSummaryContent() {
 
   // Hitung data per-PKS (menggunakan transaksi yang sudah difilter)
   const mouRows = useMemo<MouModalRow[]>(() => {
+    // Hitung "hari ini" dalam kalender WIB (UTC+7) agar tidak off-by-one di sekitar tengah malam
+    const nowWib  = Date.now() + 7 * 3600 * 1000;
+    const todayMs = nowWib - (nowWib % 86400000);
+
     return activeMous.map((mou) => {
       const endDate  = addDays(mou.date, mou.contractPeriod);
-      const daysLeft = Math.ceil((endDate.getTime() - Date.now()) / 86400000);
+      const daysLeft = Math.round((endDate.getTime() - todayMs) / 86400000);
+
+      // Batas periode PKS ini untuk filtering transaksi — [mouStart, mouEnd)
+      const [my, mm, md] = mou.date.slice(0, 10).split("-").map(Number);
+      const mouStart = Date.UTC(my, mm - 1, md);
+      const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
 
       let modalDisalurkan = 0;
       let profitBersih    = 0;
       let trxCount        = 0;
 
       filteredTransaksis.forEach((t) => {
+        // Hanya transaksi dalam periode PKS ini — batas akhir eksklusif [start, end),
+        // agar PKS lama & perpanjangan tidak dobel-hitung
+        const [ty, tm, td] = t.date.slice(0, 10).split("-").map(Number);
+        const tDate = Date.UTC(ty, tm - 1, td);
+        if (tDate < mouStart || tDate >= mouEnd) return;
+
         const entry = t.investorEntries.find((e) => e.investorId === mou.investorId);
         if (!entry) return;
         const c = calcTransaksi(t);
