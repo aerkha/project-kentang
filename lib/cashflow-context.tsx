@@ -12,7 +12,6 @@ export const KATEGORI_OPTIONS = [
   "Investasi",
   "Pengembalian Modal",
   "BagHas Modal MinBun",
-  "BagHas External",
   "Fee MinBun",
   "Supporting Tools",
   "Lain - Lain",

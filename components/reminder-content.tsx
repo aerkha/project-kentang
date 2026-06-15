@@ -322,19 +322,10 @@ export function ReminderContent() {
     if (!isChecked) {
       // Cek isInternal langsung dari investors array (bukan hanya dari Set cache)
       // agar tidak salah jalur jika investors belum selesai di-load saat klik
-      const investor       = investors.find((inv) => inv.id === mou.investorId);
-      const isInternalInvestor = keterangan === "Investor" &&
-        (investor?.isInternal === true || internalInvestorIds.has(mou.investorId));
-      const isMinBun           = keterangan === "MinBun";
-      if (isInternalInvestor || isMinBun) {
-        // Dialog konfirmasi — tidak perlu upload bukti transfer
-        setInternalTarget({ mou, keterangan, row });
-      } else {
-        // Buka dialog upload bukti transfer biasa
-        setBuktiTarget({ mou, keterangan, row });
-        setBuktiFile(null);
-        setBuktiPreview(null);
-      }
+      // Semua baris wajib upload bukti transfer
+      setBuktiTarget({ mou, keterangan, row });
+      setBuktiFile(null);
+      setBuktiPreview(null);
     } else {
       // Un-check langsung
       void handleUncheck(mou, keterangan);
@@ -456,6 +447,39 @@ export function ReminderContent() {
       // 2. Simpan status ceklis
       await updateMou(snapshotMou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
       setDoneKeys((prev) => new Set(prev).add(key));
+
+      // 2b. Catat cashflow untuk MinBun dan investor internal
+      const isMinBun          = keterangan === "MinBun";
+      const isInternalInvestor = keterangan === "Investor" && internalInvestorIds.has(snapshotMou.investorId);
+      if (isMinBun || isInternalInvestor) {
+        const tag   = isMinBun
+          ? `[Reminder] PKS ${snapshotMou.id} · MinBun`
+          : `[Internal-Profit:${snapshotMou.investorId}:${snapshotMou.id}]`;
+        const today = todayWibStr();
+        if (cashflowTagRecorded(tag)) {
+          toast.info("Entri Arus Kas sudah ada — tidak dicatat ulang.");
+        } else if (isMinBun) {
+          await addPengeluaran({
+            date:      today,
+            deskripsi: `Bagi Hasil MinBun — PKS ${snapshotMou.id}`,
+            debet:     row.jumlah,
+            kredit:    0,
+            kategori:  "Fee MinBun",
+            catatan:   tag,
+          });
+          toast.success(`Bagi hasil MinBun PKS ${snapshotMou.id} dicatat di Arus Kas`);
+        } else {
+          await addPengeluaran({
+            date:      today,
+            deskripsi: `Profit Internal — ${row.nama} — PKS ${snapshotMou.id}`,
+            debet:     row.jumlah,
+            kredit:    0,
+            kategori:  "BagHas Modal MinBun",
+            catatan:   tag,
+          });
+          toast.success(`Profit internal ${row.nama} dicatat di Arus Kas`);
+        }
+      }
 
       // 3. Kirim notifikasi ke investor (non-blocking — tidak gagalkan flow utama)
       const pbToken = pb.authStore.token;
@@ -753,9 +777,9 @@ export function ReminderContent() {
                                     {rowDone
                                       ? "Sudah selesai"
                                       : pr.keterangan === "MinBun"
-                                        ? "Konfirmasi & catat ke Arus Kas"
+                                        ? "Upload bukti & catat ke Arus Kas"
                                         : pr.keterangan === "Investor" && internalInvestorIds.has(task.mou.investorId)
-                                          ? "Konfirmasi profit internal & catat ke Arus Kas"
+                                          ? "Upload bukti & catat ke Arus Kas"
                                           : "Upload bukti & tandai selesai"}
                                   </TooltipContent>
                                 </Tooltip>
@@ -973,9 +997,9 @@ export function ReminderContent() {
                                     {rowDone
                                       ? "Tandai belum dibayar"
                                       : pr.keterangan === "MinBun"
-                                        ? "Konfirmasi & catat ke Arus Kas"
+                                        ? "Upload bukti & catat ke Arus Kas"
                                         : pr.keterangan === "Investor" && internalInvestorIds.has(task.mou.investorId)
-                                          ? "Konfirmasi profit internal & catat ke Arus Kas"
+                                          ? "Upload bukti & catat ke Arus Kas"
                                           : "Upload bukti & tandai selesai"}
                                   </TooltipContent>
                                 </Tooltip>
