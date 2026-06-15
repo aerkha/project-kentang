@@ -94,8 +94,11 @@ function daysUntil(dateStr: string): number {
 
 function calcBagiHasil(mou: MoU, transaksis: Transaksi[]) {
   const [sy, sm, sd] = mou.date.slice(0, 10).split("-").map(Number);
-  const mouStart = Date.UTC(sy, sm - 1, sd);
-  const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
+  const siklus   = mou.siklus ?? 1;
+  const cycleMs  = mou.contractPeriod * 86_400_000;
+  // Hanya hitung bagi hasil untuk siklus aktif saat ini [cycleStart, cycleEnd)
+  const mouStart = Date.UTC(sy, sm - 1, sd) + (siklus - 1) * cycleMs;
+  const mouEnd   = mouStart + cycleMs;
   const pkPct    = (mou.bagiHasilPK ?? 35) / 100;
 
   let investor = 0, trader = 0, minbun = 0, broker = 0;
@@ -254,7 +257,7 @@ export function ReminderContent() {
     return mous
       .filter((m) => getMouStatus(m) === "aktif")
       .map((mou) => {
-        const endDateStr = addDays(mou.date, mou.contractPeriod);
+        const endDateStr = addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
         const rows       = buildRows(mou, transaksis, investors, brokers, minbun, trader);
         const bh         = calcBagiHasil(mou, transaksis);
         return { mou, endDateStr, bh, rows };
@@ -272,7 +275,7 @@ export function ReminderContent() {
         return rows.some((r) => !m.bagiHasilChecks?.[r.keterangan]);
       })
       .map((mou) => {
-        const endDateStr = addDays(mou.date, mou.contractPeriod);
+        const endDateStr = addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
         const rows       = buildRows(mou, transaksis, investors, brokers, minbun, trader);
         const bh         = calcBagiHasil(mou, transaksis);
         return { mou, endDateStr, bh, rows };
@@ -415,7 +418,7 @@ export function ReminderContent() {
           deskripsi: `Profit Internal — ${row.nama} — PKS ${snapshotMou.id}`,
           debet:     row.jumlah,
           kredit:    0,
-          kategori:  "Bagi hasil Modal MinBun",
+          kategori:  "BagHas Modal MinBun",
           catatan:   tag,
         });
         toast.success(`Profit internal ${row.nama} dicatat di Arus Kas`);
@@ -440,10 +443,8 @@ export function ReminderContent() {
     // saat dialog ini dibuka (stale closure bug)
     const allTask      = [...tasks, ...expiredPendingTasks].find((t) => t.mou.id === snapshotMou.id);
     const latestMou    = allTask?.mou ?? snapshotMou;
-    const alreadyDone  = !!latestMou.bagiHasilChecks?.[keterangan] || doneKeys.has(key);
     const checks       = { ...(latestMou.bagiHasilChecks ?? {}), [keterangan]: true };
     const allDone      = allTask ? allTask.rows.every((r) => checks[r.keterangan]) : false;
-    const today        = todayWibStr();
 
     setIsUploading(true);
     setToggling(key);
@@ -456,37 +457,7 @@ export function ReminderContent() {
       await updateMou(snapshotMou.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
       setDoneKeys((prev) => new Set(prev).add(key));
 
-      // 3. Catat ke cashflow (skip jika sudah pernah dicatat sebelumnya —
-      //    baik dari sesi ini maupun dari ceklis lama yang pernah di-uncheck)
-      const cashflowTag = `[Reminder] PKS ${snapshotMou.id} · ${keterangan}`;
-      if (!alreadyDone) {
-        if (cashflowTagRecorded(cashflowTag)) {
-          toast.info("Entri Arus Kas untuk tugas ini sudah ada — tidak dicatat ulang.");
-        } else {
-          try {
-            const isInternal = keterangan === "MinBun" || (keterangan === "Investor" && internalInvestorIds.has(snapshotMou.investorId));
-            const kategori =
-              keterangan === "MinBun"   ? "Fee MinBun"
-              : keterangan === "Broker" ? "Bagi hasil External"
-              : keterangan === "Trader" ? "Bagi hasil External"
-              : isInternal              ? "Bagi hasil Modal MinBun"
-              :                           "Bagi hasil External";
-            await addPengeluaran({
-              date:      today,
-              deskripsi: `Bagi Hasil ${row.nama} (${keterangan}) - PKS ${snapshotMou.id}`,
-              debet:     isInternal ? row.jumlah : 0,
-              kredit:    isInternal ? 0 : row.jumlah,
-              kategori,
-              catatan:   cashflowTag,
-            });
-            toast.success(`${keterangan} — ${row.nama} dicatat di Cash Flow`);
-          } catch {
-            toast.error(`Ceklis tersimpan, tapi gagal mencatat ${keterangan} di Cash Flow. Tambahkan manual.`);
-          }
-        }
-      }
-
-      // 4. Kirim notifikasi ke investor (non-blocking — tidak gagalkan flow utama)
+      // 3. Kirim notifikasi ke investor (non-blocking — tidak gagalkan flow utama)
       const pbToken = pb.authStore.token;
       if (pbToken && keterangan === "Investor") {
         fetch("/api/notify-investor", {
@@ -501,6 +472,7 @@ export function ReminderContent() {
             investorId:   snapshotMou.investorId,
             jumlah:       row.jumlah,
             buktiUrl,
+            siklus:       snapshotMou.siklus ?? 1,
           }),
         })
           .then((r) => r.json())
@@ -1253,7 +1225,7 @@ export function ReminderContent() {
                         </td>
                         <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">
                           {isNotif
-                            ? `${log.keterangan}${log.jumlah > 0 ? ` · ${new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(log.jumlah)}` : ""}`
+                            ? `Siklus ke-${log.cycleNumber} · ${log.keterangan}${log.jumlah > 0 ? ` · ${new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(log.jumlah)}` : ""}`
                             : `Siklus ke-${log.cycleNumber}`
                           }
                           {log.errorMessage && (

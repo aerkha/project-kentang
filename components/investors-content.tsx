@@ -596,7 +596,7 @@ export function InvestorsContent() {
           if (m.investorId !== entry.investorId) return false;
           const [my, mm, md] = m.date.slice(0, 10).split("-").map(Number);
           const start = Date.UTC(my, mm - 1, md);
-          return tTime >= start && tTime < start + m.contractPeriod * 86_400_000;
+          return tTime >= start && tTime < start + m.contractPeriod * (m.siklus ?? 1) * 86_400_000;
         });
         const pkPct = (mou?.bagiHasilPK ?? 35) / 100;
         const bh    = c.profit > 0 ? c.profit * pkPct * ratio : 0;

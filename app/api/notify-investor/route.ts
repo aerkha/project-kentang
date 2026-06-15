@@ -21,6 +21,7 @@ interface NotifyBody {
   investorId:   string;
   jumlah:       number;
   buktiUrl:     string;
+  siklus?:      number;
 }
 
 type ChannelStatus = "sent" | "failed" | "skipped";
@@ -48,6 +49,7 @@ interface MouRecord {
   customId:         string;   // MOU-YYYYMM-NNN
   date:             string;
   contractPeriod:   number;
+  siklus?:          number;
   investmentAmount: number;
   bagiHasilPK:      number;   // % bagi hasil PKS (default 35)
   isTerminated:     boolean;
@@ -127,11 +129,11 @@ interface HistoryRow {
   lunas:            boolean;
 }
 
-function computeMouStatus(mou: Pick<MouRecord, "date" | "contractPeriod" | "isTerminated" | "signedDoc">): string {
+function computeMouStatus(mou: Pick<MouRecord, "date" | "contractPeriod" | "siklus" | "isTerminated" | "signedDoc">): string {
   if (mou.isTerminated) return "dihentikan";
   const todayStr = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
   const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
-  const endStr    = new Date(Date.UTC(y, m - 1, d + mou.contractPeriod)).toISOString().slice(0, 10);
+  const endStr    = new Date(Date.UTC(y, m - 1, d + mou.contractPeriod * (mou.siklus ?? 1))).toISOString().slice(0, 10);
   // Periode eksklusif [start, end) — konsisten dengan getMouStatus di client
   if (endStr <= todayStr) return "expired";
   if (mou.date.slice(0, 10) < todayStr || mou.signedDoc) return "aktif";
@@ -154,6 +156,7 @@ async function buildHistory(
       customId:         r.customId         as string,
       date:             r.date             as string,
       contractPeriod:   r.contractPeriod   as number,
+      siklus:           (r.siklus          as number) || 1,
       investmentAmount: r.investmentAmount as number,
       bagiHasilPK:      (r.bagiHasilPK    as number) ?? 35,
       isTerminated:     r.isTerminated === true,
@@ -190,7 +193,7 @@ async function buildHistory(
     return mous.map((mou) => ({
       mouCustomId:      mou.customId,
       periodeStart:     mou.date,
-      periodeEnd:       addDays(mou.date, mou.contractPeriod),
+      periodeEnd:       addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1)),
       investmentAmount: mou.investmentAmount,
       bh:               { investor: 0, trader: 0, minbun: 0, broker: 0 },
       status:           computeMouStatus(mou),
@@ -238,9 +241,9 @@ async function buildHistory(
   return mous.map((mou) => {
     const [my, mm, md] = mou.date.slice(0, 10).split("-").map(Number);
     const mouStart = Date.UTC(my, mm - 1, md);
-    const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
+    const mouEnd   = mouStart + mou.contractPeriod * (mou.siklus ?? 1) * 86_400_000;
     const pkPct    = (mou.bagiHasilPK ?? 35) / 100;
-    const periodeEnd = addDays(mou.date, mou.contractPeriod);
+    const periodeEnd = addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
 
     let totalBh: BagiHasil = { investor: 0, trader: 0, minbun: 0, broker: 0 };
 
@@ -611,7 +614,7 @@ export async function POST(req: NextRequest) {
   // 7. Simpan log ke reminder_logs (silent — tidak gagalkan response)
   pb.collection("reminder_logs").create({
     mouCustomId:  mouCustomId,
-    cycleNumber:  0,
+    cycleNumber:  body.siklus ?? 1,
     sentAt:       new Date().toISOString(),
     investorName: investorName,
     emailStatus,

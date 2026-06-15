@@ -4,17 +4,17 @@ import { createContext, useContext, useState, useEffect, useRef, type ReactNode 
 import pb from "./pocketbase";
 
 export const KATEGORI_OPTIONS = [
-  "Transportasi",
-  "Akomodasi",
-  "Operasional",
+  "Akomodasi Internal",
+  "Akomodasi Eksternal",
+  "Gaji",
   "Donasi",
-  "Meeting",
   "Retensi",
   "Investasi",
   "Pengembalian Modal",
   "BagHas Modal MinBun",
   "BagHas External",
   "Fee MinBun",
+  "Supporting Tools",
   "Lain - Lain",
 ] as const;
 

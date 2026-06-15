@@ -3,12 +3,6 @@
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
 import { useInvestors } from "./investors-context";
-import {
-  recordModalPksDigunakan,
-  recordModalPksDiKembalikan,
-  removeModalPksDiKembalikan,
-  removeModalPksDigunakan,
-} from "./cashflow-auto";
 import { todayWibStr } from "./utils";
 
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
@@ -32,6 +26,7 @@ export interface MoU {
   bagiHasilPP2: number;   // % Pihak Pertama II (default 15)
   bagiHasilPK:  number;   // % Pihak Kedua      (default 35)
   isTerminated?: boolean;
+  siklus?: number;             // jumlah siklus (default 1, bertambah tiap renewal)
   bagiHasilDone?: boolean;
   bagiHasilChecks?: Record<string, boolean>; // { Investor: true, Broker: false, ... }
   buktiInvestor?: string; // URL file bukti transfer
@@ -113,6 +108,7 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
     investorIdNumber:   r.investorIdNumber   as string,
     investorPhone:      r.investorPhone      as string,
     contractPeriod:     r.contractPeriod     as number,
+    siklus:             (r.siklus            as number) || 1,
     investmentAmount:   r.investmentAmount   as number,
     heirName:           r.heirName           as string,
     heirRelationship:   r.heirRelationship   as string,
@@ -151,8 +147,6 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
 
 /**
  * Parse tanggal "YYYY-MM-DD" sebagai UTC midnight.
- * Diperlukan karena `new Date("YYYY-MM-DD")` sudah UTC, tapi `new Date()` lokal —
- * keduanya harus berada di zona waktu yang sama agar perbandingan tidak off satu hari.
  */
 function parseUtcDate(s: string): Date {
   const [y, m, d] = s.slice(0, 10).split("-").map(Number);
@@ -161,9 +155,6 @@ function parseUtcDate(s: string): Date {
 
 /**
  * Tanggal kalender WIB (UTC+7) hari ini sebagai UTC midnight.
- * Tanggal MoU (YYYY-MM-DD) di-parse sebagai UTC midnight, jadi "hari ini"
- * juga dipetakan ke UTC midnight dari tanggal kalender WIB — konsisten
- * di semua zona waktu client maupun server.
  */
 function todayUtc(): Date {
   return parseUtcDate(todayWibStr());
@@ -173,26 +164,21 @@ export type MouStatus = "pending" | "aktif" | "expired" | "nonaktif";
 
 /**
  * Status sebuah PKS. Satu-satunya sumber kebenaran — dipakai oleh halaman PKS,
- * halaman Investor, dan logika sinkronisasi isActive / cash flow di context ini
- * agar tidak ada perbedaan perhitungan antar tempat.
+ * halaman Investor, dan logika sinkronisasi isActive di context ini.
  */
 export function getMouStatus(mou: MoU): MouStatus {
   if (mou.isTerminated) return "nonaktif";
   const today = todayUtc();
   const start = parseUtcDate(mou.date);
   const end   = new Date(start);
-  end.setUTCDate(end.getUTCDate() + mou.contractPeriod);
-  // Periode PKS eksklusif [start, end): tepat di tanggal berakhir PKS sudah
-  // expired — sejalan dengan filter transaksi bagi hasil, dan PKS perpanjangan
-  // (mulai = tanggal berakhir PKS lama) tidak pernah aktif bersamaan.
+  end.setUTCDate(end.getUTCDate() + mou.contractPeriod * (mou.siklus ?? 1));
   if (end <= today) return "expired";
   const isBackdate = start < today;
   if (!isBackdate && !mou.hasSignedDoc) return "pending";
   return "aktif";
 }
 
-
-/** Apakah sebuah MoU berstatus "aktif" (bukan expired, terminated, atau pending) */
+/** Apakah sebuah MoU berstatus "aktif" */
 function isMouAktif(mou: MoU): boolean {
   return getMouStatus(mou) === "aktif";
 }
@@ -203,9 +189,7 @@ function isCustomIdConflict(err: unknown): boolean {
   return data?.data?.customId?.code === "validation_not_unique";
 }
 
-/**
- * Format ID: MOU-YYYYMM-NNN
- */
+/** Format ID: MOU-YYYYMM-NNN */
 async function generateCustomId(date: string): Promise<string> {
   const ym     = date.slice(0, 7).replace("-", "");
   const prefix = `MOU-${ym}-`;
@@ -228,11 +212,6 @@ async function generateCustomId(date: string): Promise<string> {
 
 export function MouProvider({ children }: { children: ReactNode }) {
   const [mous, setMous] = useState<MoU[]>([]);
-  /**
-   * mousRef selalu berisi snapshot mous terbaru, termasuk perubahan yang
-   * dilakukan dalam satu async function (sebelum re-render).
-   * Diupdate secara sinkron setiap kali mous berubah (baris di bawah).
-   */
   const mousRef = useRef<MoU[]>([]);
   mousRef.current = mous;
 
@@ -240,11 +219,6 @@ export function MouProvider({ children }: { children: ReactNode }) {
   const pbIdMapRef = useRef(new Map<string, string>());
   const map = pbIdMapRef.current;
 
-  /**
-   * Ambil PocketBase internal ID untuk sebuah customId.
-   * Jika tidak ada di cache (map stale / baru mount), re-fetch dari server.
-   * Ini mencegah error 404 saat PocketBase direstart atau data di-recreate.
-   */
   const resolvePbId = async (customId: string): Promise<string | null> => {
     const cached = map.get(customId);
     if (cached) return cached;
@@ -286,20 +260,12 @@ export function MouProvider({ children }: { children: ReactNode }) {
       return [];
     });
 
-    // Set flag SEBELUM Promise.all agar effect tidak terpanggil ulang
-    // saat updateInvestor di dalam sync mengubah state investors.
     initialSyncDone.current = true;
     Promise.all(syncs).catch(console.error);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mous, investors]);
 
-  /**
-   * Sinkronisasi isActive investor berdasarkan seluruh PKS yang dimilikinya.
-   * Dipanggil langsung setelah setiap operasi MoU yang bisa mengubah status.
-   * @param investorId  customId investor (e.g. "INV-0004")
-   * @param latestMous  array MoU terbaru (setelah mutasi, sebelum re-render)
-   */
   const syncInvestorStatus = async (investorId: string, latestMous: MoU[]) => {
     const shouldBeActive = latestMous
       .filter((m) => m.investorId === investorId)
@@ -326,7 +292,6 @@ export function MouProvider({ children }: { children: ReactNode }) {
 
     let customId = await generateCustomId(mou.date);
 
-    // Step 1: buat record tanpa esign (retry jika customId conflict)
     const createPayload = (id: string) => pb.collection("mous").create({
       customId: id,
       createdBy: currentUserId(),
@@ -365,7 +330,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
       throw err;
     });
 
-    // Step 2: upload esign sebagai file jika ada (base64 data URL)
+    // Upload esign sebagai file jika ada (base64 data URL)
     const esignPairs: [string, string][] = (
       [
         ["esignPihakPertama1", mou.esignPihakPertama1  ?? ""],
@@ -384,31 +349,15 @@ export function MouProvider({ children }: { children: ReactNode }) {
     }
 
     const newMou = recordToMou(record, map);
-    // Update ref segera agar sync concurrent melihat MoU terbaru
     mousRef.current = [...mousRef.current, newMou];
     setMous(mousRef.current);
     await syncInvestorStatus(mou.investorId, mousRef.current);
-
-    // Jika PKS langsung aktif (backdate), catat modal digunakan ke cash flow.
-    // Gunakan tanggal hari ini (bukan tanggal PKS) agar konsisten dengan entri
-    // modal investor yang dicatat saat investor diinput, bukan saat kontrak dimulai.
-    if (isMouAktif(newMou)) {
-      recordModalPksDigunakan(
-        newMou.investorId,
-        newMou.investorName,
-        newMou.id,
-        newMou.investmentAmount,
-        todayWibStr(),
-      ).catch((e) => console.warn("cashflow-auto: gagal catat modal PKS digunakan:", e));
-    }
   };
 
   const updateMou = async (id: string, updates: Partial<MoU>) => {
     const pbId = await resolvePbId(id);
     if (!pbId) return;
-    const prevMou = mousRef.current.find((m) => m.id === id);
 
-    // Pisahkan field esign dari update reguler
     const {
       esignPihakPertama1,
       esignPihakPertama2,
@@ -419,16 +368,12 @@ export function MouProvider({ children }: { children: ReactNode }) {
       ...regularUpdates
     } = updates;
 
-    // Serialisasi bagiHasilChecks ke JSON string sebelum kirim ke PocketBase
     const { bagiHasilChecks, ...restUpdates } = regularUpdates;
     const pbUpdates: Record<string, unknown> = { ...restUpdates, updatedBy: currentUserId() };
     if (bagiHasilChecks !== undefined) {
       pbUpdates.bagiHasilChecks = JSON.stringify(bagiHasilChecks);
     }
 
-    // Nilai esign "" eksplisit berarti user menghapus tanda tangan —
-    // kosongkan field file di server. URL http(s) berarti tidak berubah (skip),
-    // data URL berarti upload baru (ditangani lewat FormData di bawah).
     const esignAll: [string, string | undefined][] = [
       ["esignPihakPertama1", esignPihakPertama1],
       ["esignPihakPertama2", esignPihakPertama2],
@@ -441,7 +386,6 @@ export function MouProvider({ children }: { children: ReactNode }) {
 
     let record = await pb.collection("mous").update(pbId, pbUpdates);
 
-    // Upload esign sebagai file jika ada base64 baru
     const esignPairs: [string, string][] = (
       esignAll.map(([k, v]) => [k, v ?? ""]) as [string, string][]
     ).filter(([, v]) => v.startsWith("data:"));
@@ -455,52 +399,12 @@ export function MouProvider({ children }: { children: ReactNode }) {
     }
 
     const updatedMou = recordToMou(record, map);
-    // Update ref segera agar sync concurrent melihat versi terbaru
     mousRef.current = mousRef.current.map((m) => (m.id === id ? updatedMou : m));
     setMous(mousRef.current);
 
-    // Sync jika update menyentuh field yang bisa mengubah status PKS
     const statusFields = ["isTerminated", "date", "contractPeriod", "hasSignedDoc"] as const;
     if (statusFields.some((f) => f in updates)) {
       await syncInvestorStatus(updatedMou.investorId, mousRef.current);
-    }
-
-    // ── Cash flow: terminate / aktifkan kembali ──
-    // Fire-and-forget seperti pencatatan otomatis lainnya — jangan blokir UI.
-    const wasTerminated = prevMou?.isTerminated === true;
-    const nowTerminated = updatedMou.isTerminated === true;
-    if (prevMou && wasTerminated !== nowTerminated) {
-      if (nowTerminated) {
-        // PKS dihentikan manual → modal kembali ke kas hari ini.
-        // recordModalPksDiKembalikan hanya mencatat jika modal PKS ini
-        // pernah tercatat digunakan, dan mencegah duplikasi via tag.
-        recordModalPksDiKembalikan(
-          updatedMou.investorId,
-          updatedMou.investorName,
-          updatedMou.id,
-          updatedMou.investmentAmount,
-        ).catch((e) => console.warn("cashflow-auto: gagal catat modal PKS dikembalikan:", e));
-      } else if (getMouStatus(updatedMou) !== "expired") {
-        // Diaktifkan kembali dan belum melewati tanggal berakhir → modal
-        // dipakai lagi, hapus entri pengembalian agar arus kas tidak dobel.
-        // (Jika sudah expired, entri pengembalian dibiarkan — modal memang kembali.)
-        removeModalPksDiKembalikan(updatedMou.investorId, updatedMou.id)
-          .catch((e) => console.warn("cashflow-auto: gagal hapus entri modal dikembalikan:", e));
-      }
-    }
-
-    // ── Cash flow: renewal — date dimajukan sehingga expired → aktif ──
-    // isTerminated tidak berubah di sini (keduanya false).
-    // Modal yang sebelumnya "dikembalikan" saat expired harus dihapus
-    // karena modal kini digunakan kembali untuk periode perpanjangan.
-    if (
-      prevMou &&
-      !wasTerminated && !nowTerminated &&
-      getMouStatus(prevMou) === "expired" &&
-      getMouStatus(updatedMou) === "aktif"
-    ) {
-      removeModalPksDiKembalikan(updatedMou.investorId, updatedMou.id)
-        .catch((e) => console.warn("cashflow-auto: gagal hapus modal dikembalikan saat renewal:", e));
     }
   };
 
@@ -510,19 +414,9 @@ export function MouProvider({ children }: { children: ReactNode }) {
     const mouToDelete = mousRef.current.find((m) => m.id === id);
     await pb.collection("mous").delete(pbId);
     map.delete(id);
-    // Update ref segera agar sync concurrent tidak melihat MoU yang sudah dihapus
     mousRef.current = mousRef.current.filter((m) => m.id !== id);
     setMous(mousRef.current);
 
-    // Hapus entri cash flow yang terkait dengan PKS ini
-    if (mouToDelete) {
-      removeModalPksDigunakan(mouToDelete.investorId, mouToDelete.id)
-        .catch((e) => console.warn("cashflow-auto: gagal hapus entri modal PKS digunakan:", e));
-      removeModalPksDiKembalikan(mouToDelete.investorId, mouToDelete.id)
-        .catch((e) => console.warn("cashflow-auto: gagal hapus entri modal PKS dikembalikan:", e));
-    }
-
-    // Sync jika PKS yang dihapus berpengaruh pada status investor
     if (mouToDelete) {
       await syncInvestorStatus(mouToDelete.investorId, mousRef.current);
     }
@@ -538,7 +432,6 @@ export function MouProvider({ children }: { children: ReactNode }) {
     const record     = await pb.collection("mous").update(pbId, fd);
     const updatedMou = recordToMou(record, map);
     setMous((prev) => prev.map((m) => (m.id === id ? updatedMou : m)));
-    // Kembalikan URL file yang baru diupload agar caller tidak perlu membaca state (yang belum flush)
     return (updatedMou[fieldName as keyof MoU] as string) ?? "";
   };
 
@@ -549,24 +442,9 @@ export function MouProvider({ children }: { children: ReactNode }) {
     fd.append("signedDoc", file);
     const record      = await pb.collection("mous").update(pbId, fd);
     const updatedMou = recordToMou(record, map);
-    // Update ref segera agar sync melihat versi terbaru (hasSignedDoc=true)
     mousRef.current = mousRef.current.map((m) => (m.id === id ? updatedMou : m));
     setMous(mousRef.current);
-
-    // PKS kini hasSignedDoc=true → mungkin menjadi aktif → sync investor
     await syncInvestorStatus(updatedMou.investorId, mousRef.current);
-
-    // Jika PKS kini aktif (signed doc baru diunggah mengaktifkannya),
-    // catat modal digunakan ke cash flow (duplikasi dicegah oleh tag check).
-    if (isMouAktif(updatedMou)) {
-      recordModalPksDigunakan(
-        updatedMou.investorId,
-        updatedMou.investorName,
-        updatedMou.id,
-        updatedMou.investmentAmount,
-        todayWibStr(),
-      ).catch((e) => console.warn("cashflow-auto: gagal catat modal PKS digunakan:", e));
-    }
   };
 
   return (

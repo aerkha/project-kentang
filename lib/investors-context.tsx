@@ -2,11 +2,6 @@
 
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
-import {
-  recordModalInvestorMasuk,
-  updateModalInvestorMasuk,
-  removeModalInvestorMasuk,
-} from "./cashflow-auto";
 
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
@@ -69,9 +64,6 @@ function isCustomIdConflict(err: unknown): boolean {
 
 async function generateCustomId(): Promise<string> {
   try {
-    // Ambil semua customId lalu cari nilai numerik tertinggi.
-    // Tidak menggunakan sort: "-customId" karena sort itu leksikografis,
-    // sehingga "INV-0009" > "INV-0010" dan akan menghasilkan ID yang salah.
     const res = await pb.collection("investors").getFullList({ fields: "customId" });
     if (res.length === 0) return "INV-0001";
     const max = res.reduce((m, r) => {
@@ -135,16 +127,6 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
           isInternal:       inv.isInternal === true,
         });
         setInvestors((prev) => [...prev, recordToInvestor(record, map)]);
-
-        // Catat modal investor masuk ke cash flow (pemasukan / debet)
-        // Dicatat segera saat investor ditambahkan, tanpa menunggu PKS aktif.
-        // Error cash flow tidak membatalkan pembuatan investor — investor sudah tersimpan.
-        try {
-          await recordModalInvestorMasuk(customId, inv.name, inv.investmentAmount);
-        } catch (e) {
-          console.warn("cashflow-auto: gagal catat modal investor masuk:", e);
-        }
-
         return customId;
       } catch (err) {
         if (isCustomIdConflict(err) && attempt < 4) {
@@ -165,13 +147,6 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
     setInvestors((prev) =>
       prev.map((inv) => (inv.id === id ? updated : inv))
     );
-
-    // Sinkronkan entri cash flow [Modal-Investor:...] jika nama / nilai investasi berubah.
-    // Fire-and-forget: jangan blokir UI jika gagal.
-    if (updates.name !== undefined || updates.investmentAmount !== undefined) {
-      updateModalInvestorMasuk(id, updated.name, updated.investmentAmount)
-        .catch((e) => console.warn("cashflow-auto: gagal sinkron modal investor:", e));
-    }
   };
 
   const deleteInvestor = async (id: string) => {
@@ -180,11 +155,6 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
     await pb.collection("investors").delete(pbId);
     map.delete(id);
     setInvestors((prev) => prev.filter((inv) => inv.id !== id));
-
-    // Bersihkan entri cash flow modal investor agar tidak menyisakan
-    // pemasukan dari investor yang sudah dihapus.
-    removeModalInvestorMasuk(id)
-      .catch((e) => console.warn("cashflow-auto: gagal hapus entri modal investor:", e));
   };
 
   return (

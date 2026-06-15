@@ -41,6 +41,7 @@ interface MoURecord {
   investorPhone: string;
   investmentAmount: number;
   contractPeriod: number;
+  siklus?: number;
   isTerminated: boolean;
   bagiHasilDone?: boolean;
   brokerId?: string;        // customId broker jika PKS via broker
@@ -106,7 +107,7 @@ function findDueMous(mous: MoURecord[]): DueMou[] {
     if (mou.isTerminated) continue;     // PKS dihentikan — tidak ada kewajiban
     if (mou.bagiHasilDone) continue;    // seluruh bagi hasil sudah lunas — tidak perlu remind
 
-    const endDate     = addDays(mou.date, mou.contractPeriod);
+    const endDate     = addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
     const daysOverdue = Math.round((todayMs - dateUtcMs(endDate)) / 86_400_000);
 
     // Hanya hari-H (0) sampai 2 hari setelahnya (catch-up bila cron telat)
@@ -537,7 +538,7 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
 
         await pb.collection("reminder_logs").create({
           mouCustomId:       d.mou.customId,
-          cycleNumber:       0,
+          cycleNumber:       d.mou.siklus ?? 1,
           sentAt:            new Date().toISOString(),
           investorName:      d.mou.investorName,
           emailStatus:       investorEmailStatus,

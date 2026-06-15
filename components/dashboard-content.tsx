@@ -74,7 +74,7 @@ function calcMouDistribution(
 ) {
   const [sy, sm, sd] = mou.date.slice(0, 10).split("-").map(Number);
   const mouStart = Date.UTC(sy, sm - 1, sd);
-  const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
+  const mouEnd   = mouStart + mou.contractPeriod * (mou.siklus ?? 1) * 86_400_000;
 
   const pp1Pct = (mou.bagiHasilPP1 ?? 50) / 100;
   const pkPct  = (mou.bagiHasilPK  ?? 35) / 100;
@@ -323,7 +323,7 @@ export function DashboardContent() {
         // Usia dihitung dari kalender WIB, bukan jam lokal browser
         const usiaHari   = Math.max(0, Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(uy, um - 1, ud)) / 86_400_000));
         const usiaBulan  = Math.floor(usiaHari / 30);
-        const endDateStr = addDays(mou.date, mou.contractPeriod);
+        const endDateStr = addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
         const roi = (v: number) => (modal > 0 ? (v / modal) * 100 : 0);
         return {
           no: idx + 1, mou, endDateStr, usiaBulan, ...dist,
@@ -1259,7 +1259,7 @@ export function DashboardContent() {
                       <td className="py-2.5 px-2.5 whitespace-nowrap text-muted-foreground">{formatDate(row.mou.date)}</td>
                       <td className="py-2.5 px-2.5 whitespace-nowrap text-muted-foreground">{formatDate(row.endDateStr)}</td>
                       <td className="py-2.5 px-2.5 font-mono text-muted-foreground whitespace-nowrap">{row.mou.id}</td>
-                      <td className="py-2.5 px-2.5 text-center text-muted-foreground whitespace-nowrap">bulan ke-{row.usiaBulan + 1}</td>
+                      <td className="py-2.5 px-2.5 text-center text-muted-foreground whitespace-nowrap">Siklus ke-{row.mou.siklus ?? 1}</td>
                       <td className={`py-2.5 px-2.5 text-right font-bold whitespace-nowrap ${row.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {formatShortFloat(row.totalProfit)}
                       </td>

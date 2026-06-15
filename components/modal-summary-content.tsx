@@ -92,13 +92,13 @@ export function ModalSummaryContent() {
     const todayMs = nowWib - (nowWib % 86400000);
 
     return activeMous.map((mou) => {
-      const endDate  = addDays(mou.date, mou.contractPeriod);
+      const endDate  = addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
       const daysLeft = Math.round((endDate.getTime() - todayMs) / 86400000);
 
       // Batas periode PKS ini untuk filtering transaksi — [mouStart, mouEnd)
       const [my, mm, md] = mou.date.slice(0, 10).split("-").map(Number);
       const mouStart = Date.UTC(my, mm - 1, md);
-      const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
+      const mouEnd   = mouStart + mou.contractPeriod * (mou.siklus ?? 1) * 86_400_000;
 
       let modalDisalurkan = 0;
       let profitBersih    = 0;

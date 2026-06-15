@@ -175,7 +175,7 @@ function formatRp(n: number) {
 }
 
 function endDate(mou: MoU) {
-  return addDays(mou.date, mou.contractPeriod);
+  return addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
 }
 
 // ─────────────────────────────────────────────
@@ -861,7 +861,7 @@ export function MouContent() {
     setIsRenewing(true);
     try {
       await updateMou(renewTarget.id, {
-        date: addDays(renewTarget.date, renewTarget.contractPeriod),
+        siklus: (renewTarget.siklus ?? 1) + 1,
         bagiHasilDone: false,
         bagiHasilChecks: {},
       });
@@ -1048,6 +1048,18 @@ export function MouContent() {
     e.preventDefault();
     if (!selected) return;
     if (!validateBagiHasil()) return;
+
+    // Blokir perubahan date/contractPeriod pada PKS expired yang bagi hasilnya belum lunas.
+    // Renewal yang valid hanya melalui tombol "Perpanjang PKS" (setelah bagiHasilDone: true).
+    if (getMouStatus(selected) === "expired" && !selected.bagiHasilDone) {
+      const dateChanged   = form.date !== selected.date;
+      const periodChanged = parseInt(form.contractPeriod) !== selected.contractPeriod;
+      if (dateChanged || periodChanged) {
+        toast.error("Selesaikan semua pembayaran bagi hasil terlebih dahulu sebelum memperpanjang PKS.");
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
       await updateMou(selected.id, {
@@ -1851,12 +1863,15 @@ export function MouContent() {
             <DialogTitle>Perpanjang PKS</DialogTitle>
             <DialogDescription>
               {renewTarget && (() => {
-                const newDate = addDays(renewTarget.date, renewTarget.contractPeriod);
+                const currentSiklus = renewTarget.siklus ?? 1;
+                const newSiklus     = currentSiklus + 1;
+                const newEndDate    = addDays(renewTarget.date, renewTarget.contractPeriod * newSiklus);
                 return (
                   <>
-                    PKS <strong>{renewTarget.id}</strong> akan diperpanjang selama{" "}
-                    <strong>{renewTarget.contractPeriod} hari</strong>. Tanggal mulai baru:{" "}
-                    <strong>{newDate}</strong>.
+                    PKS <strong>{renewTarget.id}</strong> akan memasuki siklus ke-<strong>{newSiklus}</strong>{" "}
+                    (perpanjangan <strong>{renewTarget.contractPeriod} hari</strong>).
+                    Tanggal mulai tetap <strong>{formatDate(renewTarget.date)}</strong>, berakhir{" "}
+                    <strong>{formatDate(newEndDate)}</strong>.
                     <br /><br />
                     Status bagi hasil akan direset. Tindakan ini tidak dapat dibatalkan.
                   </>
