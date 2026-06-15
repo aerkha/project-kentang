@@ -12,8 +12,8 @@ export const KATEGORI_OPTIONS = [
   "Retensi",
   "Investasi",
   "Pengembalian Modal",
-  "Bagi hasil Modal MinBun",
-  "Bagi hasil External",
+  "BagHas Modal MinBun",
+  "BagHas External",
   "Fee MinBun",
   "Lain - Lain",
 ] as const;
