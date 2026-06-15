@@ -689,7 +689,7 @@ export function ReminderContent() {
                     const rowCount    = allRows.length;
                     const expiredDays = Math.abs(daysUntil(task.endDateStr));
 
-                    return allRows.map((pr, idx) => {
+                    const rowEls = allRows.map((pr, idx) => {
                       const rowKey    = `${task.mou.id}__${pr.keterangan}`;
                       const isLoading = toggling === rowKey;
                       const rowDone   = !!task.mou.bagiHasilChecks?.[pr.keterangan] || doneKeys.has(rowKey);
@@ -783,6 +783,18 @@ export function ReminderContent() {
                         </tr>
                       );
                     });
+                    const total = allRows.reduce((sum, r) => sum + r.jumlah, 0);
+                    return [
+                      ...rowEls,
+                      <tr key={`${task.mou.id}__total`} className="bg-red-50/60 dark:bg-red-950/20">
+                        <td colSpan={4} className="py-1.5 px-3 text-right text-xs font-medium text-red-600 dark:text-red-400">Total</td>
+                        <td className="py-1.5 px-3 text-right whitespace-nowrap font-bold text-sm text-red-700 dark:text-red-300">
+                          {formatShort(total)}
+                          <div className="text-[10px] font-normal text-red-500">{formatCurrency(total)}</div>
+                        </td>
+                        <td colSpan={3} className="border-b-2 border-red-200 dark:border-red-800" />
+                      </tr>,
+                    ];
                   })}
                 </tbody>
               </table>
@@ -886,7 +898,7 @@ export function ReminderContent() {
                       dayLabel = <span className="text-sm text-muted-foreground">{days} hari lagi</span>;
                     }
 
-                    return visibleRows.map((pr, idx) => {
+                    const rowEls = visibleRows.map((pr, idx) => {
                       const rowKey    = `${task.mou.id}__${pr.keterangan}`;
                       const rowDone   = !!checks[pr.keterangan] || doneKeys.has(rowKey);
                       const isLoading = toggling === rowKey;
@@ -995,6 +1007,18 @@ export function ReminderContent() {
                         </tr>
                       );
                     });
+                    const total = visibleRows.reduce((sum, r) => sum + r.jumlah, 0);
+                    return [
+                      ...rowEls,
+                      <tr key={`${task.mou.id}__total`} className="bg-muted/20">
+                        <td colSpan={4} className="py-1.5 px-3 text-right text-xs font-medium text-muted-foreground">Total</td>
+                        <td className="py-1.5 px-3 text-right whitespace-nowrap font-bold text-sm">
+                          {formatShort(total)}
+                          <div className="text-[10px] font-normal text-muted-foreground">{formatCurrency(total)}</div>
+                        </td>
+                        <td colSpan={3} className="border-b-2 border-border" />
+                      </tr>,
+                    ];
                   })}
                   {/* Empty state per tab */}
                   {tasks.every((task) =>
