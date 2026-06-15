@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { ErrorDialog } from "@/components/ui/error-dialog";
 import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
-import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useAuth } from "@/lib/auth-context";
@@ -12,7 +12,9 @@ import { usePermissions } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +41,7 @@ import {
   PackageCheck,
   Truck,
   Receipt,
+  ClipboardCheck,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -119,6 +122,16 @@ function formatDate(s: string) {
   if (!s) return "-";
   const d = new Date(s);
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function statusVariant(status: TransaksiStatus): string {
+  switch (status) {
+    case "selesai":     return "bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-300";
+    case "bermasalah":  return "bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-300";
+    case "batal":       return "bg-gray-100   text-gray-500   dark:bg-gray-800/50   dark:text-gray-400";
+    case "berjalan":    return "bg-blue-100   text-blue-800   dark:bg-blue-900/30   dark:text-blue-300";
+    default:            return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300";
+  }
 }
 
 // Read-only preview box
@@ -491,14 +504,18 @@ export function TransaksiContent() {
   const canEdit   = isAdmin || perm.edit;
   const canDelete = isAdmin || perm.delete;
 
-  const [isAddOpen, setIsAddOpen]       = useState(false);
-  const [isEditOpen, setIsEditOpen]     = useState(false);
-  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-  const [isDeleting, setIsDeleting]     = useState(false);
-  const [isSaving, setIsSaving]         = useState(false);
-  const [selected, setSelected]         = useState<Transaksi | null>(null);
-  const [errorInfo, setErrorInfo]       = useState<PbErrorInfo | null>(null);
-  const [form, setForm]                 = useState<TrxFormData>(initialForm());
+  const [isAddOpen, setIsAddOpen]             = useState(false);
+  const [isEditOpen, setIsEditOpen]           = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen]       = useState(false);
+  const [isFinalizeOpen, setIsFinalizeOpen]   = useState(false);
+  const [isDeleting, setIsDeleting]           = useState(false);
+  const [isSaving, setIsSaving]               = useState(false);
+  const [isFinalizing, setIsFinalizing]       = useState(false);
+  const [selected, setSelected]               = useState<Transaksi | null>(null);
+  const [finalizeStatus, setFinalizeStatus]   = useState<TransaksiStatus>("selesai");
+  const [finalizeNote, setFinalizeNote]       = useState("");
+  const [errorInfo, setErrorInfo]             = useState<PbErrorInfo | null>(null);
+  const [form, setForm]                       = useState<TrxFormData>(initialForm());
 
   // Filter untuk investor: hanya tampilkan transaksi yang melibatkan investor tersebut
   const visibleTransaksis = useMemo(() => {
@@ -566,7 +583,7 @@ export function TransaksiContent() {
   };
 
   // ── Form → Transaksi ──
-  const formToData = (f: TrxFormData): Omit<Transaksi, "id"> => ({
+  const formToData = (f: TrxFormData, existing?: Transaksi | null): Omit<Transaksi, "id"> => ({
     date:           f.date,
     description:    f.description,
     hpp:            parseFloat(f.hpp) || 0,
@@ -586,8 +603,10 @@ export function TransaksiContent() {
           pctBrokerII:        0,
         };
       }),
-    ongkirPerKg: parseFloat(f.ongkirPerKg) || 0,
-    hargaJual:   parseFloat(f.hargaJual) || 0,
+    ongkirPerKg:  parseFloat(f.ongkirPerKg) || 0,
+    hargaJual:    parseFloat(f.hargaJual) || 0,
+    status:       existing?.status ?? "rencana",
+    catatanAkhir: existing?.catatanAkhir ?? "",
   });
 
   // ── Submit handlers ──
@@ -611,7 +630,7 @@ export function TransaksiContent() {
     if (!selected) return;
     setIsSaving(true);
     try {
-      await updateTransaksi(selected.id, formToData(form));
+      await updateTransaksi(selected.id, formToData(form, selected));
       toast.success("Transaksi berhasil diperbarui");
       setForm(initialForm());
       setSelected(null);
@@ -660,6 +679,28 @@ export function TransaksiContent() {
       setErrorInfo(formatPbError(err, "Gagal menghapus transaksi"));
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const openFinalize = (t: Transaksi) => {
+    setSelected(t);
+    setFinalizeStatus(t.status === "rencana" ? "berjalan" : t.status === "berjalan" ? "selesai" : t.status);
+    setFinalizeNote(t.catatanAkhir || "");
+    setIsFinalizeOpen(true);
+  };
+
+  const handleFinalize = async () => {
+    if (!selected) return;
+    setIsFinalizing(true);
+    try {
+      await updateTransaksi(selected.id, { status: finalizeStatus, catatanAkhir: finalizeNote });
+      toast.success(`Status transaksi ${selected.id} diubah ke "${TRANSAKSI_STATUS_LABEL[finalizeStatus]}"`);
+      setIsFinalizeOpen(false);
+      setSelected(null);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal mengubah status transaksi"));
+    } finally {
+      setIsFinalizing(false);
     }
   };
 
@@ -770,6 +811,7 @@ export function TransaksiContent() {
                   <tr className="border-b border-border bg-muted/30">
                     <th className="text-left  py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">ID</th>
                     <th className="text-left  py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Tanggal</th>
+                    <th className="text-center py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Status</th>
                     <th className="text-left  py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Keterangan</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">HPP</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Qty</th>
@@ -795,6 +837,11 @@ export function TransaksiContent() {
                       <tr key={t.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                         <td className="py-3 px-4 font-mono text-xs font-medium">{t.id}</td>
                         <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">{formatDate(t.date)}</td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${statusVariant(t.status)}`}>
+                            {TRANSAKSI_STATUS_LABEL[t.status]}
+                          </span>
+                        </td>
                         <td className="py-3 px-4 text-muted-foreground max-w-[120px] truncate">{t.description || "—"}</td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">{formatRp(t.hpp)}</td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">{formatQty(c.qty)}</td>
@@ -818,6 +865,11 @@ export function TransaksiContent() {
                           {(canEdit || canDelete) && (
                           <div className="flex items-center justify-center gap-1">
                             {canEdit && (
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Ubah status" onClick={() => openFinalize(t)}>
+                              <ClipboardCheck className="h-3.5 w-3.5 text-blue-500" />
+                            </Button>
+                            )}
+                            {canEdit && (
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(t)}>
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
@@ -836,7 +888,7 @@ export function TransaksiContent() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-border bg-muted/20">
-                    <td colSpan={9} className="py-3 px-4 font-semibold text-sm">
+                    <td colSpan={10} className="py-3 px-4 font-semibold text-sm">
                       Total ({visibleTransaksis.length} transaksi)
                     </td>
                     <td className="py-3 px-4 text-right font-bold whitespace-nowrap">{formatRp(metrics.totalIncome)}</td>
@@ -851,6 +903,48 @@ export function TransaksiContent() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Finalisasi Dialog ── */}
+      <Dialog open={isFinalizeOpen} onOpenChange={(open) => { setIsFinalizeOpen(open); if (!open) setSelected(null); }}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Ubah Status Transaksi</DialogTitle>
+            <DialogDescription>
+              {selected?.id}{selected?.description ? ` — ${selected.description}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Status Baru</Label>
+              <Select value={finalizeStatus} onValueChange={(v) => setFinalizeStatus(v as TransaksiStatus)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(TRANSAKSI_STATUS_LABEL) as TransaksiStatus[]).map((s) => (
+                    <SelectItem key={s} value={s}>{TRANSAKSI_STATUS_LABEL[s]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Catatan Akhir</Label>
+              <Textarea
+                placeholder="Isi catatan jika ada — wajib untuk status Bermasalah atau Batal"
+                value={finalizeNote}
+                onChange={(e) => setFinalizeNote(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setIsFinalizeOpen(false)} disabled={isFinalizing}>Batal</Button>
+            <Button onClick={handleFinalize} disabled={isFinalizing}>
+              {isFinalizing ? "Menyimpan…" : "Simpan Status"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Edit Dialog ── */}
       <Dialog open={isEditOpen} onOpenChange={(open) => { setIsEditOpen(open); if (!open) { setSelected(null); setForm(initialForm()); } }}>

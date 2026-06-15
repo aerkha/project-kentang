@@ -16,6 +16,16 @@ export interface TransaksiInvestorEntry {
   pctBrokerII: number;
 }
 
+export type TransaksiStatus = "rencana" | "berjalan" | "selesai" | "bermasalah" | "batal";
+
+export const TRANSAKSI_STATUS_LABEL: Record<TransaksiStatus, string> = {
+  rencana:     "Rencana",
+  berjalan:    "Berjalan",
+  selesai:     "Selesai",
+  bermasalah:  "Bermasalah",
+  batal:       "Batal",
+};
+
 export interface Transaksi {
   id: string;             // TRX-0001 (customId)
   date: string;
@@ -25,6 +35,8 @@ export interface Transaksi {
   investorEntries: TransaksiInvestorEntry[];
   ongkirPerKg: number;
   hargaJual: number;
+  status: TransaksiStatus;
+  catatanAkhir: string;
 }
 
 /** Hitung semua nilai turunan dari sebuah Transaksi */
@@ -65,8 +77,10 @@ function recordToTransaksi(
     hpp:             r.hpp            as number,
     kebutuhanModal:  r.kebutuhanModal as number,
     investorEntries,
-    ongkirPerKg: r.ongkirPerKg as number,
-    hargaJual:   r.hargaJual   as number,
+    ongkirPerKg:  r.ongkirPerKg as number,
+    hargaJual:    r.hargaJual   as number,
+    status:       ((r.status as TransaksiStatus) || "rencana"),
+    catatanAkhir: (r.catatanAkhir as string) || "",
   };
 }
 
@@ -221,6 +235,8 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
           kebutuhanModal: t.kebutuhanModal,
           ongkirPerKg:    t.ongkirPerKg,
           hargaJual:      t.hargaJual,
+          status:         t.status || "rencana",
+          catatanAkhir:   t.catatanAkhir || "",
         });
 
         // 2. Buat junction records — hapus induk jika gagal agar tidak orphan

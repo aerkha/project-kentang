@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useMou, getMouStatus, type MoU, BUKTI_FIELD } from "@/lib/mou-context";
 import { todayWibStr } from "@/lib/utils";
-import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, type Transaksi, type TransaksiStatus } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { usePengeluaran } from "@/lib/cashflow-context";
@@ -110,6 +110,7 @@ function calcBagiHasil(mou: MoU, transaksis: Transaksi[]) {
     // akhir PKS lama, jadi transaksi di tanggal itu milik periode perpanjangan —
     // inklusif akan menghitung dobel di kedua periode.
     if (tDate < mouStart || tDate >= mouEnd) return;
+    if (t.status !== "selesai" && t.status !== "bermasalah") return;
 
     const entry = t.investorEntries.find((e) => e.investorId === mou.investorId);
     if (!entry) return;
@@ -922,6 +923,31 @@ export function ReminderContent() {
                       dayLabel = <span className="text-sm text-muted-foreground">{days} hari lagi</span>;
                     }
 
+                    // Hitung transaksi dalam siklus ini yang belum final
+                    const { siklus = 1, contractPeriod, date: mouDate, investorId: mouInvestorId } = task.mou;
+                    const cycleMs   = contractPeriod * 86_400_000;
+                    const [cmy, cmm, cmd] = mouDate.slice(0, 10).split("-").map(Number);
+                    const cycleStart = Date.UTC(cmy, cmm - 1, cmd) + (siklus - 1) * cycleMs;
+                    const cycleEnd   = cycleStart + cycleMs;
+                    const unfinalizedCount = !showDone ? transaksis.filter((t) => {
+                      if (t.status === "selesai" || t.status === "bermasalah" || t.status === "batal") return false;
+                      if (!t.investorEntries.some((e) => e.investorId === mouInvestorId)) return false;
+                      const [ty, tm, td] = t.date.slice(0, 10).split("-").map(Number);
+                      const tDate = Date.UTC(ty, tm - 1, td);
+                      return tDate >= cycleStart && tDate < cycleEnd;
+                    }).length : 0;
+
+                    const warnRow = unfinalizedCount > 0 ? (
+                      <tr key={`${task.mou.id}__warn`} className="border-t-2 border-t-border bg-yellow-50/60 dark:bg-yellow-950/20">
+                        <td colSpan={8} className="py-1.5 px-3">
+                          <div className="flex items-center gap-1.5 text-xs text-yellow-700 dark:text-yellow-400">
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                            <span>{unfinalizedCount} transaksi dalam periode ini belum difinalisasi — bagi hasil yang ditampilkan belum final</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null;
+
                     const rowEls = visibleRows.map((pr, idx) => {
                       const rowKey    = `${task.mou.id}__${pr.keterangan}`;
                       const rowDone   = !!checks[pr.keterangan] || doneKeys.has(rowKey);
@@ -931,7 +957,7 @@ export function ReminderContent() {
                       return (
                         <tr
                           key={rowKey}
-                          className={`border-b border-border/50 ${rowClass} ${idx === 0 ? "border-t-2 border-t-border" : ""}`}
+                          className={`border-b border-border/50 ${rowClass} ${idx === 0 && !warnRow ? "border-t-2 border-t-border" : ""}`}
                         >
                           {/* Nama */}
                           <td className="py-2.5 px-3 whitespace-nowrap">
@@ -1033,6 +1059,7 @@ export function ReminderContent() {
                     });
                     const total = visibleRows.reduce((sum, r) => sum + r.jumlah, 0);
                     return [
+                      ...(warnRow ? [warnRow] : []),
                       ...rowEls,
                       <tr key={`${task.mou.id}__total`} className="bg-muted/20">
                         <td colSpan={4} className="py-1.5 px-3 text-right text-xs font-medium text-muted-foreground">Total</td>

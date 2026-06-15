@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
-import { useTransaksi, calcTransaksi } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, type TransaksiStatus } from "@/lib/transaksi-context";
 import { useMou, getMouStatus } from "@/lib/mou-context";
 import { usePengeluaran } from "@/lib/cashflow-context";
 import { Button } from "@/components/ui/button";
@@ -584,6 +584,7 @@ export function InvestorsContent() {
   const investorPnlMap = useMemo(() => {
     const map = new Map<string, number>();
     transaksis.forEach((t) => {
+      if (t.status !== "selesai" && t.status !== "bermasalah") return;
       const c = calcTransaksi(t);
       if (c.totalInvestasi === 0) return;
       const [ty, tm, td] = (t.date as string).slice(0, 10).split("-").map(Number);

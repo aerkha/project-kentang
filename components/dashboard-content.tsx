@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
 import { useMou } from "@/lib/mou-context";
-import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, type Transaksi, type TransaksiStatus } from "@/lib/transaksi-context";
 import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -92,6 +92,7 @@ function calcMouDistribution(
     // Batas akhir eksklusif [start, end) — konsisten dengan halaman lain agar
     // transaksi di tanggal akhir tidak terhitung dobel saat PKS diperpanjang
     if (tDate < mouStart || tDate >= mouEnd) return;
+    if (t.status !== "selesai" && t.status !== "bermasalah") return;
 
     const entry = t.investorEntries.find((e) => e.investorId === mou.investorId);
     if (!entry) return;
@@ -350,6 +351,7 @@ export function DashboardContent() {
     // Bagi hasil Trader, MinBun, Broker — langsung dari pct per entry transaksi
     let bagHasilTrader = 0, bagHasilMinbun = 0, bagHasilBroker = 0, grossProfitMinbun = 0;
     filteredTransaksis.forEach((t) => {
+      if (t.status !== "selesai" && t.status !== "bermasalah") return;
       const calc = calcTransaksi(t);
       if (calc.totalInvestasi === 0) return;
       t.investorEntries.forEach((e) => {

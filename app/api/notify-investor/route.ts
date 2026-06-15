@@ -76,6 +76,7 @@ interface TrxRecord {
   kebutuhanModal: number;
   ongkirPerKg:    number;
   hargaJual:      number;
+  status:         string;
 }
 
 interface BagiHasil {
@@ -215,6 +216,7 @@ async function buildHistory(
         kebutuhanModal: r.kebutuhanModal as number,
         ongkirPerKg:    r.ongkirPerKg    as number,
         hargaJual:      r.hargaJual      as number,
+        status:         (r.status        as string) || "rencana",
       });
     }
   } catch { /* abaikan */ }
@@ -257,6 +259,7 @@ async function buildHistory(
       const [ty, tm, td] = (trx.date as string).slice(0, 10).split("-").map(Number);
       const tDate = Date.UTC(ty, tm - 1, td);
       if (tDate < mouStart || tDate >= mouEnd) continue;
+      if (trx.status !== "selesai" && trx.status !== "bermasalah") continue;
 
       // Hitung profit transaksi
       const qty         = trx.hpp > 0 ? trx.kebutuhanModal / trx.hpp : 0;
