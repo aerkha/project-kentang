@@ -70,17 +70,21 @@ function isCustomIdConflict(err: unknown): boolean {
   return data?.data?.customId?.code === "validation_not_unique";
 }
 
-async function generateCustomId(): Promise<string> {
+export type InvestorFlag = "MB" | "TM" | "D";
+
+async function generateCustomId(flag: InvestorFlag): Promise<string> {
+  const prefix = `INV-${flag}-`;
   try {
     const res = await pb.collection("investors").getFullList({ fields: "customId" });
-    if (res.length === 0) return "INV-0001";
     const max = res.reduce((m, r) => {
-      const n = parseInt((r.customId as string).replace("INV-", "")) || 0;
+      const id = r.customId as string;
+      if (!id.startsWith(prefix)) return m;
+      const n = parseInt(id.slice(prefix.length)) || 0;
       return n > m ? n : m;
     }, 0);
-    return `INV-${String(max + 1).padStart(4, "0")}`;
+    return `${prefix}${String(max + 1).padStart(4, "0")}`;
   } catch {
-    return "INV-0001";
+    return `${prefix}0001`;
   }
 }
 
@@ -111,7 +115,8 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addInvestor = async (inv: Omit<Investor, "id">) => {
-    let customId = await generateCustomId();
+    const flag: InvestorFlag = inv.isMinBun ? "MB" : inv.isTami ? "TM" : "D";
+    let customId = await generateCustomId(flag);
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
         const record = await pb.collection("investors").create({
@@ -140,7 +145,7 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
         return customId;
       } catch (err) {
         if (isCustomIdConflict(err) && attempt < 4) {
-          customId = await generateCustomId();
+          customId = await generateCustomId(flag);
           continue;
         }
         throw err;

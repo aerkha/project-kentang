@@ -359,47 +359,39 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
         {/* ── Status Investor ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
-            Status Investor
+            Tipe Investor <span className="text-destructive">*</span>
           </p>
-          <div className="flex items-start justify-between gap-4 rounded-lg border p-3 bg-muted/30">
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1.5">
-                <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-                <Label className="text-sm font-medium">MinBun</Label>
+          {!formData.isMinBun && !formData.isTami && !formData.isDirect && (
+            <p className="text-xs text-destructive">Pilih salah satu tipe investor</p>
+          )}
+          {(
+            [
+              { key: "isMinBun", label: "MinBun", desc: "Investor internal MinBun. Nilai investasi dan arus kas terintegrasi otomatis dengan saldo MinBun.", icon: <ShieldCheck className="h-3.5 w-3.5 text-primary" /> },
+              { key: "isTami",   label: "Tami",   desc: "Investor melalui jalur Tami.", icon: null },
+              { key: "isDirect", label: "Direct",  desc: "Investor langsung tanpa perantara broker.", icon: null },
+            ] as const
+          ).map(({ key, label, desc, icon }) => (
+            <div key={key} className={`flex items-start justify-between gap-4 rounded-lg border p-3 transition-colors ${formData[key] ? "bg-primary/5 border-primary/30" : "bg-muted/30"}`}>
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5">
+                  {icon}
+                  <Label className="text-sm font-medium">{label}</Label>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
               </div>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Investor internal MinBun. Nilai investasi dan arus kas terintegrasi otomatis dengan saldo MinBun.
-              </p>
+              <Switch
+                checked={formData[key]}
+                onCheckedChange={(v) => {
+                  if (v) {
+                    // Mutual exclusive: matikan flag lain
+                    setFormData({ ...formData, isMinBun: false, isTami: false, isDirect: false, [key]: true });
+                  } else {
+                    setFlag(key, false);
+                  }
+                }}
+              />
             </div>
-            <Switch
-              checked={formData.isMinBun}
-              onCheckedChange={(v) => setFlag("isMinBun", v)}
-            />
-          </div>
-          <div className="flex items-start justify-between gap-4 rounded-lg border p-3 bg-muted/30">
-            <div className="space-y-0.5">
-              <Label className="text-sm font-medium">Tami</Label>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Investor melalui jalur Tami.
-              </p>
-            </div>
-            <Switch
-              checked={formData.isTami}
-              onCheckedChange={(v) => setFlag("isTami", v)}
-            />
-          </div>
-          <div className="flex items-start justify-between gap-4 rounded-lg border p-3 bg-muted/30">
-            <div className="space-y-0.5">
-              <Label className="text-sm font-medium">Direct</Label>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Investor langsung tanpa perantara broker.
-              </p>
-            </div>
-            <Switch
-              checked={formData.isDirect}
-              onCheckedChange={(v) => setFlag("isDirect", v)}
-            />
-          </div>
+          ))}
         </div>
 
         {/* ── Data Ahli Waris ── */}
@@ -722,12 +714,15 @@ export function InvestorsContent() {
       minimumFractionDigits: 0,
     }).format(value);
 
-  const nextInvestorId = () => {
+  const nextInvestorId = (form: InvestorFormData) => {
+    const flag = form.isMinBun ? "MB" : form.isTami ? "TM" : "D";
+    const prefix = `INV-${flag}-`;
     const maxNum = investors.reduce((max, inv) => {
-      const num = parseInt(inv.id.replace("INV-", "")) || 0;
+      if (!inv.id.startsWith(prefix)) return max;
+      const num = parseInt(inv.id.slice(prefix.length)) || 0;
       return num > max ? num : max;
     }, 0);
-    return `INV-${String(maxNum + 1).padStart(4, "0")}`;
+    return `${prefix}${String(maxNum + 1).padStart(4, "0")}`;
   };
 
   const nextBrokerId = () => {
@@ -773,6 +768,10 @@ export function InvestorsContent() {
 
   const handleAddInvestor = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!investorForm.isMinBun && !investorForm.isTami && !investorForm.isDirect) {
+      setErrorInfo({ title: "Tipe investor wajib dipilih", fields: [{ field: "flag", code: "required", message: "Pilih salah satu tipe: MinBun, Tami, atau Direct." }], raw: "" });
+      return;
+    }
     setIsSaving(true);
     try {
       const newId = await addInvestor({
@@ -1204,7 +1203,7 @@ export function InvestorsContent() {
                 setFormData={setInvestorForm}
                 onSubmit={handleAddInvestor}
                 submitLabel="Simpan Investor"
-                previewId={nextInvestorId()}
+                previewId={nextInvestorId(investorForm)}
                 brokers={brokers}
                 isSaving={isSaving}
                 buktiFile={addInvestorFile}
@@ -1522,7 +1521,7 @@ export function InvestorsContent() {
             setFormData={setInvestorForm}
             onSubmit={handleEditInvestor}
             submitLabel="Simpan Perubahan"
-            previewId={selectedInvestor?.id ?? ""}
+            previewId={selectedInvestor?.id ?? "—"}
             brokers={brokers}
             isSaving={isSaving}
           />
