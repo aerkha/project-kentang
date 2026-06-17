@@ -31,11 +31,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus,
   Pencil,
   Trash2,
-  X,
   TrendingUp,
   TrendingDown,
   PackageCheck,
@@ -84,6 +84,15 @@ const emptyEntry = (): InvestorEntryForm => ({
   investorId: "", nilaiInvestasi: "",
   pctTrader: "10", pctMinBun: "5", pctBrokerI: "0", pctBrokerII: "0",
 });
+
+type InvestorJalur = "MB" | "TM" | "D";
+const JALUR_LABEL: Record<InvestorJalur, string> = { MB: "MinBun (MB)", TM: "Tami (TM)", D: "Direct (D)" };
+
+function getJalur(inv: Investor): InvestorJalur {
+  if (inv.isMinBun) return "MB";
+  if (inv.isTami) return "TM";
+  return "D";
+}
 
 const initialForm = (): TrxFormData => ({
   date: "",
@@ -158,19 +167,70 @@ interface TrxFormProps {
   previewId: string;
   investors: Investor[];
   brokers: Broker[];
-  onAddEntry: () => void;
-  onRemoveEntry: (i: number) => void;
-  onUpdateEntry: (i: number, field: keyof InvestorEntryForm, v: string) => void;
-  onInvestorSelect: (i: number, investorId: string) => void;
   isSaving?: boolean;
 }
 
 function TrxFormFields({
   formData, setFormData, onSubmit, submitLabel, previewId,
   investors, brokers: _brokers,
-  onAddEntry, onRemoveEntry, onUpdateEntry, onInvestorSelect,
   isSaving = false,
 }: TrxFormProps) {
+  // ── Jalur state ──────────────────────────────────────────────────────────
+  const [openJalurs, setOpenJalurs] = useState<Set<InvestorJalur>>(() => {
+    const s = new Set<InvestorJalur>();
+    formData.investorEntries.forEach((e) => {
+      if (!e.investorId) return;
+      const inv = investors.find((x) => x.id === e.investorId);
+      if (inv) s.add(getJalur(inv));
+    });
+    return s;
+  });
+
+  const investorsByJalur = (jalur: InvestorJalur) =>
+    investors.filter((inv) => getJalur(inv) === jalur);
+
+  const isInvestorChecked = (investorId: string) =>
+    formData.investorEntries.some((e) => e.investorId === investorId);
+
+  const toggleJalur = (jalur: InvestorJalur) => {
+    if (openJalurs.has(jalur)) {
+      const ids = new Set(investorsByJalur(jalur).map((i) => i.id));
+      setFormData({
+        ...formData,
+        investorEntries: formData.investorEntries.filter((e) => !ids.has(e.investorId)),
+      });
+      setOpenJalurs((prev) => { const n = new Set(prev); n.delete(jalur); return n; });
+    } else {
+      setOpenJalurs((prev) => new Set([...prev, jalur]));
+    }
+  };
+
+  const toggleInvestor = (inv: Investor) => {
+    if (isInvestorChecked(inv.id)) {
+      setFormData({
+        ...formData,
+        investorEntries: formData.investorEntries.filter((e) => e.investorId !== inv.id),
+      });
+    } else {
+      const pct = investorPct(inv.brokerName ?? "");
+      setFormData({
+        ...formData,
+        investorEntries: [
+          ...formData.investorEntries.filter((e) => e.investorId),
+          { investorId: inv.id, nilaiInvestasi: inv.investmentAmount.toString(), ...pct },
+        ],
+      });
+    }
+  };
+
+  const updateNilai = (investorId: string, value: string) => {
+    setFormData({
+      ...formData,
+      investorEntries: formData.investorEntries.map((e) =>
+        e.investorId === investorId ? { ...e, nilaiInvestasi: value } : e,
+      ),
+    });
+  };
   const set = (k: keyof Omit<TrxFormData, "investorEntries">, v: string) =>
     setFormData({ ...formData, [k]: v });
 
@@ -283,103 +343,73 @@ function TrxFormFields({
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Kontribusi Investor
           </p>
-          <div className="space-y-3">
-            {formData.investorEntries.map((entry, i) => {
-              const inv = investors.find((x) => x.id === entry.investorId);
-              return (
-                <div key={i} className="rounded-md border border-border p-3 space-y-2.5 bg-muted/20">
-                  {/* Baris 1: investor select (full width) + tombol hapus */}
-                  <div className="flex gap-2 items-end">
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                      {i === 0 && (
-                        <Label className="text-xs">
-                          Investor <span className="text-destructive">*</span>
-                        </Label>
-                      )}
-                      <Select value={entry.investorId} onValueChange={(v) => onInvestorSelect(i, v)}>
-                        <SelectTrigger className="w-full truncate">
-                          <SelectValue placeholder="Pilih investor..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {investors.map((inv) => (
-                            <SelectItem key={inv.id} value={inv.id}>
-                              {inv.name}
-                              {inv.brokerName ? ` · ${inv.brokerName}` : " · Langsung"}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {formData.investorEntries.length > 1 && (
-                      <Button
-                        type="button" variant="ghost" size="icon"
-                        className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
-                        onClick={() => onRemoveEntry(i)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                  {/* Baris 2: nilai investasi (full width) */}
-                  <div className="space-y-1.5">
-                    {i === 0 && (
-                      <Label className="text-xs">
-                        Nilai Investasi (Rp) <span className="text-destructive">*</span>
-                      </Label>
-                    )}
-                    <Input
-                      type="number" min="0" step="100000"
-                      value={entry.nilaiInvestasi}
-                      onChange={(e) => onUpdateEntry(i, "nilaiInvestasi", e.target.value)}
-                      placeholder="0" required
-                    />
-                  </div>
 
-                  {/* Baris pct — tampil setelah investor dipilih */}
-                  {entry.investorId && (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                          Bagi Hasil PP2 (%)
-                        </p>
-                        {inv?.brokerName ? (
-                          <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
-                            via {inv.brokerName}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                            langsung
-                          </span>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-4 gap-2">
-                        {(["pctTrader","pctMinBun","pctBrokerI","pctBrokerII"] as const).map((field) => {
-                          const labels: Record<string, string> = {
-                            pctTrader: "Trader", pctMinBun: "MinBun",
-                            pctBrokerI: "Broker I", pctBrokerII: "Broker II",
-                          };
-                          // pctBrokerII selalu 0 di model per-investor (tiap investor punya 1 broker)
-                          const disabled = field === "pctBrokerII";
-                          return (
-                            <div key={field} className="space-y-1">
-                              <Label className="text-[10px] text-muted-foreground">{labels[field]}</Label>
-                              <Input
-                                type="number" min="0" max="100" step="0.5"
-                                value={entry[field]}
-                                onChange={(e) => onUpdateEntry(i, field, e.target.value)}
-                                disabled={disabled}
-                                className="h-8 text-xs"
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          {/* Jalur checkboxes */}
+          <div className="flex gap-4">
+            {(["MB", "TM", "D"] as InvestorJalur[]).map((jalur) => (
+              <label key={jalur} className="flex items-center gap-2 cursor-pointer select-none">
+                <Checkbox
+                  checked={openJalurs.has(jalur)}
+                  onCheckedChange={() => toggleJalur(jalur)}
+                />
+                <span className="text-sm font-medium">{JALUR_LABEL[jalur]}</span>
+              </label>
+            ))}
           </div>
+
+          {/* Investor list per jalur */}
+          {(["MB", "TM", "D"] as InvestorJalur[]).map((jalur) => {
+            if (!openJalurs.has(jalur)) return null;
+            const jalurInvestors = investorsByJalur(jalur);
+            return (
+              <div key={jalur} className="rounded-md border border-border p-3 space-y-2 bg-muted/20">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  {JALUR_LABEL[jalur]}
+                </p>
+                {jalurInvestors.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">Tidak ada investor di jalur ini</p>
+                ) : (
+                  <div className="space-y-2">
+                    {jalurInvestors.map((inv) => {
+                      const checked = isInvestorChecked(inv.id);
+                      const entry = formData.investorEntries.find((e) => e.investorId === inv.id);
+                      return (
+                        <div key={inv.id} className="flex items-center gap-3">
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={() => toggleInvestor(inv)}
+                          />
+                          <div className="flex-1 min-w-0 flex items-center gap-2">
+                            <span className="font-mono text-[10px] text-muted-foreground shrink-0">{inv.id}</span>
+                            <span className="text-sm truncate">{inv.name}</span>
+                            {inv.brokerName && (
+                              <span className="text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-1.5 py-0.5 rounded shrink-0">
+                                {inv.brokerName}
+                              </span>
+                            )}
+                          </div>
+                          {checked && (
+                            <Input
+                              type="number" min="0" step="100000"
+                              value={entry?.nilaiInvestasi ?? ""}
+                              onChange={(e) => updateNilai(inv.id, e.target.value)}
+                              className="w-36 h-8 text-xs shrink-0"
+                              placeholder="Nilai investasi"
+                            />
+                          )}
+                          {!checked && (
+                            <span className="w-36 shrink-0 px-3 py-1.5 text-xs text-muted-foreground bg-muted rounded-md">
+                              {inv.investmentAmount > 0 ? formatRp(inv.investmentAmount) : "—"}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
 
           <div className="grid grid-cols-2 gap-3 pt-1">
             <Preview label="Total Nilai Investasi" value={totalInv > 0 ? formatRp(totalInv) : "—"} />
@@ -394,13 +424,6 @@ function TrxFormFields({
               </div>
             </div>
           </div>
-
-          {selisih > 0 && (
-            <Button type="button" variant="outline" size="sm" className="w-full border-dashed" onClick={onAddEntry}>
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              Tambah Investor (masih kurang {formatRp(selisih)})
-            </Button>
-          )}
         </div>
 
         {/* ── Ongkir & Penjualan ── */}
@@ -552,36 +575,6 @@ export function TransaksiContent() {
     return `TRX-${String(max + 1).padStart(4, "0")}`;
   };
 
-  // ── Investor entry handlers ──
-  const handleAddEntry = () =>
-    setForm((prev) => ({ ...prev, investorEntries: [...prev.investorEntries, emptyEntry()] }));
-
-  const handleRemoveEntry = (i: number) =>
-    setForm((prev) => ({
-      ...prev,
-      investorEntries: prev.investorEntries.filter((_, idx) => idx !== i),
-    }));
-
-  const handleUpdateEntry = (i: number, field: keyof InvestorEntryForm, v: string) =>
-    setForm((prev) => {
-      const updated = [...prev.investorEntries];
-      updated[i] = { ...updated[i], [field]: v };
-      return { ...prev, investorEntries: updated };
-    });
-
-  const handleInvestorSelect = (i: number, investorId: string) => {
-    const inv = investors.find((x) => x.id === investorId);
-    setForm((prev) => {
-      const updated = [...prev.investorEntries];
-      updated[i] = {
-        investorId,
-        nilaiInvestasi: inv ? inv.investmentAmount.toString() : "",
-        ...investorPct(inv?.brokerName ?? ""),
-      };
-      return { ...prev, investorEntries: updated };
-    });
-  };
-
   // ── Form → Transaksi ──
   const formToData = (f: TrxFormData, existing?: Transaksi | null): Omit<Transaksi, "id"> => ({
     date:           f.date,
@@ -707,10 +700,6 @@ export function TransaksiContent() {
   const sharedFormProps = {
     investors,
     brokers,
-    onAddEntry:       handleAddEntry,
-    onRemoveEntry:    handleRemoveEntry,
-    onUpdateEntry:    handleUpdateEntry,
-    onInvestorSelect: handleInvestorSelect,
     isSaving,
   };
 
