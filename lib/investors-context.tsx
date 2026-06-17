@@ -20,15 +20,20 @@ export interface Investor {
   heirName: string;
   heirBankName: string;
   heirAccountNumber: string;
-  isActive?: boolean;
-  isInternal?: boolean;
+  isActive?:      boolean;
+  isMinBun?:      boolean;
+  isTami?:        boolean;
+  isDirect?:      boolean;
+  buktiTransfer?: string;
 }
 
 interface InvestorsContextType {
   investors: Investor[];
-  addInvestor:    (inv: Omit<Investor, "id">) => Promise<string>;
-  updateInvestor: (id: string, updates: Partial<Investor>) => Promise<void>;
-  deleteInvestor: (id: string) => Promise<void>;
+  addInvestor:          (inv: Omit<Investor, "id">) => Promise<string>;
+  updateInvestor:       (id: string, updates: Partial<Investor>) => Promise<void>;
+  deleteInvestor:       (id: string) => Promise<void>;
+  uploadBuktiTransfer:  (id: string, file: File) => Promise<string>;
+  getBuktiUrl:          (id: string, filename: string) => string;
 }
 
 const InvestorsContext = createContext<InvestorsContextType | undefined>(undefined);
@@ -52,7 +57,10 @@ function recordToInvestor(r: Record<string, unknown>, pbIdMap: Map<string, strin
     heirBankName:     r.heirBankName     as string,
     heirAccountNumber: r.heirAccountNumber as string,
     isActive:         r.isActive === true,
-    isInternal:       r.isInternal === true,
+    isMinBun:         r.isMinBun === true,
+    isTami:           r.isTami === true,
+    isDirect:         r.isDirect === true,
+    buktiTransfer:    (r.buktiTransfer as string) || "",
   };
 }
 
@@ -124,7 +132,9 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
           heirBankName:     inv.heirBankName,
           heirAccountNumber: inv.heirAccountNumber,
           isActive:         inv.isActive === true,
-          isInternal:       inv.isInternal === true,
+          isMinBun:         inv.isMinBun === true,
+          isTami:           inv.isTami === true,
+          isDirect:         inv.isDirect === true,
         });
         setInvestors((prev) => [...prev, recordToInvestor(record, map)]);
         return customId;
@@ -149,6 +159,24 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const uploadBuktiTransfer = async (id: string, file: File): Promise<string> => {
+    const pbId = await resolvePbId(id);
+    if (!pbId) throw new Error(`Investor "${id}" tidak ditemukan`);
+    const fd = new FormData();
+    fd.append("buktiTransfer", file);
+    const record  = await pb.collection("investors").update(pbId, fd);
+    const updated = recordToInvestor(record, map);
+    setInvestors((prev) => prev.map((inv) => (inv.id === id ? updated : inv)));
+    return updated.buktiTransfer ?? "";
+  };
+
+  const getBuktiUrl = (id: string, filename: string): string => {
+    if (!filename) return "";
+    const pbId = map.get(id);
+    if (!pbId) return "";
+    return pb.files.getURL({ id: pbId, collectionId: "investors", collectionName: "investors" } as Parameters<typeof pb.files.getURL>[0], filename);
+  };
+
   const deleteInvestor = async (id: string) => {
     const pbId = await resolvePbId(id);
     if (!pbId) return;
@@ -158,7 +186,7 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <InvestorsContext.Provider value={{ investors, addInvestor, updateInvestor, deleteInvestor }}>
+    <InvestorsContext.Provider value={{ investors, addInvestor, updateInvestor, deleteInvestor, uploadBuktiTransfer, getBuktiUrl }}>
       {children}
     </InvestorsContext.Provider>
   );

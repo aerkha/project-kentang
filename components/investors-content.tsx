@@ -32,7 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Plus, Pencil, Trash2, Search, Users, Briefcase, Building2, ShieldCheck,
+  Plus, Pencil, Trash2, Search, Users, Briefcase, Building2, ShieldCheck, TrendingUp,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/lib/auth-context";
@@ -57,7 +57,9 @@ interface InvestorFormData {
   heirName: string;
   heirBankName: string;
   heirAccountNumber: string;
-  isInternal: boolean;
+  isMinBun: boolean;
+  isTami: boolean;
+  isDirect: boolean;
 }
 
 interface BrokerFormData {
@@ -84,7 +86,9 @@ const initialInvestorForm: InvestorFormData = {
   heirName: "",
   heirBankName: "",
   heirAccountNumber: "",
-  isInternal: false,
+  isMinBun: false,
+  isTami: false,
+  isDirect: false,
 };
 
 const initialBrokerForm: BrokerFormData = {
@@ -111,9 +115,43 @@ interface InvestorFormProps {
   previewId: string;
   brokers: Broker[];
   isSaving?: boolean;
+  buktiFile?: File | null;
+  onBuktiChange?: (f: File | null) => void;
 }
 
-function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, previewId, brokers, isSaving = false }: InvestorFormProps) {
+function BuktiUploadField({ file, onChange }: { file: File | null; onChange: (f: File | null) => void }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs">
+        Bukti Transfer <span className="text-muted-foreground font-normal">(opsional)</span>
+      </Label>
+      <label className={`flex items-center gap-3 cursor-pointer rounded-lg border-2 border-dashed px-4 py-3 transition-colors ${file ? "border-green-400 bg-green-50" : "border-border hover:border-primary/50 hover:bg-muted/40"}`}>
+        <input
+          type="file"
+          accept="image/*,application/pdf"
+          className="sr-only"
+          onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+        />
+        {file ? (
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-green-600 text-lg">✅</span>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-green-700 truncate">{file.name}</p>
+              <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB · Klik untuk ganti</p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <span className="text-lg">📎</span>
+            <p className="text-xs">Klik untuk upload bukti transfer (jpg, png, pdf)</p>
+          </div>
+        )}
+      </label>
+    </div>
+  );
+}
+
+function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, previewId, brokers, isSaving = false, buktiFile, onBuktiChange }: InvestorFormProps) {
   const set = (key: keyof InvestorFormData, value: string) =>
     setFormData({ ...formData, [key]: value });
   const setFlag = (key: keyof InvestorFormData, value: boolean) =>
@@ -274,6 +312,16 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
           </div>
         </div>
 
+        {/* ── Bukti Transfer ── */}
+        {onBuktiChange && (
+          <div className="space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
+              Bukti Transfer
+            </p>
+            <BuktiUploadField file={buktiFile ?? null} onChange={onBuktiChange} />
+          </div>
+        )}
+
         {/* ── Rekening Investor ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
@@ -317,15 +365,39 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
             <div className="space-y-0.5">
               <div className="flex items-center gap-1.5">
                 <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-                <Label className="text-sm font-medium">Investor Internal</Label>
+                <Label className="text-sm font-medium">MinBun</Label>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Tandai sebagai investor internal (MinBun). Nilai investasi, pemasukan, dan pengeluaran akan terintegrasi otomatis dengan saldo MinBun dan tercatat di halaman Arus Kas.
+                Investor internal MinBun. Nilai investasi dan arus kas terintegrasi otomatis dengan saldo MinBun.
               </p>
             </div>
             <Switch
-              checked={formData.isInternal}
-              onCheckedChange={(v) => setFlag("isInternal", v)}
+              checked={formData.isMinBun}
+              onCheckedChange={(v) => setFlag("isMinBun", v)}
+            />
+          </div>
+          <div className="flex items-start justify-between gap-4 rounded-lg border p-3 bg-muted/30">
+            <div className="space-y-0.5">
+              <Label className="text-sm font-medium">Tami</Label>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Investor melalui jalur Tami.
+              </p>
+            </div>
+            <Switch
+              checked={formData.isTami}
+              onCheckedChange={(v) => setFlag("isTami", v)}
+            />
+          </div>
+          <div className="flex items-start justify-between gap-4 rounded-lg border p-3 bg-muted/30">
+            <div className="space-y-0.5">
+              <Label className="text-sm font-medium">Direct</Label>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Investor langsung tanpa perantara broker.
+              </p>
+            </div>
+            <Switch
+              checked={formData.isDirect}
+              onCheckedChange={(v) => setFlag("isDirect", v)}
             />
           </div>
         </div>
@@ -337,41 +409,32 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
           </p>
 
           <div className="space-y-1.5">
-            <Label htmlFor="inv-heir-name" className="text-xs">
-              Nama Ahli Waris <span className="text-destructive">*</span>
-            </Label>
+            <Label htmlFor="inv-heir-name" className="text-xs">Nama Ahli Waris</Label>
             <Input
               id="inv-heir-name"
               value={formData.heirName}
               onChange={(e) => set("heirName", e.target.value)}
               placeholder="Jane Smith"
-              required
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="inv-heir-bank" className="text-xs">
-                Nama Bank Ahli Waris <span className="text-destructive">*</span>
-              </Label>
+              <Label htmlFor="inv-heir-bank" className="text-xs">Nama Bank Ahli Waris</Label>
               <Input
                 id="inv-heir-bank"
                 value={formData.heirBankName}
                 onChange={(e) => set("heirBankName", e.target.value)}
                 placeholder="BCA"
-                required
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="inv-heir-account" className="text-xs">
-                No Rekening Ahli Waris <span className="text-destructive">*</span>
-              </Label>
+              <Label htmlFor="inv-heir-account" className="text-xs">No Rekening Ahli Waris</Label>
               <Input
                 id="inv-heir-account"
                 value={formData.heirAccountNumber}
                 onChange={(e) => set("heirAccountNumber", e.target.value)}
                 placeholder="0987654321"
-                required
               />
             </div>
           </div>
@@ -563,7 +626,7 @@ function parseInternalRef(catatan: string): string | null {
 }
 
 export function InvestorsContent() {
-  const { investors, addInvestor, updateInvestor, deleteInvestor } = useInvestors();
+  const { investors, addInvestor, updateInvestor, deleteInvestor, uploadBuktiTransfer, getBuktiUrl } = useInvestors();
   const { mous } = useMou();
   const { brokers, addBroker, updateBroker, deleteBroker } = useBrokers();
   const { transaksis, syncInvestorInfo } = useTransaksi();
@@ -579,6 +642,18 @@ export function InvestorsContent() {
     : investors;
 
   const [searchQuery, setSearchQuery] = useState("");
+
+  // ── Dana terpakai per investor (transaksi aktif: rencana + berjalan) ──
+  const investorDanaMap = useMemo(() => {
+    const map = new Map<string, number>();
+    transaksis.forEach((t) => {
+      if (t.status !== "rencana" && t.status !== "berjalan") return;
+      t.investorEntries.forEach((entry) => {
+        map.set(entry.investorId, (map.get(entry.investorId) ?? 0) + entry.nilaiInvestasi);
+      });
+    });
+    return map;
+  }, [transaksis]);
 
   // ── Estimasi bagi hasil per investor (dari data transaksi) ──
   const investorPnlMap = useMemo(() => {
@@ -613,6 +688,15 @@ export function InvestorsContent() {
   const [isDeleteInvestorOpen, setIsDeleteInvestorOpen] = useState(false);
   const [selectedInvestor, setSelectedInvestor] = useState<Investor | null>(null);
   const [investorForm, setInvestorForm] = useState<InvestorFormData>(initialInvestorForm);
+
+  // Top-up dialog state
+  const [isTopUpOpen, setIsTopUpOpen] = useState(false);
+  const [topUpInvestor, setTopUpInvestor] = useState<Investor | null>(null);
+  const [topUpAmount, setTopUpAmount] = useState("");
+  const [topUpFile, setTopUpFile] = useState<File | null>(null);
+
+  // Bukti transfer untuk dialog tambah investor
+  const [addInvestorFile, setAddInvestorFile] = useState<File | null>(null);
 
   // Broker dialog state
   const [isAddBrokerOpen, setIsAddBrokerOpen] = useState(false);
@@ -654,6 +738,37 @@ export function InvestorsContent() {
     return `BRK-${String(maxNum + 1).padStart(4, "0")}`;
   };
 
+  // ── Helpers ──
+
+  const activeFlags = (form: InvestorFormData) => {
+    const flags: string[] = [];
+    if (form.isMinBun) flags.push("MinBun");
+    if (form.isTami)   flags.push("Tami");
+    if (form.isDirect) flags.push("Direct");
+    return flags;
+  };
+
+  const notifyOwner = async (
+    type: "new_investor" | "top_up",
+    investorId: string,
+    investorName: string,
+    amount: number,
+    opts?: { totalAmount?: number; buktiUrl?: string; flags?: string[] },
+  ) => {
+    try {
+      await fetch("/api/notify-owner", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${(await import("@/lib/pocketbase")).default.authStore.token}`,
+        },
+        body: JSON.stringify({ type, investorId, investorName, amount, ...opts }),
+      });
+    } catch {
+      // Notifikasi gagal tidak boleh menghentikan alur utama
+    }
+  };
+
   // ── Investor handlers ──
 
   const handleAddInvestor = async (e: React.FormEvent) => {
@@ -674,10 +789,12 @@ export function InvestorsContent() {
         heirName: investorForm.heirName,
         heirBankName: investorForm.heirBankName,
         heirAccountNumber: investorForm.heirAccountNumber,
-        isInternal: investorForm.isInternal,
+        isMinBun: investorForm.isMinBun,
+        isTami: investorForm.isTami,
+        isDirect: investorForm.isDirect,
       });
-      // Untuk investor internal, catat modal yang di-deploy sebagai kredit (uang MinBun terpakai)
-      if (investorForm.isInternal) {
+      // Untuk investor MinBun, catat modal yang di-deploy sebagai kredit (uang MinBun terpakai)
+      if (investorForm.isMinBun) {
         const today = todayWibStr();
         await addPengeluaran({
           date: today,
@@ -688,8 +805,24 @@ export function InvestorsContent() {
           catatan: makeInternalRef(newId),
         });
       }
+      // Upload bukti transfer jika ada
+      let buktiUrl = "";
+      if (addInvestorFile) {
+        try {
+          const filename = await uploadBuktiTransfer(newId, addInvestorFile);
+          buktiUrl = getBuktiUrl(newId, filename);
+        } catch { /* upload gagal — lanjut tanpa bukti */ }
+      }
+
+      // Notifikasi ke owner (fire-and-forget)
+      notifyOwner("new_investor", newId, investorForm.name, parseFloat(investorForm.investmentAmount) || 0, {
+        buktiUrl,
+        flags: activeFlags(investorForm),
+      });
+
       toast.success("Investor berhasil ditambahkan");
       setInvestorForm(initialInvestorForm);
+      setAddInvestorFile(null);
       setIsAddInvestorOpen(false);
     } catch (err) {
       setErrorInfo(formatPbError(err, "Gagal menambahkan investor"));
@@ -717,7 +850,9 @@ export function InvestorsContent() {
         heirName: investorForm.heirName,
         heirBankName: investorForm.heirBankName,
         heirAccountNumber: investorForm.heirAccountNumber,
-        isInternal: investorForm.isInternal,
+        isMinBun: investorForm.isMinBun,
+        isTami: investorForm.isTami,
+        isDirect: investorForm.isDirect,
       });
 
       // Sinkronkan nama & broker yang ter-denormalisasi di entry transaksi
@@ -728,9 +863,9 @@ export function InvestorsContent() {
         await syncInvestorInfo(selectedInvestor.id, investorForm.name, investorForm.brokerName);
       }
 
-      // Sinkronisasi cash flow untuk investor internal
-      const wasInternal = selectedInvestor.isInternal === true;
-      const nowInternal = investorForm.isInternal;
+      // Sinkronisasi cash flow untuk investor MinBun
+      const wasInternal = selectedInvestor.isMinBun === true;
+      const nowInternal = investorForm.isMinBun;
       const ref = makeInternalRef(selectedInvestor.id);
       const existingEntry = pengeluarans.find((p) => p.catatan === ref);
 
@@ -798,9 +933,77 @@ export function InvestorsContent() {
       heirName: investor.heirName,
       heirBankName: investor.heirBankName,
       heirAccountNumber: investor.heirAccountNumber,
-      isInternal: investor.isInternal === true,
+      isMinBun: investor.isMinBun === true,
+      isTami: investor.isTami === true,
+      isDirect: investor.isDirect === true,
     });
     setIsEditInvestorOpen(true);
+  };
+
+  const handleTopUpClick = (investor: Investor) => {
+    setTopUpInvestor(investor);
+    setTopUpAmount("");
+    setIsTopUpOpen(true);
+  };
+
+  const handleTopUpConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!topUpInvestor) return;
+    const nominal = parseFloat(topUpAmount);
+    if (!nominal || nominal <= 0) return;
+    setIsSaving(true);
+    try {
+      const newAmount = topUpInvestor.investmentAmount + nominal;
+      await updateInvestor(topUpInvestor.id, { investmentAmount: newAmount });
+
+      // Sinkronkan entri cash flow internal jika investor internal
+      if (topUpInvestor.isMinBun) {
+        const ref = makeInternalRef(topUpInvestor.id);
+        const existingEntry = pengeluarans.find((p) => p.catatan === ref);
+        if (existingEntry) {
+          await updatePengeluaran(existingEntry.id, { kredit: newAmount });
+        } else {
+          await addPengeluaran({
+            date: todayWibStr(),
+            deskripsi: `Modal Internal — ${topUpInvestor.name}`,
+            debet: 0,
+            kredit: newAmount,
+            kategori: "Investasi",
+            catatan: ref,
+          });
+        }
+      }
+
+      // Upload bukti transfer jika ada
+      let buktiUrl = "";
+      if (topUpFile) {
+        try {
+          const filename = await uploadBuktiTransfer(topUpInvestor.id, topUpFile);
+          buktiUrl = getBuktiUrl(topUpInvestor.id, filename);
+        } catch { /* upload gagal — lanjut tanpa bukti */ }
+      }
+
+      // Notifikasi ke owner (fire-and-forget)
+      notifyOwner("top_up", topUpInvestor.id, topUpInvestor.name, nominal, {
+        totalAmount: newAmount,
+        buktiUrl,
+        flags: [
+          ...(topUpInvestor.isMinBun  ? ["MinBun"]  : []),
+          ...(topUpInvestor.isTami    ? ["Tami"]    : []),
+          ...(topUpInvestor.isDirect  ? ["Direct"]  : []),
+        ],
+      });
+
+      toast.success(`Top up ${formatRp(nominal)} berhasil ditambahkan`);
+      setIsTopUpOpen(false);
+      setTopUpInvestor(null);
+      setTopUpAmount("");
+      setTopUpFile(null);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal melakukan top up"));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleDeleteInvestorClick = (investor: Investor) => {
@@ -1004,6 +1207,8 @@ export function InvestorsContent() {
                 previewId={nextInvestorId()}
                 brokers={brokers}
                 isSaving={isSaving}
+                buktiFile={addInvestorFile}
+                onBuktiChange={setAddInvestorFile}
               />
             </DialogContent>
           </Dialog>}
@@ -1039,7 +1244,9 @@ export function InvestorsContent() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredInvestors.map((investor) => {
-            const bagHasil = investorPnlMap.get(investor.id) ?? 0;
+            const bagHasil   = investorPnlMap.get(investor.id) ?? 0;
+            const danaTermakai = investorDanaMap.get(investor.id) ?? 0;
+            const danaSisa   = Math.max(0, investor.investmentAmount - danaTermakai);
             const pct = investor.investmentAmount > 0
               ? ((bagHasil / investor.investmentAmount) * 100).toFixed(1)
               : "0.0";
@@ -1067,13 +1274,20 @@ export function InvestorsContent() {
                       >
                         {investorBadge.label}
                       </Badge>
-                      {investor.isInternal && (
-                        <Badge
-                          variant="secondary"
-                          className="bg-primary/10 text-primary text-[10px] px-1.5 gap-0.5"
-                        >
+                      {investor.isMinBun && (
+                        <Badge variant="secondary" className="bg-primary/10 text-primary text-[10px] px-1.5 gap-0.5">
                           <ShieldCheck className="h-2.5 w-2.5" />
-                          Internal
+                          MinBun
+                        </Badge>
+                      )}
+                      {investor.isTami && (
+                        <Badge variant="secondary" className="bg-purple-100 text-purple-700 text-[10px] px-1.5">
+                          Tami
+                        </Badge>
+                      )}
+                      {investor.isDirect && (
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-[10px] px-1.5">
+                          Direct
                         </Badge>
                       )}
                     </div>
@@ -1081,6 +1295,12 @@ export function InvestorsContent() {
                   </div>
                   {(canEdit || canDelete) && (
                   <div className="flex gap-1 shrink-0">
+                    {canEdit && (
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50" onClick={() => handleTopUpClick(investor)} title="Top Up Investasi">
+                      <TrendingUp className="h-3.5 w-3.5" />
+                      <span className="sr-only">Top Up</span>
+                    </Button>
+                    )}
                     {canEdit && (
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditInvestorClick(investor)}>
                       <Pencil className="h-3.5 w-3.5" />
@@ -1127,6 +1347,32 @@ export function InvestorsContent() {
                   <p className="text-lg font-bold text-foreground">
                     {formatCurrency(investor.investmentAmount)}
                   </p>
+                </div>
+
+                <div className="pt-1 border-t border-border/50">
+                  <p className="text-xs text-muted-foreground mb-1.5">Alokasi Dana</p>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Terpakai</span>
+                      <span className={`font-semibold ${danaTermakai > 0 ? "text-orange-600" : "text-muted-foreground"}`}>
+                        {formatCurrency(danaTermakai)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Tersedia</span>
+                      <span className={`font-semibold ${danaSisa > 0 ? "text-green-600" : "text-destructive"}`}>
+                        {formatCurrency(danaSisa)}
+                      </span>
+                    </div>
+                    {investor.investmentAmount > 0 && (
+                      <div className="mt-1.5 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-orange-400 transition-all"
+                          style={{ width: `${Math.min(100, (danaTermakai / investor.investmentAmount) * 100)}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="pt-1 border-t border-border/50">
@@ -1300,6 +1546,65 @@ export function InvestorsContent() {
               Hapus
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog Top Up ── */}
+      <Dialog open={isTopUpOpen} onOpenChange={setIsTopUpOpen}>
+        <DialogContent className="sm:max-w-[380px]">
+          <DialogHeader>
+            <DialogTitle>Top Up Investasi</DialogTitle>
+            <DialogDescription>
+              Tambah dana investasi untuk <strong>{topUpInvestor?.name}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleTopUpConfirm}>
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Nilai saat ini</span>
+                  <span className="font-semibold">{formatRp(topUpInvestor?.investmentAmount ?? 0)}</span>
+                </div>
+                {topUpAmount && parseFloat(topUpAmount) > 0 && (
+                  <div className="flex justify-between text-green-600">
+                    <span>+ Top up</span>
+                    <span className="font-semibold">{formatRp(parseFloat(topUpAmount))}</span>
+                  </div>
+                )}
+                {topUpAmount && parseFloat(topUpAmount) > 0 && (
+                  <div className="flex justify-between border-t pt-1.5 font-bold">
+                    <span>Total baru</span>
+                    <span>{formatRp((topUpInvestor?.investmentAmount ?? 0) + parseFloat(topUpAmount))}</span>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="topup-amount" className="text-xs">
+                  Nominal Top Up (Rp) <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="topup-amount"
+                  type="number"
+                  min="1"
+                  step="1000000"
+                  value={topUpAmount}
+                  onChange={(e) => setTopUpAmount(e.target.value)}
+                  placeholder="50000000"
+                  required
+                  autoFocus
+                />
+              </div>
+              <BuktiUploadField file={topUpFile} onChange={setTopUpFile} />
+            </div>
+            <DialogFooter className="mt-4 pt-4 border-t gap-2">
+              <Button type="button" variant="outline" onClick={() => setIsTopUpOpen(false)}>
+                Batal
+              </Button>
+              <Button type="submit" disabled={isSaving} className="bg-green-600 hover:bg-green-700">
+                {isSaving ? "Menyimpan…" : "Konfirmasi Top Up"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

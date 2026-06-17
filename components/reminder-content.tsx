@@ -218,9 +218,9 @@ export function ReminderContent() {
   // Optimistic update: tandai selesai seketika tanpa menunggu context re-render dari PocketBase
   const [doneKeys, setDoneKeys]          = useState<Set<string>>(new Set());
 
-  // Set investor ID yang bertanda internal
+  // Set investor ID yang bertanda MinBun (internal)
   const internalInvestorIds = useMemo(
-    () => new Set(investors.filter((inv) => inv.isInternal).map((inv) => inv.id)),
+    () => new Set(investors.filter((inv) => inv.isMinBun).map((inv) => inv.id)),
     [investors],
   );
 
@@ -321,7 +321,7 @@ export function ReminderContent() {
   const handleToggleRow = (mou: MoU, keterangan: string, row: PaymentRow) => {
     const isChecked = !!mou.bagiHasilChecks?.[keterangan];
     if (!isChecked) {
-      // Cek isInternal langsung dari investors array (bukan hanya dari Set cache)
+      // Cek isMinBun langsung dari investors array (bukan hanya dari Set cache)
       // agar tidak salah jalur jika investors belum selesai di-load saat klik
       // Semua baris wajib upload bukti transfer
       setBuktiTarget({ mou, keterangan, row });
