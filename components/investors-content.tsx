@@ -58,6 +58,7 @@ interface InvestorFormData {
   heirBankName: string;
   heirAccountNumber: string;
   isMinBun: boolean;
+  isInternal: boolean;
   isTami: boolean;
   isDirect: boolean;
 }
@@ -87,6 +88,7 @@ const initialInvestorForm: InvestorFormData = {
   heirBankName: "",
   heirAccountNumber: "",
   isMinBun: false,
+  isInternal: false,
   isTami: false,
   isDirect: false,
 };
@@ -356,7 +358,7 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
           </div>
         </div>
 
-        {/* ── Status Investor ── */}
+        {/* ── Tipe Investor ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Tipe Investor <span className="text-destructive">*</span>
@@ -366,30 +368,46 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
           )}
           {(
             [
-              { key: "isMinBun", label: "MinBun", desc: "Investor internal MinBun. Nilai investasi dan arus kas terintegrasi otomatis dengan saldo MinBun.", icon: <ShieldCheck className="h-3.5 w-3.5 text-primary" /> },
-              { key: "isTami",   label: "Tami",   desc: "Investor melalui jalur Tami.", icon: null },
-              { key: "isDirect", label: "Direct",  desc: "Investor langsung tanpa perantara broker.", icon: null },
-            ] as const
-          ).map(({ key, label, desc, icon }) => (
-            <div key={key} className={`flex items-start justify-between gap-4 rounded-lg border p-3 transition-colors ${formData[key] ? "bg-primary/5 border-primary/30" : "bg-muted/30"}`}>
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-1.5">
-                  {icon}
-                  <Label className="text-sm font-medium">{label}</Label>
+              { key: "isMinBun" as const, label: "MinBun", desc: "Investor di bawah naungan MinBun (eksternal maupun internal)." },
+              { key: "isTami"   as const, label: "Tami",   desc: "Investor melalui jalur Tami." },
+              { key: "isDirect" as const, label: "Direct",  desc: "Investor langsung tanpa perantara broker." },
+            ]
+          ).map(({ key, label, desc }) => (
+            <div key={key} className={`rounded-lg border transition-colors ${formData[key] ? "bg-primary/5 border-primary/30" : "bg-muted/30"}`}>
+              <div className="flex items-start justify-between gap-4 p-3">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-1.5">
+                    {key === "isMinBun" && <ShieldCheck className="h-3.5 w-3.5 text-primary" />}
+                    <Label className="text-sm font-medium">{label}</Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
                 </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
+                <Switch
+                  checked={formData[key]}
+                  onCheckedChange={(v) => {
+                    if (v) {
+                      setFormData({ ...formData, isMinBun: false, isTami: false, isDirect: false, [key]: true, isInternal: false });
+                    } else {
+                      setFormData({ ...formData, [key]: false, isInternal: false });
+                    }
+                  }}
+                />
               </div>
-              <Switch
-                checked={formData[key]}
-                onCheckedChange={(v) => {
-                  if (v) {
-                    // Mutual exclusive: matikan flag lain
-                    setFormData({ ...formData, isMinBun: false, isTami: false, isDirect: false, [key]: true });
-                  } else {
-                    setFlag(key, false);
-                  }
-                }}
-              />
+              {/* Sub-toggle Internal — hanya tampil jika MinBun aktif */}
+              {key === "isMinBun" && formData.isMinBun && (
+                <div className="flex items-start justify-between gap-4 px-3 pb-3 pt-0 ml-4 border-t border-primary/10 mt-0 pt-2">
+                  <div className="space-y-0.5">
+                    <Label className="text-xs font-medium text-primary">Internal (MinBun sendiri)</Label>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      MinBun bertindak sebagai investor. Modal + seluruh arus kas (pemasukan &amp; pengeluaran) dicatat otomatis. Jika tidak dicentang, hanya bagi hasil MinBun (5%) yang dicatat.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={formData.isInternal}
+                    onCheckedChange={(v) => setFlag("isInternal", v)}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -789,11 +807,12 @@ export function InvestorsContent() {
         heirBankName: investorForm.heirBankName,
         heirAccountNumber: investorForm.heirAccountNumber,
         isMinBun: investorForm.isMinBun,
+        isInternal: investorForm.isInternal,
         isTami: investorForm.isTami,
         isDirect: investorForm.isDirect,
       });
-      // Untuk investor MinBun, catat modal yang di-deploy sebagai kredit (uang MinBun terpakai)
-      if (investorForm.isMinBun) {
+      // Hanya investor Internal (MinBun sendiri) yang langsung catat modal ke cashflow
+      if (investorForm.isInternal) {
         const today = todayWibStr();
         await addPengeluaran({
           date: today,
@@ -850,6 +869,7 @@ export function InvestorsContent() {
         heirBankName: investorForm.heirBankName,
         heirAccountNumber: investorForm.heirAccountNumber,
         isMinBun: investorForm.isMinBun,
+        isInternal: investorForm.isInternal,
         isTami: investorForm.isTami,
         isDirect: investorForm.isDirect,
       });
@@ -862,9 +882,9 @@ export function InvestorsContent() {
         await syncInvestorInfo(selectedInvestor.id, investorForm.name, investorForm.brokerName);
       }
 
-      // Sinkronisasi cash flow untuk investor MinBun
-      const wasInternal = selectedInvestor.isMinBun === true;
-      const nowInternal = investorForm.isMinBun;
+      // Sinkronisasi cash flow — hanya untuk investor Internal (MinBun sendiri)
+      const wasInternal = selectedInvestor.isInternal === true;
+      const nowInternal = investorForm.isInternal;
       const ref = makeInternalRef(selectedInvestor.id);
       const existingEntry = pengeluarans.find((p) => p.catatan === ref);
 
@@ -933,6 +953,7 @@ export function InvestorsContent() {
       heirBankName: investor.heirBankName,
       heirAccountNumber: investor.heirAccountNumber,
       isMinBun: investor.isMinBun === true,
+      isInternal: investor.isInternal === true,
       isTami: investor.isTami === true,
       isDirect: investor.isDirect === true,
     });
@@ -956,7 +977,7 @@ export function InvestorsContent() {
       await updateInvestor(topUpInvestor.id, { investmentAmount: newAmount });
 
       // Sinkronkan entri cash flow internal jika investor internal
-      if (topUpInvestor.isMinBun) {
+      if (topUpInvestor.isInternal) {
         const ref = makeInternalRef(topUpInvestor.id);
         const existingEntry = pengeluarans.find((p) => p.catatan === ref);
         if (existingEntry) {
@@ -1277,6 +1298,11 @@ export function InvestorsContent() {
                         <Badge variant="secondary" className="bg-primary/10 text-primary text-[10px] px-1.5 gap-0.5">
                           <ShieldCheck className="h-2.5 w-2.5" />
                           MinBun
+                        </Badge>
+                      )}
+                      {investor.isInternal && (
+                        <Badge variant="secondary" className="bg-primary/20 text-primary text-[10px] px-1.5 gap-0.5 font-semibold">
+                          Internal
                         </Badge>
                       )}
                       {investor.isTami && (

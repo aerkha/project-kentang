@@ -22,6 +22,7 @@ export interface Investor {
   heirAccountNumber: string;
   isActive?:      boolean;
   isMinBun?:      boolean;
+  isInternal?:    boolean;   // sub-flag MinBun: true = MinBun sendiri (full cashflow)
   isTami?:        boolean;
   isDirect?:      boolean;
   buktiTransfer?: string;
@@ -58,6 +59,7 @@ function recordToInvestor(r: Record<string, unknown>, pbIdMap: Map<string, strin
     heirAccountNumber: r.heirAccountNumber as string,
     isActive:         r.isActive === true,
     isMinBun:         r.isMinBun === true,
+    isInternal:       r.isInternal === true,
     isTami:           r.isTami === true,
     isDirect:         r.isDirect === true,
     buktiTransfer:    (r.buktiTransfer as string) || "",
@@ -138,6 +140,7 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
           heirAccountNumber: inv.heirAccountNumber,
           isActive:         inv.isActive === true,
           isMinBun:         inv.isMinBun === true,
+          isInternal:       inv.isInternal === true,
           isTami:           inv.isTami === true,
           isDirect:         inv.isDirect === true,
         });

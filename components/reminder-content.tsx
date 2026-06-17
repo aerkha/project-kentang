@@ -218,9 +218,9 @@ export function ReminderContent() {
   // Optimistic update: tandai selesai seketika tanpa menunggu context re-render dari PocketBase
   const [doneKeys, setDoneKeys]          = useState<Set<string>>(new Set());
 
-  // Set investor ID yang bertanda MinBun (internal)
+  // Set investor ID yang bertanda Internal (MinBun sendiri — full cashflow)
   const internalInvestorIds = useMemo(
-    () => new Set(investors.filter((inv) => inv.isMinBun).map((inv) => inv.id)),
+    () => new Set(investors.filter((inv) => inv.isInternal).map((inv) => inv.id)),
     [investors],
   );
 
