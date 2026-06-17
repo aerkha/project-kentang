@@ -37,6 +37,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
+import { InvestorsImportDialog } from "@/components/investors-import-dialog";
 import { todayWibStr } from "@/lib/utils";
 
 // ─────────────────────────────────────────────
@@ -1182,6 +1183,9 @@ export function InvestorsContent() {
           <p className="text-muted-foreground">Kelola data investor dan investasi</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* ── Import JSON ── */}
+          <InvestorsImportDialog canCreate={canCreate} />
+
           {/* ── Tambah Broker (admin only) ── */}
           {canCreate && <Dialog open={isAddBrokerOpen} onOpenChange={setIsAddBrokerOpen}>
             <DialogTrigger asChild>
