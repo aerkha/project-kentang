@@ -338,6 +338,59 @@ function TrxFormFields({
           />
         </div>
 
+        {/* ── Ongkir & Penjualan ── */}
+        <div className="space-y-3">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
+            Ongkir &amp; Penjualan
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="trx-ongkir" className="text-xs">
+                Ongkir per KG (Rp) <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="trx-ongkir" type="number" min="0" step="100"
+                value={formData.ongkirPerKg}
+                onChange={(e) => set("ongkirPerKg", e.target.value)}
+                placeholder="500" required
+              />
+            </div>
+            <Preview
+              label="Total Ongkir = Ongkir/kg × Qty"
+              value={ongkirPerKg > 0 && qty > 0 ? formatRp(totalOngkir) : "—"}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="trx-harga" className="text-xs">
+                Harga Jual per KG (Rp) <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="trx-harga" type="number" min="0" step="100"
+                value={formData.hargaJual}
+                onChange={(e) => set("hargaJual", e.target.value)}
+                placeholder="3000" required
+              />
+            </div>
+            <Preview
+              label="Income = Harga Jual × Qty"
+              value={hargaJual > 0 && qty > 0 ? formatRp(income) : "—"}
+            />
+          </div>
+
+          {income > 0 && (
+            <div className={`px-3 py-3 rounded-md flex items-center justify-between ${
+              profit >= 0 ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"
+            }`}>
+              <span className="flex items-center gap-2 text-sm font-medium">
+                {profit >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                Profit = Income − (Modal + Total Ongkir)
+              </span>
+              <span className="font-bold">{formatRp(profit)}</span>
+            </div>
+          )}
+        </div>
+
         {/* ── Kontribusi Investor ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
@@ -424,59 +477,6 @@ function TrxFormFields({
               </div>
             </div>
           </div>
-        </div>
-
-        {/* ── Ongkir & Penjualan ── */}
-        <div className="space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
-            Ongkir &amp; Penjualan
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="trx-ongkir" className="text-xs">
-                Ongkir per KG (Rp) <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="trx-ongkir" type="number" min="0" step="100"
-                value={formData.ongkirPerKg}
-                onChange={(e) => set("ongkirPerKg", e.target.value)}
-                placeholder="500" required
-              />
-            </div>
-            <Preview
-              label="Total Ongkir = Ongkir/kg × Qty"
-              value={ongkirPerKg > 0 && qty > 0 ? formatRp(totalOngkir) : "—"}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="trx-harga" className="text-xs">
-                Harga Jual per KG (Rp) <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="trx-harga" type="number" min="0" step="100"
-                value={formData.hargaJual}
-                onChange={(e) => set("hargaJual", e.target.value)}
-                placeholder="3000" required
-              />
-            </div>
-            <Preview
-              label="Income = Harga Jual × Qty"
-              value={hargaJual > 0 && qty > 0 ? formatRp(income) : "—"}
-            />
-          </div>
-
-          {income > 0 && (
-            <div className={`px-3 py-3 rounded-md flex items-center justify-between ${
-              profit >= 0 ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"
-            }`}>
-              <span className="flex items-center gap-2 text-sm font-medium">
-                {profit >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-                Profit = Income − (Modal + Total Ongkir)
-              </span>
-              <span className="font-bold">{formatRp(profit)}</span>
-            </div>
-          )}
         </div>
 
         {/* ── Afiliasi Broker ── */}
