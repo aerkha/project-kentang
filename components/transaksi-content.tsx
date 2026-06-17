@@ -161,7 +161,7 @@ function Preview({ label, value, color }: { label: string; value: string; color?
 
 interface TrxFormProps {
   formData: TrxFormData;
-  setFormData: (d: TrxFormData) => void;
+  setFormData: React.Dispatch<React.SetStateAction<TrxFormData>>;
   onSubmit: (e: React.FormEvent) => void;
   submitLabel: string;
   previewId: string;
@@ -194,42 +194,55 @@ function TrxFormFields({
 
   const toggleJalur = (jalur: InvestorJalur) => {
     if (openJalurs.has(jalur)) {
+      // Tutup jalur: hapus semua investor jalur ini dari entries
       const ids = new Set(investorsByJalur(jalur).map((i) => i.id));
-      setFormData({
-        ...formData,
-        investorEntries: formData.investorEntries.filter((e) => !ids.has(e.investorId)),
-      });
+      setFormData((prev) => ({
+        ...prev,
+        investorEntries: prev.investorEntries.filter((e) => !ids.has(e.investorId)),
+      }));
       setOpenJalurs((prev) => { const n = new Set(prev); n.delete(jalur); return n; });
     } else {
+      // Buka jalur: tambah semua investor jalur ini ke entries (pre-checked semua)
+      const toAdd = investorsByJalur(jalur).map((inv) => ({
+        investorId: inv.id,
+        nilaiInvestasi: inv.investmentAmount.toString(),
+        ...investorPct(inv.brokerName ?? ""),
+      }));
+      setFormData((prev) => ({
+        ...prev,
+        investorEntries: [
+          ...prev.investorEntries.filter((e) => e.investorId),
+          ...toAdd,
+        ],
+      }));
       setOpenJalurs((prev) => new Set([...prev, jalur]));
     }
   };
 
   const toggleInvestor = (inv: Investor) => {
-    if (isInvestorChecked(inv.id)) {
-      setFormData({
-        ...formData,
-        investorEntries: formData.investorEntries.filter((e) => e.investorId !== inv.id),
-      });
-    } else {
+    setFormData((prev) => {
+      const alreadyIn = prev.investorEntries.some((e) => e.investorId === inv.id);
+      if (alreadyIn) {
+        return { ...prev, investorEntries: prev.investorEntries.filter((e) => e.investorId !== inv.id) };
+      }
       const pct = investorPct(inv.brokerName ?? "");
-      setFormData({
-        ...formData,
+      return {
+        ...prev,
         investorEntries: [
-          ...formData.investorEntries.filter((e) => e.investorId),
+          ...prev.investorEntries.filter((e) => e.investorId),
           { investorId: inv.id, nilaiInvestasi: inv.investmentAmount.toString(), ...pct },
         ],
-      });
-    }
+      };
+    });
   };
 
   const updateNilai = (investorId: string, value: string) => {
-    setFormData({
-      ...formData,
-      investorEntries: formData.investorEntries.map((e) =>
+    setFormData((prev) => ({
+      ...prev,
+      investorEntries: prev.investorEntries.map((e) =>
         e.investorId === investorId ? { ...e, nilaiInvestasi: value } : e,
       ),
-    });
+    }));
   };
   const set = (k: keyof Omit<TrxFormData, "investorEntries">, v: string) =>
     setFormData({ ...formData, [k]: v });
