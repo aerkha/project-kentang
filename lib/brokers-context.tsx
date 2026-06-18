@@ -18,9 +18,10 @@ export interface Broker {
 
 interface BrokersContextType {
   brokers: Broker[];
-  addBroker:    (broker: Omit<Broker, "id">) => Promise<void>;
-  updateBroker: (id: string, updates: Partial<Broker>) => Promise<void>;
-  deleteBroker: (id: string) => Promise<void>;
+  addBroker:     (broker: Omit<Broker, "id">) => Promise<void>;
+  updateBroker:  (id: string, updates: Partial<Broker>) => Promise<void>;
+  deleteBroker:  (id: string) => Promise<void>;
+  reloadBrokers: () => Promise<void>;
 }
 
 const BrokersContext = createContext<BrokersContextType | undefined>(undefined);
@@ -46,7 +47,7 @@ function isCustomIdConflict(err: unknown): boolean {
   return data?.data?.customId?.code === "validation_not_unique";
 }
 
-async function generateCustomId(): Promise<string> {
+export async function generateBrokerCustomId(): Promise<string> {
   try {
     // Cari nilai numerik tertinggi secara eksplisit — sort leksikografis tidak aman
     // karena "BRK-0009" > "BRK-0010" secara alfabet.
@@ -88,8 +89,14 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const reloadBrokers = async () => {
+    const records = await pb.collection("brokers").getFullList({ sort: "customId" });
+    map.clear();
+    setBrokers(records.map((r) => recordToBroker(r, map)));
+  };
+
   const addBroker = async (broker: Omit<Broker, "id">) => {
-    let customId = await generateCustomId();
+    let customId = await generateBrokerCustomId();
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
         const record = await pb.collection("brokers").create({
@@ -108,7 +115,7 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
         return;
       } catch (err) {
         if (isCustomIdConflict(err) && attempt < 4) {
-          customId = await generateCustomId();
+          customId = await generateBrokerCustomId();
           continue;
         }
         throw err;
@@ -134,7 +141,7 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <BrokersContext.Provider value={{ brokers, addBroker, updateBroker, deleteBroker }}>
+    <BrokersContext.Provider value={{ brokers, addBroker, updateBroker, deleteBroker, reloadBrokers }}>
       {children}
     </BrokersContext.Provider>
   );

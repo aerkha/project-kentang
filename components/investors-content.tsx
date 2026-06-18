@@ -41,6 +41,8 @@ import { usePermissions } from "@/lib/permissions";
 import { todayWibStr } from "@/lib/utils";
 import { useModalEntries } from "@/lib/modal-entries-context";
 import pb from "@/lib/pocketbase";
+import { generateCustomId } from "@/lib/investors-context";
+import { generateBrokerCustomId } from "@/lib/brokers-context";
 import { FileJson, Upload, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -183,9 +185,10 @@ function FlagBadgeInline({ row }: { row: InvImportRow }) {
   return <span className="text-[10px] text-muted-foreground">—</span>;
 }
 
-function InvestorImportPanel({ existingIds, onUpdateInvestor, onDone }: {
+function InvestorImportPanel({ existingIds, onUpdateInvestor, onReload, onDone }: {
   existingIds: Set<string>;
   onUpdateInvestor: (id: string, data: Partial<Investor>) => Promise<void>;
+  onReload: () => Promise<void>;
   onDone: () => void;
 }) {
   const [step, setStep]         = useState<"upload" | "preview" | "result">("upload");
@@ -205,11 +208,12 @@ function InvestorImportPanel({ existingIds, onUpdateInvestor, onDone }: {
       let parsed: unknown;
       try { parsed = JSON.parse(text); } catch { setParseError("Format JSON tidak valid"); return; }
       if (!Array.isArray(parsed)) { setParseError("JSON harus berupa array [ ... ]"); return; }
-      const valid = (parsed as InvImportRow[]).filter((r) => r.customId && r.name);
-      if (valid.length === 0) { setParseError("Tidak ada data valid"); return; }
+      // customId boleh kosong — akan di-generate otomatis saat import
+      const valid = (parsed as InvImportRow[]).filter((r) => r.name);
+      if (valid.length === 0) { setParseError("Tidak ada data valid (kolom name wajib diisi)"); return; }
       for (let i = 0; i < valid.length; i++) {
         const r = valid[i];
-        if (!r.isMinBun && !r.isTami && !r.isDirect) { setParseError(`Baris ${i+1} (${r.name}): tidak ada flag tipe`); return; }
+        if (!r.isMinBun && !r.isTami && !r.isDirect) { setParseError(`Baris ${i+1} (${r.name}): isi salah satu flag = true: isMinBun, isTami, atau isDirect`); return; }
         if (typeof r.investmentAmount !== "number" || r.investmentAmount <= 0) { setParseError(`Baris ${i+1} (${r.name}): investmentAmount tidak valid`); return; }
       }
       setParseError(null);
@@ -226,12 +230,16 @@ function InvestorImportPanel({ existingIds, onUpdateInvestor, onDone }: {
       const { row } = rows[i];
       setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "importing" } : r));
       try {
-        if (existingIds.has(row.customId)) {
-          await onUpdateInvestor(row.customId, { name: row.name, address: row.address, brokerName: row.brokerName || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, email: row.email || "", occupation: row.occupation || "", investmentAmount: row.investmentAmount, heirName: row.heirName || "", heirBankName: row.heirBankName || "", heirAccountNumber: row.heirAccountNumber || "", isMinBun: row.isMinBun, isInternal: row.isInternal, isTami: row.isTami, isDirect: row.isDirect, isActive: row.isActive });
-          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success", error: "(diperbarui)" } : r));
+        // Auto-generate customId jika kosong, sesuai flag
+        const flag = row.isMinBun ? "MB" : row.isTami ? "TM" : "D";
+        const customId = row.customId || await generateCustomId(flag);
+
+        if (existingIds.has(customId)) {
+          await onUpdateInvestor(customId, { name: row.name, address: row.address, brokerName: row.brokerName || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, email: row.email || "", occupation: row.occupation || "", investmentAmount: row.investmentAmount, heirName: row.heirName || "", heirBankName: row.heirBankName || "", heirAccountNumber: row.heirAccountNumber || "", isMinBun: row.isMinBun, isInternal: row.isInternal, isTami: row.isTami, isDirect: row.isDirect, isActive: row.isActive });
+          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success", error: `(diperbarui ${customId})` } : r));
         } else {
-          await pb.collection("investors").create({ customId: row.customId, name: row.name, address: row.address, brokerName: row.brokerName || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, email: row.email || "", occupation: row.occupation || "", investmentAmount: row.investmentAmount, heirName: row.heirName || "", heirBankName: row.heirBankName || "", heirAccountNumber: row.heirAccountNumber || "", isMinBun: row.isMinBun === true, isInternal: row.isInternal === true, isTami: row.isTami === true, isDirect: row.isDirect === true, isActive: row.isActive !== false, buktiTransfer: "", createdBy: pb.authStore.record?.id ?? "", updatedBy: pb.authStore.record?.id ?? "" });
-          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success" } : r));
+          await pb.collection("investors").create({ customId, name: row.name, address: row.address, brokerName: row.brokerName || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, email: row.email || "", occupation: row.occupation || "", investmentAmount: row.investmentAmount, heirName: row.heirName || "", heirBankName: row.heirBankName || "", heirAccountNumber: row.heirAccountNumber || "", isMinBun: row.isMinBun === true, isInternal: row.isInternal === true, isTami: row.isTami === true, isDirect: row.isDirect === true, isActive: row.isActive !== false, buktiTransfer: "", createdBy: pb.authStore.record?.id ?? "", updatedBy: pb.authStore.record?.id ?? "" });
+          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success", error: customId } : r));
         }
       } catch (err) {
         const pbErr = err as { data?: { data?: Record<string, { message?: string }> }; message?: string };
@@ -240,6 +248,7 @@ function InvestorImportPanel({ existingIds, onUpdateInvestor, onDone }: {
       }
     }
     setIsImporting(false);
+    await onReload();
   };
 
   const fmtRp = (n: number) => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(n);
@@ -261,8 +270,9 @@ function InvestorImportPanel({ existingIds, onUpdateInvestor, onDone }: {
           {parseError && <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><XCircle className="h-4 w-4 mt-0.5 shrink-0" />{parseError}</div>}
           <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
             <p className="font-medium">Format:</p>
-            <p>• Array JSON dengan field: <code>customId</code>, <code>name</code>, <code>investmentAmount</code></p>
+            <p>• Field wajib: <code>name</code>, <code>investmentAmount</code></p>
             <p>• Salah satu flag <code>true</code>: <code>isMinBun</code>, <code>isTami</code>, atau <code>isDirect</code></p>
+            <p>• <code>customId</code> boleh dikosongkan — otomatis di-generate sesuai tipe</p>
           </div>
         </>
       )}
@@ -338,9 +348,10 @@ function InvestorImportPanel({ existingIds, onUpdateInvestor, onDone }: {
   );
 }
 
-function BrokerImportPanel({ existingIds, onUpdateBroker, onDone }: {
+function BrokerImportPanel({ existingIds, onUpdateBroker, onReload, onDone }: {
   existingIds: Set<string>;
   onUpdateBroker: (id: string, data: Partial<BrokerFormData>) => Promise<void>;
+  onReload: () => Promise<void>;
   onDone: () => void;
 }) {
   const [step, setStep]         = useState<"upload" | "preview" | "result">("upload");
@@ -360,12 +371,8 @@ function BrokerImportPanel({ existingIds, onUpdateBroker, onDone }: {
       let parsed: unknown;
       try { parsed = JSON.parse(text); } catch { setParseError("Format JSON tidak valid"); return; }
       if (!Array.isArray(parsed)) { setParseError("JSON harus berupa array [ ... ]"); return; }
-      const valid = (parsed as BrkImportRow[]).filter((r) => r.customId && r.name);
-      if (valid.length === 0) { setParseError("Tidak ada data valid"); return; }
-      for (let i = 0; i < valid.length; i++) {
-        const r = valid[i];
-        if (!r.name) { setParseError(`Baris ${i+1}: name kosong`); return; }
-      }
+      const valid = (parsed as BrkImportRow[]).filter((r) => r.name);
+      if (valid.length === 0) { setParseError("Tidak ada data valid (kolom name wajib diisi)"); return; }
       setParseError(null);
       setRows(valid.map((row) => ({ row, status: "pending" })));
       setStep("preview");
@@ -380,12 +387,13 @@ function BrokerImportPanel({ existingIds, onUpdateBroker, onDone }: {
       const { row } = rows[i];
       setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "importing" } : r));
       try {
-        if (existingIds.has(row.customId)) {
-          await onUpdateBroker(row.customId, { name: row.name, address: row.address, email: row.email || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone });
-          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success", error: "(diperbarui)" } : r));
+        const customId = row.customId || await generateBrokerCustomId();
+        if (existingIds.has(customId)) {
+          await onUpdateBroker(customId, { name: row.name, address: row.address, email: row.email || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone });
+          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success", error: `(diperbarui ${customId})` } : r));
         } else {
-          await pb.collection("brokers").create({ customId: row.customId, name: row.name, address: row.address, email: row.email || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, createdBy: pb.authStore.record?.id ?? "", updatedBy: pb.authStore.record?.id ?? "" });
-          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success" } : r));
+          await pb.collection("brokers").create({ customId, name: row.name, address: row.address, email: row.email || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, createdBy: pb.authStore.record?.id ?? "", updatedBy: pb.authStore.record?.id ?? "" });
+          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success", error: customId } : r));
         }
       } catch (err) {
         const pbErr = err as { data?: { data?: Record<string, { message?: string }> }; message?: string };
@@ -394,6 +402,7 @@ function BrokerImportPanel({ existingIds, onUpdateBroker, onDone }: {
       }
     }
     setIsImporting(false);
+    await onReload();
   };
 
   return (
@@ -413,7 +422,8 @@ function BrokerImportPanel({ existingIds, onUpdateBroker, onDone }: {
           {parseError && <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><XCircle className="h-4 w-4 mt-0.5 shrink-0" />{parseError}</div>}
           <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
             <p className="font-medium">Format:</p>
-            <p>• Array JSON dengan field: <code>customId</code>, <code>name</code>, <code>phone</code></p>
+            <p>• Field wajib: <code>name</code>, <code>phone</code></p>
+            <p>• <code>customId</code> boleh dikosongkan — otomatis di-generate (BRK-xxxx)</p>
             <p>• Field opsional: <code>address</code>, <code>email</code>, <code>idNumber</code>, <code>bankName</code>, <code>accountNumber</code></p>
           </div>
         </>
@@ -973,10 +983,10 @@ function parseInternalRef(catatan: string): string | null {
 }
 
 export function InvestorsContent() {
-  const { investors, addInvestor, updateInvestor, deleteInvestor, uploadBuktiTransfer, getBuktiUrl } = useInvestors();
+  const { investors, addInvestor, updateInvestor, deleteInvestor, reloadInvestors, uploadBuktiTransfer, getBuktiUrl } = useInvestors();
   const { entriesByInvestor } = useModalEntries();
   const { mous } = useMou();
-  const { brokers, addBroker, updateBroker, deleteBroker } = useBrokers();
+  const { brokers, addBroker, updateBroker, deleteBroker, reloadBrokers } = useBrokers();
   const { transaksis, syncInvestorInfo } = useTransaksi();
   const { pengeluarans, addPengeluaran, updatePengeluaran, deletePengeluaran } = usePengeluaran();
   const { user, isInvestor } = useAuth();
@@ -990,9 +1000,18 @@ export function InvestorsContent() {
     : investors;
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterType, setFilterType] = useState<"all" | "minbun" | "tami" | "direct">("all");
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const toggleCard = (id: string) =>
     setExpandedCards((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const [expandedBrokerCards, setExpandedBrokerCards] = useState<Set<string>>(new Set());
+  const toggleBrokerCard = (id: string) =>
+    setExpandedBrokerCards((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
@@ -1066,12 +1085,24 @@ export function InvestorsContent() {
   const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null);
   const [brokerForm, setBrokerForm] = useState<BrokerFormData>(initialBrokerForm);
 
-  const filteredInvestors = visibleInvestors.filter(
+  const typeFilteredInvestors = useMemo(() => {
+    if (filterType === "minbun")  return visibleInvestors.filter((inv) => inv.isMinBun);
+    if (filterType === "tami")    return visibleInvestors.filter((inv) => inv.isTami);
+    if (filterType === "direct")  return visibleInvestors.filter((inv) => inv.isDirect);
+    return visibleInvestors;
+  }, [visibleInvestors, filterType]);
+
+  const filteredInvestors = typeFilteredInvestors.filter(
     (inv) =>
       inv.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       inv.brokerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       inv.occupation.toLowerCase().includes(searchQuery.toLowerCase()) ||
       inv.phone.includes(searchQuery)
+  );
+
+  const totalInvestasi = useMemo(
+    () => typeFilteredInvestors.reduce((sum, inv) => sum + inv.investmentAmount, 0),
+    [typeFilteredInvestors],
   );
 
   const formatCurrency = (value: number) =>
@@ -1569,6 +1600,7 @@ export function InvestorsContent() {
                 <BrokerImportPanel
                   existingIds={new Set(brokers.map((b) => b.id))}
                   onUpdateBroker={updateBroker}
+                  onReload={reloadBrokers}
                   onDone={() => { setAddBrokerMode("form"); setIsAddBrokerOpen(false); }}
                 />
               )}
@@ -1614,6 +1646,7 @@ export function InvestorsContent() {
                 <InvestorImportPanel
                   existingIds={new Set(investors.map((inv) => inv.id))}
                   onUpdateInvestor={updateInvestor}
+                  onReload={reloadInvestors}
                   onDone={() => { setAddInvestorMode("form"); setIsAddInvestorOpen(false); }}
                 />
               )}
@@ -1622,20 +1655,64 @@ export function InvestorsContent() {
         </div>
       </div>
 
-      {/* Search */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Cari nama, broker, atau pekerjaan..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
+      {/* Filter + Summary + Search */}
+      <div className="flex flex-col gap-2">
+        {/* Baris filter tipe + summary */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {/* Tab filter tipe */}
+          <div className="flex gap-1 p-0.5 bg-muted rounded-lg w-fit">
+            {(
+              [
+                { key: "all",    label: "Semua" },
+                { key: "minbun", label: "MinBun" },
+                { key: "tami",   label: "Tami" },
+                { key: "direct", label: "Direct" },
+              ] as const
+            ).map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setFilterType(key)}
+                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                  filterType === key
+                    ? "bg-background shadow text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {label}
+                <span className={`ml-1.5 text-[10px] font-mono ${filterType === key ? "text-muted-foreground" : "text-muted-foreground/60"}`}>
+                  {key === "all"    ? visibleInvestors.length
+                   : key === "minbun" ? visibleInvestors.filter((i) => i.isMinBun).length
+                   : key === "tami"   ? visibleInvestors.filter((i) => i.isTami).length
+                   :                   visibleInvestors.filter((i) => i.isDirect).length}
+                </span>
+              </button>
+            ))}
           </div>
-        </CardContent>
-      </Card>
+
+          {/* Summary */}
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span>
+              <span className="font-semibold text-foreground">{typeFilteredInvestors.length}</span> investor
+            </span>
+            <span className="text-border">|</span>
+            <span>
+              Total <span className="font-semibold text-foreground">{formatCurrency(totalInvestasi)}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Cari nama, broker, atau pekerjaan..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+      </div>
 
       {/* Investor Cards */}
       {filteredInvestors.length === 0 ? (
@@ -1644,7 +1721,7 @@ export function InvestorsContent() {
             <Users className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-1">Belum ada investor</h3>
             <p className="text-muted-foreground text-sm">
-              {searchQuery ? "Coba kata kunci lain" : "Tambahkan investor pertama Anda"}
+              {searchQuery ? "Coba kata kunci lain" : filterType !== "all" ? `Belum ada investor tipe ${filterType === "minbun" ? "MinBun" : filterType === "tami" ? "Tami" : "Direct"}` : "Tambahkan investor pertama Anda"}
             </p>
           </CardContent>
         </Card>
@@ -1887,64 +1964,83 @@ export function InvestorsContent() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {brokers.map((broker) => {
-            const investorCount = investors.filter(
-              (inv) => inv.brokerName === broker.name
-            ).length;
+            const investorCount = investors.filter((inv) => inv.brokerName === broker.name).length;
+            const isBrokerExpanded = expandedBrokerCards.has(broker.id);
             return (
             <Card key={broker.id} className="hover:shadow-md transition-shadow">
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <CardTitle className="text-base leading-tight">{broker.name}</CardTitle>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs font-mono text-muted-foreground">{broker.id}</span>
-                      <Badge variant="secondary" className="text-[10px] px-1.5">
+
+              {/* ── Compact header (always visible) ── */}
+              <div
+                className="p-3 cursor-pointer select-none"
+                onClick={() => toggleBrokerCard(broker.id)}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-sm font-semibold leading-tight truncate">{broker.name}</span>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 shrink-0">
                         {investorCount} investor
                       </Badge>
                     </div>
+                    <span className="text-[10px] font-mono text-muted-foreground">{broker.id}</span>
                   </div>
-                  {(canEdit || canDelete) && (
-                  <div className="flex gap-1 shrink-0">
+                  <div className="flex gap-0.5 shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
                     {canEdit && (
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditBrokerClick(broker)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                      <span className="sr-only">Edit</span>
-                    </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditBrokerClick(broker)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
                     )}
                     {canDelete && (
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteBrokerClick(broker)}>
-                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                      <span className="sr-only">Hapus</span>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteBrokerClick(broker)}>
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => toggleBrokerCard(broker.id)}>
+                      {isBrokerExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                     </Button>
+                  </div>
+                </div>
+
+                {/* Phone mini preview */}
+                <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
+                  <span>{broker.phone}</span>
+                  {broker.email && <><span>·</span><span className="truncate">{broker.email}</span></>}
+                </div>
+              </div>
+
+              {/* ── Expanded detail ── */}
+              {isBrokerExpanded && (
+                <CardContent className="border-t pt-3 pb-3 space-y-3 text-sm">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    <div>
+                      <p className="text-xs text-muted-foreground">No Handphone</p>
+                      <p className="font-medium">{broker.phone}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">No KTP</p>
+                      <p className="font-medium font-mono">{maskKtp(broker.idNumber)}</p>
+                    </div>
+                    {broker.email && (
+                      <div className="col-span-2">
+                        <p className="text-xs text-muted-foreground">Email</p>
+                        <p className="font-medium">{broker.email}</p>
+                      </div>
                     )}
                   </div>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                  <div>
-                    <p className="text-xs text-muted-foreground">No Handphone</p>
-                    <p className="font-medium">{broker.phone}</p>
+                  <div className="border-t border-border/50 pt-2">
+                    <p className="text-xs text-muted-foreground mb-0.5">Alamat</p>
+                    <p className="text-sm leading-snug">{broker.address}</p>
                   </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">No KTP</p>
-                    <p className="font-medium font-mono">{maskKtp(broker.idNumber)}</p>
+                  <div className="border-t border-border/50 pt-2">
+                    <p className="text-xs text-muted-foreground mb-1">Rekening Broker</p>
+                    <div className="flex gap-1.5 items-center text-xs">
+                      <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      <span className="font-medium">{broker.bankName}</span>
+                      <span className="text-muted-foreground">— {broker.accountNumber}</span>
+                    </div>
                   </div>
-                </div>
-                <div className="pt-1 border-t border-border/50">
-                  <p className="text-xs text-muted-foreground mb-0.5">Alamat</p>
-                  <p className="text-sm leading-snug">{broker.address}</p>
-                </div>
-                <div className="pt-1 border-t border-border/50">
-                  <p className="text-xs text-muted-foreground mb-1">Rekening Broker</p>
-                  <div className="flex gap-1.5 items-center text-xs">
-                    <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
-                    <span className="font-medium">{broker.bankName}</span>
-                    <span className="text-muted-foreground">— {broker.accountNumber}</span>
-                  </div>
-                </div>
-              </CardContent>
+                </CardContent>
+              )}
             </Card>
           )
           })}

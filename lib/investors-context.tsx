@@ -75,7 +75,7 @@ function isCustomIdConflict(err: unknown): boolean {
 
 export type InvestorFlag = "MB" | "TM" | "D";
 
-async function generateCustomId(flag: InvestorFlag): Promise<string> {
+export async function generateCustomId(flag: InvestorFlag): Promise<string> {
   const prefix = `INV-${flag}-`;
   try {
     const res = await pb.collection("investors").getFullList({ fields: "customId" });
