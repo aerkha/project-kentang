@@ -74,7 +74,9 @@ function calcMouDistribution(
 ) {
   const [sy, sm, sd] = mou.date.slice(0, 10).split("-").map(Number);
   const mouStart = Date.UTC(sy, sm - 1, sd);
-  const mouEnd   = mouStart + mou.contractPeriod * (mou.siklus ?? 1) * 86_400_000;
+  const mouEndDate = mou.endDate || (() => { const d = new Date(mouStart); d.setUTCDate(d.getUTCDate() + mou.contractPeriod * (mou.siklus ?? 1)); return d.toISOString().slice(0, 10); })();
+  const [ey, em, ed] = mouEndDate.slice(0, 10).split("-").map(Number);
+  const mouEnd   = Date.UTC(ey, em - 1, ed);
 
   const pp1Pct = (mou.bagiHasilPP1 ?? 50) / 100;
   const pkPct  = (mou.bagiHasilPK  ?? 35) / 100;
@@ -324,7 +326,7 @@ export function DashboardContent() {
         // Usia dihitung dari kalender WIB, bukan jam lokal browser
         const usiaHari   = Math.max(0, Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(uy, um - 1, ud)) / 86_400_000));
         const usiaBulan  = Math.floor(usiaHari / 30);
-        const endDateStr = addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
+        const endDateStr = mou.endDate || addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
         const roi = (v: number) => (modal > 0 ? (v / modal) * 100 : 0);
         return {
           no: idx + 1, mou, endDateStr, usiaBulan, ...dist,

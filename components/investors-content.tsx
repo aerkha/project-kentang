@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useTransaksi, calcTransaksi, type TransaksiStatus } from "@/lib/transaksi-context";
-import { useMou, getMouStatus } from "@/lib/mou-context";
+import { useMou } from "@/lib/mou-context";
 import { usePengeluaran } from "@/lib/cashflow-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/select";
 import {
   Plus, Pencil, Trash2, Search, Users, Briefcase, Building2, ShieldCheck, TrendingUp,
-  ChevronDown, ChevronUp, ArrowUpCircle,
+  ChevronDown, ChevronUp, ArrowUpCircle, FileSignature,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/lib/auth-context";
@@ -985,7 +985,7 @@ function parseInternalRef(catatan: string): string | null {
 export function InvestorsContent() {
   const { investors, addInvestor, updateInvestor, deleteInvestor, reloadInvestors, uploadBuktiTransfer, getBuktiUrl } = useInvestors();
   const { entriesByInvestor } = useModalEntries();
-  const { mous } = useMou();
+  const { mous, addMou } = useMou();
   const { brokers, addBroker, updateBroker, deleteBroker, reloadBrokers } = useBrokers();
   const { transaksis, syncInvestorInfo } = useTransaksi();
   const { pengeluarans, addPengeluaran, updatePengeluaran, deletePengeluaran } = usePengeluaran();
@@ -1046,7 +1046,10 @@ export function InvestorsContent() {
           if (m.investorId !== entry.investorId) return false;
           const [my, mm, md] = m.date.slice(0, 10).split("-").map(Number);
           const start = Date.UTC(my, mm - 1, md);
-          return tTime >= start && tTime < start + m.contractPeriod * (m.siklus ?? 1) * 86_400_000;
+          const mouEnd = m.endDate
+            ? (() => { const [ey, em, ed2] = m.endDate.slice(0,10).split("-").map(Number); return Date.UTC(ey, em-1, ed2); })()
+            : start + m.contractPeriod * (m.siklus ?? 1) * 86_400_000;
+          return tTime >= start && tTime < mouEnd;
         });
         const pkPct = (mou?.bagiHasilPK ?? 35) / 100;
         const bh    = c.profit > 0 ? c.profit * pkPct * ratio : 0;
@@ -1159,6 +1162,48 @@ export function InvestorsContent() {
       });
     } catch {
       // Notifikasi gagal tidak boleh menghentikan alur utama
+    }
+  };
+
+  // ── Buat PKS dari investor card ──
+
+  const handleCreatePks = async (investor: Investor) => {
+    const today = todayWibStr();
+    const [y, m, d] = today.split("-").map(Number);
+    const end = new Date(Date.UTC(y, m - 1, d + 30)).toISOString().slice(0, 10);
+    try {
+      await addMou({
+        date: today,
+        endDate: end,
+        investorId: investor.id,
+        investorName: investor.name,
+        investorAddress: investor.address,
+        investorOccupation: investor.occupation || "",
+        investorIdNumber: investor.idNumber,
+        investorPhone: investor.phone,
+        contractPeriod: 30,
+        investmentAmount: investor.investmentAmount,
+        heirName: investor.heirName || "",
+        heirRelationship: "",
+        heirPhone: "",
+        keterangan: "",
+        bagiHasilPP1: 50,
+        bagiHasilPP2: 15,
+        bagiHasilPK: 35,
+        bagiHasilPP3: 0,
+        brokerId: "",
+        brokerName: investor.brokerName || "",
+        brokerAddress: "",
+        brokerIdNumber: "",
+        brokerPhone: "",
+        esignPihakPertama1: "",
+        esignPihakPertama2: "",
+        esignPihakKedua: "",
+        esignPihakPertama3: "",
+      });
+      toast.success(`Draft PKS untuk ${investor.name} berhasil dibuat — lihat di halaman PKS`);
+    } catch (err) {
+      toast.error(`Gagal membuat PKS: ${(err as Error).message}`);
     }
   };
 
@@ -1706,7 +1751,7 @@ export function InvestorsContent() {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Cari nama, broker, atau pekerjaan..."
+            placeholder="Cari berdasarkan nama..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
@@ -1738,12 +1783,12 @@ export function InvestorsContent() {
 
             // Tentukan label & warna badge berdasarkan kondisi PKS investor
             const investorMous = mous.filter((m) => m.investorId === investor.id);
-            const hasPendingMou = investorMous.some((m) => getMouStatus(m) === "pending");
+            const hasDraftMou = investorMous.some((m) => !m.isComplete);
             const investorBadge = isActive
-              ? { label: "Aktif",   cls: "bg-green-100 text-green-800" }
-              : hasPendingMou
-              ? { label: "Pending", cls: "bg-yellow-100 text-yellow-800" }
-              : { label: "Nonaktif", cls: "bg-red-100 text-red-700" };
+              ? { label: "Aktif",     cls: "bg-green-100 text-green-800" }
+              : hasDraftMou
+              ? { label: "Draft PKS", cls: "bg-yellow-100 text-yellow-800" }
+              : { label: "Nonaktif",  cls: "bg-red-100 text-red-700" };
 
             const isExpanded = expandedCards.has(investor.id);
             const modalList = entriesByInvestor.get(investor.id) ?? [];
@@ -1782,6 +1827,11 @@ export function InvestorsContent() {
 
                   {/* Right: actions + expand */}
                   <div className="flex gap-0.5 shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+                    {canCreate && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-500 hover:text-blue-600 hover:bg-blue-50" onClick={() => handleCreatePks(investor)} title="Buat Draft PKS">
+                        <FileSignature className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                     {canEdit && (
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50" onClick={() => handleTopUpClick(investor)} title="Top Up">
                         <TrendingUp className="h-3.5 w-3.5" />

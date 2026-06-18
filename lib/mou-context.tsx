@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
-import { useInvestors } from "./investors-context";
 import { todayWibStr } from "./utils";
 
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
@@ -16,7 +15,8 @@ export interface MoU {
   investorOccupation: string;
   investorIdNumber: string;
   investorPhone: string;
-  contractPeriod: number;
+  endDate: string;
+  contractPeriod: number;   // periode bagi hasil (hari, default 30)
   investmentAmount: number;
   heirName: string;
   heirRelationship: string;
@@ -25,6 +25,7 @@ export interface MoU {
   bagiHasilPP1: number;   // % Pihak Pertama I  (default 50)
   bagiHasilPP2: number;   // % Pihak Pertama II (default 15)
   bagiHasilPK:  number;   // % Pihak Kedua      (default 35)
+  isComplete?: boolean;
   isTerminated?: boolean;
   siklus?: number;             // jumlah siklus (default 1, bertambah tiap renewal)
   bagiHasilDone?: boolean;
@@ -107,7 +108,8 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
     investorOccupation: (r.investorOccupation as string) || "",
     investorIdNumber:   r.investorIdNumber   as string,
     investorPhone:      r.investorPhone      as string,
-    contractPeriod:     r.contractPeriod     as number,
+    endDate:            (r.endDate           as string) || "",
+    contractPeriod:     (r.contractPeriod    as number) || 30,
     siklus:             (r.siklus            as number) || 1,
     investmentAmount:   r.investmentAmount   as number,
     heirName:           r.heirName           as string,
@@ -117,6 +119,7 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
     bagiHasilPP1:       (r.bagiHasilPP1      as number) ?? 50,
     bagiHasilPP2:       (r.bagiHasilPP2      as number) ?? 15,
     bagiHasilPK:        (r.bagiHasilPK       as number) ?? 35,
+    isComplete:         (r.isComplete        as boolean) || false,
     isTerminated:       (r.isTerminated      as boolean) || false,
     bagiHasilDone:      (r.bagiHasilDone     as boolean) || false,
     buktiInvestor:      pbFileUrl(pbRecordId, r.buktiInvestor),
@@ -160,27 +163,11 @@ function todayUtc(): Date {
   return parseUtcDate(todayWibStr());
 }
 
-export type MouStatus = "pending" | "aktif" | "expired" | "nonaktif";
+export type MouStatus = "draft" | "complete";
 
-/**
- * Status sebuah PKS. Satu-satunya sumber kebenaran — dipakai oleh halaman PKS,
- * halaman Investor, dan logika sinkronisasi isActive di context ini.
- */
+/** Status PKS: draft (belum final) atau complete (sudah final). */
 export function getMouStatus(mou: MoU): MouStatus {
-  if (mou.isTerminated) return "nonaktif";
-  const today = todayUtc();
-  const start = parseUtcDate(mou.date);
-  const end   = new Date(start);
-  end.setUTCDate(end.getUTCDate() + mou.contractPeriod * (mou.siklus ?? 1));
-  if (end <= today) return "expired";
-  const isBackdate = start < today;
-  if (!isBackdate && !mou.hasSignedDoc) return "pending";
-  return "aktif";
-}
-
-/** Apakah sebuah MoU berstatus "aktif" */
-function isMouAktif(mou: MoU): boolean {
-  return getMouStatus(mou) === "aktif";
+  return mou.isComplete ? "complete" : "draft";
 }
 
 function isCustomIdConflict(err: unknown): boolean {
@@ -215,7 +202,6 @@ export function MouProvider({ children }: { children: ReactNode }) {
   const mousRef = useRef<MoU[]>([]);
   mousRef.current = mous;
 
-  const { investors, updateInvestor } = useInvestors();
   const pbIdMapRef = useRef(new Map<string, string>());
   const map = pbIdMapRef.current;
 
@@ -242,45 +228,6 @@ export function MouProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Initial sync: jalankan sekali setelah mous & investors keduanya terisi ──
-  const initialSyncDone = useRef(false);
-  useEffect(() => {
-    if (initialSyncDone.current) return;
-    if (!mous.length || !investors.length) return;
-
-    const investorIds = [...new Set(mous.map((m) => m.investorId))];
-    const syncs = investorIds.flatMap((investorId) => {
-      const shouldBeActive = mous
-        .filter((m) => m.investorId === investorId)
-        .some(isMouAktif);
-      const investor = investors.find((i) => i.id === investorId);
-      if (investor && investor.isActive !== shouldBeActive) {
-        return [updateInvestor(investorId, { isActive: shouldBeActive })];
-      }
-      return [];
-    });
-
-    initialSyncDone.current = true;
-    Promise.all(syncs).catch(console.error);
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mous, investors]);
-
-  const syncInvestorStatus = async (investorId: string, latestMous: MoU[]) => {
-    const shouldBeActive = latestMous
-      .filter((m) => m.investorId === investorId)
-      .some(isMouAktif);
-
-    const investor = investors.find((i) => i.id === investorId);
-    if (investor && investor.isActive !== shouldBeActive) {
-      try {
-        await updateInvestor(investorId, { isActive: shouldBeActive });
-      } catch (e) {
-        console.error("Gagal sinkronisasi status investor:", e);
-      }
-    }
-  };
-
   const addMou = async (mou: Omit<MoU, "id">) => {
     const pp1 = mou.bagiHasilPP1 ?? 50;
     const pp2 = mou.bagiHasilPP2 ?? 15;
@@ -297,6 +244,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
       createdBy: currentUserId(),
       updatedBy: currentUserId(),
       date:               mou.date,
+      endDate:            mou.endDate || "",
       investorId:         mou.investorId,
       investorName:       mou.investorName,
       investorAddress:    mou.investorAddress,
@@ -351,7 +299,6 @@ export function MouProvider({ children }: { children: ReactNode }) {
     const newMou = recordToMou(record, map);
     mousRef.current = [...mousRef.current, newMou];
     setMous(mousRef.current);
-    await syncInvestorStatus(mou.investorId, mousRef.current);
   };
 
   const updateMou = async (id: string, updates: Partial<MoU>) => {
@@ -401,11 +348,6 @@ export function MouProvider({ children }: { children: ReactNode }) {
     const updatedMou = recordToMou(record, map);
     mousRef.current = mousRef.current.map((m) => (m.id === id ? updatedMou : m));
     setMous(mousRef.current);
-
-    const statusFields = ["isTerminated", "date", "contractPeriod", "hasSignedDoc"] as const;
-    if (statusFields.some((f) => f in updates)) {
-      await syncInvestorStatus(updatedMou.investorId, mousRef.current);
-    }
   };
 
   const deleteMou = async (id: string) => {
@@ -416,10 +358,6 @@ export function MouProvider({ children }: { children: ReactNode }) {
     map.delete(id);
     mousRef.current = mousRef.current.filter((m) => m.id !== id);
     setMous(mousRef.current);
-
-    if (mouToDelete) {
-      await syncInvestorStatus(mouToDelete.investorId, mousRef.current);
-    }
   };
 
   const uploadBuktiTransfer = async (id: string, keterangan: string, file: File): Promise<string> => {

@@ -46,9 +46,8 @@ import {
   Printer,
   FileText,
   CalendarDays,
-  PowerOff,
-  RotateCcw,
-  RefreshCw,
+  CheckCircle2,
+  CircleDashed,
   Upload,
   ChevronDown,
   PenLine,
@@ -91,6 +90,7 @@ function deleteStoredEsign(key: string): void {
 
 interface MouFormData {
   date: string;
+  endDate: string;
   keterangan: string;
   investorId: string;
   investorName: string;
@@ -120,6 +120,7 @@ interface MouFormData {
 
 const initialForm: MouFormData = {
   date: "",
+  endDate: "",
   keterangan: "",
   investorId: "",
   investorName: "",
@@ -127,7 +128,7 @@ const initialForm: MouFormData = {
   investorOccupation: "",
   investorIdNumber: "",
   investorPhone: "",
-  contractPeriod: "",
+  contractPeriod: "30",
   investmentAmount: "",
   heirName: "",
   heirRelationship: "",
@@ -175,7 +176,7 @@ function formatRp(n: number) {
 }
 
 function endDate(mou: MoU) {
-  return addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
+  return mou.endDate || addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
 }
 
 // ─────────────────────────────────────────────
@@ -275,7 +276,6 @@ interface FormProps {
   investors: Investor[];
   onInvestorSelect: (id: string) => void;
   onBrokerSelect: (brokerId: string) => void;
-  keteranganSuggestions: string[];
   isEdit?: boolean;
   isSaving?: boolean;
   savedEsignFields?: Set<string>;
@@ -291,7 +291,6 @@ function MouFormFields({
   investors,
   onInvestorSelect,
   onBrokerSelect,
-  keteranganSuggestions,
   isEdit = false,
   isSaving = false,
   savedEsignFields,
@@ -315,24 +314,40 @@ function MouFormFields({
               {previewId}
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="mou-date" className="text-xs">
-              Tanggal <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="mou-date"
-              type="date"
-              value={formData.date}
-              onChange={(e) => set("date", e.target.value)}
-              required
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="mou-date" className="text-xs">
+                Tanggal Mulai <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="mou-date"
+                type="date"
+                value={formData.date}
+                onChange={(e) => set("date", e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="mou-end-date" className="text-xs">
+                Tanggal Berakhir <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="mou-end-date"
+                type="date"
+                value={formData.endDate}
+                min={formData.date || undefined}
+                onChange={(e) => set("endDate", e.target.value)}
+                required
+              />
+            </div>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Keterangan</Label>
-            <KeteranganCombobox
+            <Label htmlFor="mou-keterangan" className="text-xs">Keterangan</Label>
+            <Input
+              id="mou-keterangan"
               value={formData.keterangan}
-              onChange={(v) => set("keterangan", v)}
-              suggestions={keteranganSuggestions}
+              onChange={(e) => set("keterangan", e.target.value)}
+              placeholder="Catatan tambahan (opsional)"
             />
           </div>
         </div>
@@ -447,15 +462,15 @@ function MouFormFields({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="mou-period" className="text-xs">
-                Periode Kontrak (hari) <span className="text-destructive">*</span>
+                Periode Bagi Hasil (hari) <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="mou-period"
                 type="number"
-                min="30"
+                min="1"
                 value={formData.contractPeriod}
                 onChange={(e) => set("contractPeriod", e.target.value)}
-                placeholder="90"
+                placeholder="30"
                 required
               />
             </div>
@@ -718,7 +733,7 @@ function MouFormFields({
 // Main component
 // ─────────────────────────────────────────────
 
-type Filter = "semua" | MouStatus;
+type Filter = "semua" | "draft" | "complete";
 
 export function MouContent() {
   const { mous, addMou, updateMou, deleteMou, uploadSignedDoc } = useMou();
@@ -733,22 +748,11 @@ export function MouContent() {
   const canDelete = isAdmin || perm.delete;
   const canPrint  = isAdmin || perm.print;
 
-  const keteranganSuggestions = React.useMemo(() => {
-    const set = new Set<string>();
-    transaksis.forEach((t) => { if (t.description?.trim()) set.add(t.description.trim()); });
-    return Array.from(set).sort();
-  }, [transaksis]);
-
   const [filter, setFilter] = useState<Filter>("semua");
   const changeFilter = (f: Filter) => { setFilter(f); setPage(1); };
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-  const [isTerminateOpen, setIsTerminateOpen] = useState(false);
-  const [terminateAction, setTerminateAction] = useState<"nonaktifkan" | "aktifkan">("nonaktifkan");
-  const [isRenewOpen, setIsRenewOpen] = useState(false);
-  const [renewTarget, setRenewTarget] = useState<MoU | null>(null);
-  const [isRenewing, setIsRenewing] = useState(false);
   const [selected, setSelected] = useState<MoU | null>(null);
   const [form, setForm] = useState<MouFormData>(initialForm);
 
@@ -828,50 +832,16 @@ export function MouContent() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const paginated  = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
-  // ── Terminate / Reactivate ──
-  const openTerminate = (mou: MoU) => {
-    setSelected(mou);
-    setTerminateAction(mou.isTerminated ? "aktifkan" : "nonaktifkan");
-    setIsTerminateOpen(true);
-  };
-
-  const confirmTerminate = async () => {
-    if (!selected) return;
+  // ── Toggle Complete ──
+  const handleToggleComplete = async (mou: MoU) => {
     setIsConfirming(true);
     try {
-      await updateMou(selected.id, { isTerminated: terminateAction === "nonaktifkan" });
-      toast.success(terminateAction === "nonaktifkan" ? "PKS berhasil dinonaktifkan" : "PKS berhasil diaktifkan kembali");
-      setSelected(null);
-      setIsTerminateOpen(false);
+      await updateMou(mou.id, { isComplete: !mou.isComplete });
+      toast.success(mou.isComplete ? "PKS dikembalikan ke Draft" : "PKS ditandai Complete");
     } catch (err) {
       setErrorInfo(formatPbError(err, "Gagal mengubah status PKS"));
     } finally {
       setIsConfirming(false);
-    }
-  };
-
-  // ── Renewal PKS ──
-  const openRenew = (mou: MoU) => {
-    setRenewTarget(mou);
-    setIsRenewOpen(true);
-  };
-
-  const confirmRenew = async () => {
-    if (!renewTarget) return;
-    setIsRenewing(true);
-    try {
-      await updateMou(renewTarget.id, {
-        siklus: (renewTarget.siklus ?? 1) + 1,
-        bagiHasilDone: false,
-        bagiHasilChecks: {},
-      });
-      toast.success("PKS berhasil diperpanjang");
-      setRenewTarget(null);
-      setIsRenewOpen(false);
-    } catch (err) {
-      setErrorInfo(formatPbError(err, "Gagal memperpanjang PKS"));
-    } finally {
-      setIsRenewing(false);
     }
   };
 
@@ -1008,6 +978,7 @@ export function MouContent() {
     try {
       await addMou({
         date: form.date,
+        endDate: form.endDate,
         investorId: form.investorId,
         investorName: form.investorName,
         investorAddress: form.investorAddress,
@@ -1049,21 +1020,11 @@ export function MouContent() {
     if (!selected) return;
     if (!validateBagiHasil()) return;
 
-    // Blokir perubahan date/contractPeriod pada PKS expired yang bagi hasilnya belum lunas.
-    // Renewal yang valid hanya melalui tombol "Perpanjang PKS" (setelah bagiHasilDone: true).
-    if (getMouStatus(selected) === "expired" && !selected.bagiHasilDone) {
-      const dateChanged   = form.date !== selected.date;
-      const periodChanged = parseInt(form.contractPeriod) !== selected.contractPeriod;
-      if (dateChanged || periodChanged) {
-        toast.error("Selesaikan semua pembayaran bagi hasil terlebih dahulu sebelum memperpanjang PKS.");
-        return;
-      }
-    }
-
     setIsSaving(true);
     try {
       await updateMou(selected.id, {
         date: form.date,
+        endDate: form.endDate,
         investorName: form.investorName,
         investorAddress: form.investorAddress,
         investorOccupation: form.investorOccupation,
@@ -1105,6 +1066,7 @@ export function MouContent() {
     setSavedEsignFields(new Set());
     setForm({
       date: mou.date,
+      endDate: mou.endDate ?? "",
       keterangan: mou.keterangan ?? "",
       investorId: mou.investorId,
       investorName: mou.investorName,
@@ -1212,10 +1174,8 @@ export function MouContent() {
   // ── Count per status ──
   const counts = {
     semua:    visibleMous.length,
-    pending:  visibleMous.filter((m) => getMouStatus(m) === "pending").length,
-    aktif:    visibleMous.filter((m) => getMouStatus(m) === "aktif").length,
-    expired:  visibleMous.filter((m) => getMouStatus(m) === "expired").length,
-    nonaktif: visibleMous.filter((m) => getMouStatus(m) === "nonaktif").length,
+    draft:    visibleMous.filter((m) => getMouStatus(m) === "draft").length,
+    complete: visibleMous.filter((m) => getMouStatus(m) === "complete").length,
   };
 
   return (
@@ -1267,7 +1227,6 @@ export function MouContent() {
               onInvestorSelect={handleInvestorSelect}
               onBrokerSelect={handleBrokerSelect}
               brokerOptions={brokers.map((b) => ({ id: b.id, name: b.name }))}
-              keteranganSuggestions={keteranganSuggestions}
               isSaving={isSaving}
               savedEsignFields={savedEsignFields}
             />
@@ -1277,7 +1236,7 @@ export function MouContent() {
 
       {/* ── Filter tabs ── */}
       <div className="flex flex-wrap gap-2">
-        {(["semua", "pending", "aktif", "expired", "nonaktif"] as Filter[]).map((f) => (
+        {(["semua", "draft", "complete"] as Filter[]).map((f) => (
           <Button
             key={f}
             variant={filter === f ? "default" : "outline"}
@@ -1298,10 +1257,10 @@ export function MouContent() {
             <FileText className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-1">
               {filter === "semua"
-                ? "Belum ada MoU"
-                : filter === "nonaktif"
-                ? "Tidak ada MoU yang dinonaktifkan"
-                : `Tidak ada MoU ${filter}`}
+                ? "Belum ada PKS"
+                : filter === "complete"
+                ? "Belum ada PKS yang selesai"
+                : "Belum ada PKS draft"}
             </h3>
             <p className="text-muted-foreground text-sm">
               {filter === "semua"
@@ -1362,36 +1321,14 @@ export function MouContent() {
                           {formatDate(endDate(mou))}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          {status === "pending" ? (
-                            <TooltipProvider delayDuration={200}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Badge
-                                    variant="secondary"
-                                    className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100 cursor-help underline decoration-dotted underline-offset-2"
-                                  >
-                                    pending
-                                  </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-[200px] text-center text-xs">
-                                  Aktifkan dengan mengunggah PKS final yang telah ditandatangani &amp; dibubuhi materai
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          ) : (
-                            <Badge
-                              variant="secondary"
-                              className={
-                                status === "aktif"
-                                  ? "bg-green-100 text-green-800 hover:bg-green-100"
-                                  : status === "nonaktif"
-                                  ? "bg-red-100 text-red-700 hover:bg-red-100"
-                                  : "bg-muted text-muted-foreground"
-                              }
-                            >
-                              {status}
-                            </Badge>
-                          )}
+                          <Badge
+                            variant="secondary"
+                            className={status === "complete"
+                              ? "bg-green-100 text-green-800 hover:bg-green-100"
+                              : "bg-muted text-muted-foreground hover:bg-muted"}
+                          >
+                            {status === "complete" ? "Complete" : "Draft"}
+                          </Badge>
                         </td>
                         <td className="py-3 px-4">
                           <div className="flex items-center justify-center gap-1">
@@ -1432,21 +1369,12 @@ export function MouContent() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7"
-                              title={
-                                status === "pending"
-                                  ? "Upload PKS bertanda tangan terlebih dahulu untuk mengaktifkan"
-                                  : mou.isTerminated
-                                  ? "Aktifkan Kembali"
-                                  : "Nonaktifkan"
-                              }
-                              disabled={status === "pending"}
-                              onClick={() => openTerminate(mou)}
+                              title={mou.isComplete ? "Kembalikan ke Draft" : "Tandai Complete"}
+                              onClick={() => handleToggleComplete(mou)}
                             >
-                              {mou.isTerminated ? (
-                                <RotateCcw className="h-3.5 w-3.5 text-green-600" />
-                              ) : (
-                                <PowerOff className="h-3.5 w-3.5 text-orange-500" />
-                              )}
+                              {mou.isComplete
+                                ? <CircleDashed className="h-3.5 w-3.5 text-muted-foreground" />
+                                : <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />}
                             </Button>
                             <Button
                               variant="ghost"
@@ -1457,17 +1385,6 @@ export function MouContent() {
                             >
                               <Upload className={`h-3.5 w-3.5 ${mou.hasSignedDoc ? "text-green-600" : "text-blue-500"}`} />
                             </Button>
-                            {status === "expired" && mou.bagiHasilDone && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              title="Perpanjang PKS"
-                              onClick={() => openRenew(mou)}
-                            >
-                              <RefreshCw className="h-3.5 w-3.5 text-blue-600" />
-                            </Button>
-                            )}
                             </>
                             )}
                             {canDelete && (
@@ -1576,7 +1493,6 @@ export function MouContent() {
             onInvestorSelect={handleInvestorSelect}
             onBrokerSelect={handleBrokerSelect}
             brokerOptions={brokers.map((b) => ({ id: b.id, name: b.name }))}
-            keteranganSuggestions={keteranganSuggestions}
             isEdit
             isSaving={isSaving}
           />
@@ -1606,58 +1522,6 @@ export function MouContent() {
       </Dialog>
 
       {/* ── Terminate / Reactivate dialog ── */}
-      <Dialog open={isTerminateOpen} onOpenChange={setIsTerminateOpen}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>
-              {terminateAction === "nonaktifkan"
-                ? "Nonaktifkan MoU"
-                : "Aktifkan Kembali MoU"}
-            </DialogTitle>
-            <DialogDescription>
-              {terminateAction === "nonaktifkan" ? (
-                <>
-                  Yakin ingin <strong>menghentikan</strong> PKS{" "}
-                  <strong>{selected?.id}</strong> atas nama{" "}
-                  <strong>{selected?.investorName}</strong>?{" "}
-                  Perjanjian akan ditandai sebagai <em>nonaktif</em> secara manual.
-                  Data tidak akan dihapus dan bisa diaktifkan kembali kapan saja.
-                </>
-              ) : (
-                <>
-                  Aktifkan kembali PKS <strong>{selected?.id}</strong> atas nama{" "}
-                  <strong>{selected?.investorName}</strong>?{" "}
-                  Status akan dihitung ulang berdasarkan tanggal perjanjian.
-                </>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setIsTerminateOpen(false)}>
-              Batal
-            </Button>
-            {terminateAction === "nonaktifkan" ? (
-              <Button
-                className="bg-orange-500 hover:bg-orange-600 text-white"
-                onClick={confirmTerminate}
-                disabled={isConfirming}
-              >
-                <PowerOff className="h-4 w-4 mr-2" />
-                {isConfirming ? "Memproses…" : "Nonaktifkan"}
-              </Button>
-            ) : (
-              <Button
-                className="bg-green-600 hover:bg-green-700 text-white"
-                onClick={confirmTerminate}
-                disabled={isConfirming}
-              >
-                <RotateCcw className="h-4 w-4 mr-2" />
-                {isConfirming ? "Memproses…" : "Aktifkan Kembali"}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       {/* ── Upload Signed Doc dialog ── */}
       <Dialog open={isUploadDocOpen} onOpenChange={(open) => {
         if (!open) { resetUploadDialog(); }
@@ -1851,40 +1715,6 @@ export function MouContent() {
                 : !ttdPreview && ttdTarget?.esignPihakKedua
                 ? "Hapus Tanda Tangan"
                 : "Simpan Tanda Tangan"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Dialog Perpanjang PKS ── */}
-      <Dialog open={isRenewOpen} onOpenChange={(o) => { if (!isRenewing) setIsRenewOpen(o); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Perpanjang PKS</DialogTitle>
-            <DialogDescription>
-              {renewTarget && (() => {
-                const currentSiklus = renewTarget.siklus ?? 1;
-                const newSiklus     = currentSiklus + 1;
-                const newEndDate    = addDays(renewTarget.date, renewTarget.contractPeriod * newSiklus);
-                return (
-                  <>
-                    PKS <strong>{renewTarget.id}</strong> akan memasuki siklus ke-<strong>{newSiklus}</strong>{" "}
-                    (perpanjangan <strong>{renewTarget.contractPeriod} hari</strong>).
-                    Tanggal mulai tetap <strong>{formatDate(renewTarget.date)}</strong>, berakhir{" "}
-                    <strong>{formatDate(newEndDate)}</strong>.
-                    <br /><br />
-                    Status bagi hasil akan direset. Tindakan ini tidak dapat dibatalkan.
-                  </>
-                );
-              })()}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsRenewOpen(false)} disabled={isRenewing}>
-              Batal
-            </Button>
-            <Button onClick={confirmRenew} disabled={isRenewing}>
-              {isRenewing ? "Memproses..." : "Perpanjang"}
             </Button>
           </DialogFooter>
         </DialogContent>

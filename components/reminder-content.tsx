@@ -256,9 +256,9 @@ export function ReminderContent() {
   // belum berjalan, belum ada kewajiban bagi hasil.
   const tasks = useMemo(() => {
     return mous
-      .filter((m) => getMouStatus(m) === "aktif")
+      .filter((m) => getMouStatus(m) === "complete")
       .map((mou) => {
-        const endDateStr = addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
+        const endDateStr = mou.endDate || addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
         const rows       = buildRows(mou, transaksis, investors, brokers, minbun, trader);
         const bh         = calcBagiHasil(mou, transaksis);
         return { mou, endDateStr, bh, rows };
@@ -266,17 +266,16 @@ export function ReminderContent() {
       .sort((a, b) => a.endDateStr.localeCompare(b.endDateStr));
   }, [mous, transaksis, investors, brokers, minbun, trader]);
 
-  // PKS expired (tidak terminated, sudah lewat) yang MASIH ADA tugas belum selesai
+  // PKS complete yang masih ada tugas bagi hasil belum selesai
   const expiredPendingTasks = useMemo(() => {
     return mous
       .filter((m) => {
-        if (getMouStatus(m) !== "expired") return false;
-        // Hanya yang masih punya baris belum dicentang
+        if (getMouStatus(m) !== "complete") return false;
         const rows = buildRows(m, transaksis, investors, brokers, minbun, trader);
         return rows.some((r) => !m.bagiHasilChecks?.[r.keterangan]);
       })
       .map((mou) => {
-        const endDateStr = addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
+        const endDateStr = mou.endDate || addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
         const rows       = buildRows(mou, transaksis, investors, brokers, minbun, trader);
         const bh         = calcBagiHasil(mou, transaksis);
         return { mou, endDateStr, bh, rows };
