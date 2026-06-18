@@ -267,6 +267,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
       brokerPhone:        mou.brokerPhone   || "",
       bagiHasilPP3:       mou.bagiHasilPP3 ?? 0,
       isTerminated:       false,
+      isComplete:         false,
     });
 
     let record = await createPayload(customId).catch(async (err) => {

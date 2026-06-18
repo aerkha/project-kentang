@@ -1203,7 +1203,14 @@ export function InvestorsContent() {
       });
       toast.success(`Draft PKS untuk ${investor.name} berhasil dibuat — lihat di halaman PKS`);
     } catch (err) {
-      toast.error(`Gagal membuat PKS: ${(err as Error).message}`);
+      const pbErr = err as { response?: { message?: string }; data?: { message?: string }; message?: string };
+      const detail =
+        pbErr?.response?.message ||
+        pbErr?.data?.message ||
+        pbErr?.message ||
+        "Unknown error";
+      console.error("handleCreatePks error:", err);
+      toast.error(`Gagal membuat PKS: ${detail}`);
     }
   };
 
