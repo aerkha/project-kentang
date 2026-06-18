@@ -1209,7 +1209,8 @@ export function InvestorsContent() {
         pbErr?.data?.message ||
         pbErr?.message ||
         "Unknown error";
-      console.error("handleCreatePks error:", err);
+      const pbData = (err as { data?: unknown })?.data;
+      console.error("handleCreatePks error:", err, "PB data:", JSON.stringify(pbData, null, 2));
       toast.error(`Gagal membuat PKS: ${detail}`);
     }
   };
