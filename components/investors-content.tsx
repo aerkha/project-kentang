@@ -1411,29 +1411,31 @@ export function InvestorsContent() {
   };
 
   const handleDeleteInvestorConfirm = async () => {
-    if (!selectedInvestor) return;
+    if (!selectedInvestor || isSaving) return;
+    // Snapshot ID sebelum operasi async dimulai — mencegah stale closure
+    // jika re-render mengubah selectedInvestor di tengah jalan.
+    const targetId = selectedInvestor.id;
+    setIsSaving(true);
     try {
-      // Hapus entri cash flow terkait terlebih dahulu.
-      // Dicek tanpa melihat flag isInternal — flag bisa saja sudah dicabut
-      // sementara entri lamanya masih ada.
-      const ref = makeInternalRef(selectedInvestor.id);
+      const ref = makeInternalRef(targetId);
       const internalEntry = pengeluarans.find((p) => p.catatan === ref);
       if (internalEntry) await deletePengeluaran(internalEntry.id);
 
-      // Entri profit internal per-PKS ([Internal-Profit:INV-xxxx:MOU-...])
       const profitEntries = pengeluarans.filter((p) =>
-        p.catatan?.startsWith(`[Internal-Profit:${selectedInvestor.id}:`)
+        p.catatan?.startsWith(`[Internal-Profit:${targetId}:`)
       );
       for (const entry of profitEntries) {
         await deletePengeluaran(entry.id);
       }
 
-      await deleteInvestor(selectedInvestor.id);
+      await deleteInvestor(targetId);
       toast.success("Investor berhasil dihapus");
       setSelectedInvestor(null);
       setIsDeleteInvestorOpen(false);
     } catch (err) {
       setErrorInfo(formatPbError(err, "Gagal menghapus investor"));
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -1983,11 +1985,11 @@ export function InvestorsContent() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setIsDeleteInvestorOpen(false)}>
+            <Button variant="outline" disabled={isSaving} onClick={() => setIsDeleteInvestorOpen(false)}>
               Batal
             </Button>
-            <Button variant="destructive" onClick={handleDeleteInvestorConfirm}>
-              Hapus
+            <Button variant="destructive" disabled={isSaving} onClick={handleDeleteInvestorConfirm}>
+              {isSaving ? "Menghapus…" : "Hapus"}
             </Button>
           </DialogFooter>
         </DialogContent>
