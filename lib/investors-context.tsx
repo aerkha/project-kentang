@@ -33,6 +33,7 @@ interface InvestorsContextType {
   addInvestor:          (inv: Omit<Investor, "id">) => Promise<string>;
   updateInvestor:       (id: string, updates: Partial<Investor>) => Promise<void>;
   deleteInvestor:       (id: string) => Promise<void>;
+  reloadInvestors:      () => Promise<void>;
   uploadBuktiTransfer:  (id: string, file: File) => Promise<string>;
   getBuktiUrl:          (id: string, filename: string) => string;
 }
@@ -185,16 +186,23 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
     return pb.files.getURL({ id: pbId, collectionId: "investors", collectionName: "investors" } as Parameters<typeof pb.files.getURL>[0], filename);
   };
 
+  const reloadInvestors = async () => {
+    const records = await pb.collection("investors").getFullList({ sort: "customId" });
+    // Rebuild map sepenuhnya agar tidak ada sisa entry stale
+    map.clear();
+    setInvestors(records.map((r) => recordToInvestor(r, map)));
+  };
+
   const deleteInvestor = async (id: string) => {
     const pbId = await resolvePbId(id);
-    if (!pbId) return;
+    if (!pbId) throw new Error(`Investor "${id}" tidak ditemukan di sistem`);
     await pb.collection("investors").delete(pbId);
-    map.delete(id);
-    setInvestors((prev) => prev.filter((inv) => inv.id !== id));
+    // Reload dari DB sebagai sumber kebenaran — mencegah drift state
+    await reloadInvestors();
   };
 
   return (
-    <InvestorsContext.Provider value={{ investors, addInvestor, updateInvestor, deleteInvestor, uploadBuktiTransfer, getBuktiUrl }}>
+    <InvestorsContext.Provider value={{ investors, addInvestor, updateInvestor, deleteInvestor, reloadInvestors, uploadBuktiTransfer, getBuktiUrl }}>
       {children}
     </InvestorsContext.Provider>
   );

@@ -1975,7 +1975,7 @@ export function InvestorsContent() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDeleteInvestorOpen} onOpenChange={setIsDeleteInvestorOpen}>
+      <Dialog open={isDeleteInvestorOpen} onOpenChange={(v) => { if (!v) setSelectedInvestor(null); setIsDeleteInvestorOpen(v); }}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>Hapus Investor</DialogTitle>
