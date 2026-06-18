@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
@@ -33,12 +33,15 @@ import {
 } from "@/components/ui/select";
 import {
   Plus, Pencil, Trash2, Search, Users, Briefcase, Building2, ShieldCheck, TrendingUp,
+  ChevronDown, ChevronUp, ArrowUpCircle,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
-import { InvestorsImportDialog } from "@/components/investors-import-dialog";
 import { todayWibStr } from "@/lib/utils";
+import { useModalEntries } from "@/lib/modal-entries-context";
+import pb from "@/lib/pocketbase";
+import { FileJson, Upload, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
 // ─────────────────────────────────────────────
 // Types
@@ -150,6 +153,339 @@ function BuktiUploadField({ file, onChange }: { file: File | null; onChange: (f:
           </div>
         )}
       </label>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Inline import panels (shared logic)
+// ─────────────────────────────────────────────
+
+interface InvImportRow {
+  customId: string; name: string; idNumber: string; address: string; brokerName: string;
+  bankName: string; accountNumber: string; phone: string; email: string; occupation: string;
+  investmentAmount: number; heirName: string; heirBankName: string; heirAccountNumber: string;
+  isMinBun: boolean; isInternal: boolean; isTami: boolean; isDirect: boolean; isActive: boolean;
+}
+interface BrkImportRow {
+  customId: string; name: string; address: string; email: string; idNumber: string;
+  bankName: string; accountNumber: string; phone: string;
+}
+
+type RowStatus = "pending" | "importing" | "success" | "error";
+interface InvRowState { row: InvImportRow; status: RowStatus; error?: string; }
+interface BrkRowState { row: BrkImportRow; status: RowStatus; error?: string; }
+
+function FlagBadgeInline({ row }: { row: InvImportRow }) {
+  if (row.isMinBun) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">{row.isInternal ? "MB-Internal" : "MinBun"}</span>;
+  if (row.isTami)   return <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">Tami</span>;
+  if (row.isDirect) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">Direct</span>;
+  return <span className="text-[10px] text-muted-foreground">—</span>;
+}
+
+function InvestorImportPanel({ existingIds, onUpdateInvestor, onDone }: {
+  existingIds: Set<string>;
+  onUpdateInvestor: (id: string, data: Partial<Investor>) => Promise<void>;
+  onDone: () => void;
+}) {
+  const [step, setStep]         = useState<"upload" | "preview" | "result">("upload");
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [rows, setRows]         = useState<InvRowState[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const successCount = rows.filter((r) => r.status === "success").length;
+  const errorCount   = rows.filter((r) => r.status === "error").length;
+  const doneCount    = successCount + errorCount;
+
+  const handleFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      let parsed: unknown;
+      try { parsed = JSON.parse(text); } catch { setParseError("Format JSON tidak valid"); return; }
+      if (!Array.isArray(parsed)) { setParseError("JSON harus berupa array [ ... ]"); return; }
+      const valid = (parsed as InvImportRow[]).filter((r) => r.customId && r.name);
+      if (valid.length === 0) { setParseError("Tidak ada data valid"); return; }
+      for (let i = 0; i < valid.length; i++) {
+        const r = valid[i];
+        if (!r.isMinBun && !r.isTami && !r.isDirect) { setParseError(`Baris ${i+1} (${r.name}): tidak ada flag tipe`); return; }
+        if (typeof r.investmentAmount !== "number" || r.investmentAmount <= 0) { setParseError(`Baris ${i+1} (${r.name}): investmentAmount tidak valid`); return; }
+      }
+      setParseError(null);
+      setRows(valid.map((row) => ({ row, status: "pending" })));
+      setStep("preview");
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImport = async () => {
+    setIsImporting(true);
+    setStep("result");
+    for (let i = 0; i < rows.length; i++) {
+      const { row } = rows[i];
+      setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "importing" } : r));
+      try {
+        if (existingIds.has(row.customId)) {
+          await onUpdateInvestor(row.customId, { name: row.name, address: row.address, brokerName: row.brokerName || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, email: row.email || "", occupation: row.occupation || "", investmentAmount: row.investmentAmount, heirName: row.heirName || "", heirBankName: row.heirBankName || "", heirAccountNumber: row.heirAccountNumber || "", isMinBun: row.isMinBun, isInternal: row.isInternal, isTami: row.isTami, isDirect: row.isDirect, isActive: row.isActive });
+          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success", error: "(diperbarui)" } : r));
+        } else {
+          await pb.collection("investors").create({ customId: row.customId, name: row.name, address: row.address, brokerName: row.brokerName || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, email: row.email || "", occupation: row.occupation || "", investmentAmount: row.investmentAmount, heirName: row.heirName || "", heirBankName: row.heirBankName || "", heirAccountNumber: row.heirAccountNumber || "", isMinBun: row.isMinBun === true, isInternal: row.isInternal === true, isTami: row.isTami === true, isDirect: row.isDirect === true, isActive: row.isActive !== false, buktiTransfer: "", createdBy: pb.authStore.record?.id ?? "", updatedBy: pb.authStore.record?.id ?? "" });
+          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success" } : r));
+        }
+      } catch (err) {
+        const pbErr = err as { data?: { data?: Record<string, { message?: string }> }; message?: string };
+        const msg = pbErr?.data?.data ? Object.entries(pbErr.data.data).map(([k, v]) => `${k}: ${v?.message}`).join(", ") : pbErr?.message ?? "Gagal";
+        setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "error", error: msg } : r));
+      }
+    }
+    setIsImporting(false);
+  };
+
+  const fmtRp = (n: number) => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(n);
+
+  return (
+    <div className="overflow-y-auto max-h-[62vh] pr-1 space-y-3">
+      {step === "upload" && (
+        <>
+          <div className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-colors"
+            onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+            onDragOver={(e) => e.preventDefault()}
+            onClick={() => fileRef.current?.click()}>
+            <FileJson className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm font-medium">Drag &amp; drop file JSON di sini</p>
+            <p className="text-xs text-muted-foreground mt-1">atau klik untuk pilih file</p>
+            <input ref={fileRef} type="file" accept=".json,application/json" className="sr-only"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+          </div>
+          {parseError && <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><XCircle className="h-4 w-4 mt-0.5 shrink-0" />{parseError}</div>}
+          <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
+            <p className="font-medium">Format:</p>
+            <p>• Array JSON dengan field: <code>customId</code>, <code>name</code>, <code>investmentAmount</code></p>
+            <p>• Salah satu flag <code>true</code>: <code>isMinBun</code>, <code>isTami</code>, atau <code>isDirect</code></p>
+          </div>
+        </>
+      )}
+
+      {step === "preview" && (
+        <>
+          <p className="text-sm text-muted-foreground"><strong>{rows.length} investor</strong> siap diimport.</p>
+          <div className="border rounded-lg overflow-hidden">
+            <div className="overflow-y-auto max-h-[260px]">
+              <table className="w-full text-xs">
+                <thead className="bg-muted sticky top-0"><tr>
+                  <th className="text-left px-3 py-2 font-medium">ID</th>
+                  <th className="text-left px-3 py-2 font-medium">Nama</th>
+                  <th className="text-left px-3 py-2 font-medium">Tipe</th>
+                  <th className="text-right px-3 py-2 font-medium">Investasi</th>
+                </tr></thead>
+                <tbody>{rows.map(({ row }, i) => (
+                  <tr key={i} className={i % 2 === 0 ? "bg-background" : "bg-muted/30"}>
+                    <td className="px-3 py-2 font-mono">{row.customId}</td>
+                    <td className="px-3 py-2">{row.name}</td>
+                    <td className="px-3 py-2"><FlagBadgeInline row={row} /></td>
+                    <td className="px-3 py-2 text-right">{fmtRp(row.investmentAmount)}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 pt-2">
+            <Button variant="outline" onClick={() => { setStep("upload"); setRows([]); }}>Kembali</Button>
+            <Button onClick={handleImport}>Import {rows.length} Investor</Button>
+          </DialogFooter>
+        </>
+      )}
+
+      {step === "result" && (
+        <>
+          {isImporting && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs text-muted-foreground"><span>Mengimport...</span><span>{doneCount} / {rows.length}</span></div>
+              <div className="h-2 w-full rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(doneCount / rows.length) * 100}%` }} /></div>
+            </div>
+          )}
+          {!isImporting && (
+            <div className="flex gap-3">
+              <div className="flex-1 rounded-lg bg-green-50 border border-green-200 p-3 text-center"><p className="text-2xl font-bold text-green-600">{successCount}</p><p className="text-xs text-green-700">Berhasil</p></div>
+              <div className="flex-1 rounded-lg bg-red-50 border border-red-200 p-3 text-center"><p className="text-2xl font-bold text-red-600">{errorCount}</p><p className="text-xs text-red-700">Gagal</p></div>
+            </div>
+          )}
+          <div className="border rounded-lg overflow-hidden">
+            <div className="overflow-y-auto max-h-[240px]">
+              <table className="w-full text-xs">
+                <thead className="bg-muted sticky top-0"><tr>
+                  <th className="w-6 px-3 py-2"></th>
+                  <th className="text-left px-3 py-2 font-medium">ID</th>
+                  <th className="text-left px-3 py-2 font-medium">Nama</th>
+                  <th className="text-left px-3 py-2 font-medium">Keterangan</th>
+                </tr></thead>
+                <tbody>{rows.map(({ row, status, error }, i) => (
+                  <tr key={i} className={i % 2 === 0 ? "bg-background" : "bg-muted/30"}>
+                    <td className="px-3 py-2">{status === "pending" && <span className="text-muted-foreground">—</span>}{status === "importing" && <Loader2 className="h-3 w-3 animate-spin text-primary" />}{status === "success" && <CheckCircle2 className="h-3 w-3 text-green-600" />}{status === "error" && <XCircle className="h-3 w-3 text-destructive" />}</td>
+                    <td className="px-3 py-2 font-mono">{row.customId}</td>
+                    <td className="px-3 py-2">{row.name}</td>
+                    <td className={`px-3 py-2 ${status === "error" ? "text-destructive" : "text-muted-foreground"}`}>{status === "success" ? (error ?? "OK") : (error ?? "")}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          </div>
+          {!isImporting && <DialogFooter className="pt-2"><Button onClick={onDone}>Selesai</Button></DialogFooter>}
+        </>
+      )}
+    </div>
+  );
+}
+
+function BrokerImportPanel({ existingIds, onUpdateBroker, onDone }: {
+  existingIds: Set<string>;
+  onUpdateBroker: (id: string, data: Partial<BrokerFormData>) => Promise<void>;
+  onDone: () => void;
+}) {
+  const [step, setStep]         = useState<"upload" | "preview" | "result">("upload");
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [rows, setRows]         = useState<BrkRowState[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const successCount = rows.filter((r) => r.status === "success").length;
+  const errorCount   = rows.filter((r) => r.status === "error").length;
+  const doneCount    = successCount + errorCount;
+
+  const handleFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      let parsed: unknown;
+      try { parsed = JSON.parse(text); } catch { setParseError("Format JSON tidak valid"); return; }
+      if (!Array.isArray(parsed)) { setParseError("JSON harus berupa array [ ... ]"); return; }
+      const valid = (parsed as BrkImportRow[]).filter((r) => r.customId && r.name);
+      if (valid.length === 0) { setParseError("Tidak ada data valid"); return; }
+      for (let i = 0; i < valid.length; i++) {
+        const r = valid[i];
+        if (!r.name) { setParseError(`Baris ${i+1}: name kosong`); return; }
+      }
+      setParseError(null);
+      setRows(valid.map((row) => ({ row, status: "pending" })));
+      setStep("preview");
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImport = async () => {
+    setIsImporting(true);
+    setStep("result");
+    for (let i = 0; i < rows.length; i++) {
+      const { row } = rows[i];
+      setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "importing" } : r));
+      try {
+        if (existingIds.has(row.customId)) {
+          await onUpdateBroker(row.customId, { name: row.name, address: row.address, email: row.email || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone });
+          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success", error: "(diperbarui)" } : r));
+        } else {
+          await pb.collection("brokers").create({ customId: row.customId, name: row.name, address: row.address, email: row.email || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, createdBy: pb.authStore.record?.id ?? "", updatedBy: pb.authStore.record?.id ?? "" });
+          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success" } : r));
+        }
+      } catch (err) {
+        const pbErr = err as { data?: { data?: Record<string, { message?: string }> }; message?: string };
+        const msg = pbErr?.data?.data ? Object.entries(pbErr.data.data).map(([k, v]) => `${k}: ${v?.message}`).join(", ") : pbErr?.message ?? "Gagal";
+        setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "error", error: msg } : r));
+      }
+    }
+    setIsImporting(false);
+  };
+
+  return (
+    <div className="overflow-y-auto max-h-[62vh] pr-1 space-y-3">
+      {step === "upload" && (
+        <>
+          <div className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-colors"
+            onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+            onDragOver={(e) => e.preventDefault()}
+            onClick={() => fileRef.current?.click()}>
+            <FileJson className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm font-medium">Drag &amp; drop file JSON di sini</p>
+            <p className="text-xs text-muted-foreground mt-1">atau klik untuk pilih file</p>
+            <input ref={fileRef} type="file" accept=".json,application/json" className="sr-only"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+          </div>
+          {parseError && <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><XCircle className="h-4 w-4 mt-0.5 shrink-0" />{parseError}</div>}
+          <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
+            <p className="font-medium">Format:</p>
+            <p>• Array JSON dengan field: <code>customId</code>, <code>name</code>, <code>phone</code></p>
+            <p>• Field opsional: <code>address</code>, <code>email</code>, <code>idNumber</code>, <code>bankName</code>, <code>accountNumber</code></p>
+          </div>
+        </>
+      )}
+
+      {step === "preview" && (
+        <>
+          <p className="text-sm text-muted-foreground"><strong>{rows.length} broker</strong> siap diimport.</p>
+          <div className="border rounded-lg overflow-hidden">
+            <div className="overflow-y-auto max-h-[260px]">
+              <table className="w-full text-xs">
+                <thead className="bg-muted sticky top-0"><tr>
+                  <th className="text-left px-3 py-2 font-medium">ID</th>
+                  <th className="text-left px-3 py-2 font-medium">Nama</th>
+                  <th className="text-left px-3 py-2 font-medium">No HP</th>
+                  <th className="text-left px-3 py-2 font-medium">Bank</th>
+                </tr></thead>
+                <tbody>{rows.map(({ row }, i) => (
+                  <tr key={i} className={i % 2 === 0 ? "bg-background" : "bg-muted/30"}>
+                    <td className="px-3 py-2 font-mono">{row.customId}</td>
+                    <td className="px-3 py-2">{row.name}</td>
+                    <td className="px-3 py-2">{row.phone}</td>
+                    <td className="px-3 py-2">{row.bankName}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 pt-2">
+            <Button variant="outline" onClick={() => { setStep("upload"); setRows([]); }}>Kembali</Button>
+            <Button onClick={handleImport}>Import {rows.length} Broker</Button>
+          </DialogFooter>
+        </>
+      )}
+
+      {step === "result" && (
+        <>
+          {isImporting && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs text-muted-foreground"><span>Mengimport...</span><span>{doneCount} / {rows.length}</span></div>
+              <div className="h-2 w-full rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(doneCount / rows.length) * 100}%` }} /></div>
+            </div>
+          )}
+          {!isImporting && (
+            <div className="flex gap-3">
+              <div className="flex-1 rounded-lg bg-green-50 border border-green-200 p-3 text-center"><p className="text-2xl font-bold text-green-600">{successCount}</p><p className="text-xs text-green-700">Berhasil</p></div>
+              <div className="flex-1 rounded-lg bg-red-50 border border-red-200 p-3 text-center"><p className="text-2xl font-bold text-red-600">{errorCount}</p><p className="text-xs text-red-700">Gagal</p></div>
+            </div>
+          )}
+          <div className="border rounded-lg overflow-hidden">
+            <div className="overflow-y-auto max-h-[240px]">
+              <table className="w-full text-xs">
+                <thead className="bg-muted sticky top-0"><tr>
+                  <th className="w-6 px-3 py-2"></th>
+                  <th className="text-left px-3 py-2 font-medium">ID</th>
+                  <th className="text-left px-3 py-2 font-medium">Nama</th>
+                  <th className="text-left px-3 py-2 font-medium">Keterangan</th>
+                </tr></thead>
+                <tbody>{rows.map(({ row, status, error }, i) => (
+                  <tr key={i} className={i % 2 === 0 ? "bg-background" : "bg-muted/30"}>
+                    <td className="px-3 py-2">{status === "pending" && <span className="text-muted-foreground">—</span>}{status === "importing" && <Loader2 className="h-3 w-3 animate-spin text-primary" />}{status === "success" && <CheckCircle2 className="h-3 w-3 text-green-600" />}{status === "error" && <XCircle className="h-3 w-3 text-destructive" />}</td>
+                    <td className="px-3 py-2 font-mono">{row.customId}</td>
+                    <td className="px-3 py-2">{row.name}</td>
+                    <td className={`px-3 py-2 ${status === "error" ? "text-destructive" : "text-muted-foreground"}`}>{status === "success" ? (error ?? "OK") : (error ?? "")}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          </div>
+          {!isImporting && <DialogFooter className="pt-2"><Button onClick={onDone}>Selesai</Button></DialogFooter>}
+        </>
+      )}
     </div>
   );
 }
@@ -638,6 +974,7 @@ function parseInternalRef(catatan: string): string | null {
 
 export function InvestorsContent() {
   const { investors, addInvestor, updateInvestor, deleteInvestor, uploadBuktiTransfer, getBuktiUrl } = useInvestors();
+  const { entriesByInvestor } = useModalEntries();
   const { mous } = useMou();
   const { brokers, addBroker, updateBroker, deleteBroker } = useBrokers();
   const { transaksis, syncInvestorInfo } = useTransaksi();
@@ -653,6 +990,13 @@ export function InvestorsContent() {
     : investors;
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const toggleCard = (id: string) =>
+    setExpandedCards((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
 
   // ── Dana terpakai per investor (transaksi aktif: rencana + berjalan) ──
   const investorDanaMap = useMemo(() => {
@@ -692,6 +1036,10 @@ export function InvestorsContent() {
     });
     return map;
   }, [transaksis, mous]);
+
+  // Dialog mode: "form" | "import"
+  const [addInvestorMode, setAddInvestorMode] = useState<"form" | "import">("form");
+  const [addBrokerMode, setAddBrokerMode]     = useState<"form" | "import">("form");
 
   // Investor dialog state
   const [isAddInvestorOpen, setIsAddInvestorOpen] = useState(false);
@@ -1183,11 +1531,8 @@ export function InvestorsContent() {
           <p className="text-muted-foreground">Kelola data investor dan investasi</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* ── Import JSON ── */}
-          <InvestorsImportDialog canCreate={canCreate} />
-
           {/* ── Tambah Broker (admin only) ── */}
-          {canCreate && <Dialog open={isAddBrokerOpen} onOpenChange={setIsAddBrokerOpen}>
+          {canCreate && <Dialog open={isAddBrokerOpen} onOpenChange={(v) => { if (!v) setAddBrokerMode("form"); setIsAddBrokerOpen(v); }}>
             <DialogTrigger asChild>
               <Button variant="outline">
                 <Plus className="w-4 h-4 mr-2" />
@@ -1197,21 +1542,39 @@ export function InvestorsContent() {
             <DialogContent className="sm:max-w-[500px]">
               <DialogHeader>
                 <DialogTitle>Tambah Broker Baru</DialogTitle>
-                <DialogDescription>Lengkapi data broker di bawah ini</DialogDescription>
+                {/* Tab toggle */}
+                <div className="flex gap-1 mt-2 p-0.5 bg-muted rounded-lg w-fit">
+                  <button type="button" onClick={() => setAddBrokerMode("form")}
+                    className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${addBrokerMode === "form" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                    Input Manual
+                  </button>
+                  <button type="button" onClick={() => setAddBrokerMode("import")}
+                    className={`px-3 py-1 text-xs rounded-md font-medium transition-colors flex items-center gap-1 ${addBrokerMode === "import" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                    <Upload className="h-3 w-3" /> Import JSON
+                  </button>
+                </div>
               </DialogHeader>
-              <BrokerFormFields
-                formData={brokerForm}
-                setFormData={setBrokerForm}
-                onSubmit={handleAddBroker}
-                submitLabel="Simpan Broker"
-                previewId={nextBrokerId()}
-                isSaving={isSaving}
-              />
+              {addBrokerMode === "form" ? (
+                <BrokerFormFields
+                  formData={brokerForm}
+                  setFormData={setBrokerForm}
+                  onSubmit={handleAddBroker}
+                  submitLabel="Simpan Broker"
+                  previewId={nextBrokerId()}
+                  isSaving={isSaving}
+                />
+              ) : (
+                <BrokerImportPanel
+                  existingIds={new Set(brokers.map((b) => b.id))}
+                  onUpdateBroker={updateBroker}
+                  onDone={() => { setAddBrokerMode("form"); setIsAddBrokerOpen(false); }}
+                />
+              )}
             </DialogContent>
           </Dialog>}
 
           {/* ── Tambah Investor ── */}
-          {canCreate && <Dialog open={isAddInvestorOpen} onOpenChange={setIsAddInvestorOpen}>
+          {canCreate && <Dialog open={isAddInvestorOpen} onOpenChange={(v) => { if (!v) setAddInvestorMode("form"); setIsAddInvestorOpen(v); }}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="w-4 h-4 mr-2" />
@@ -1221,19 +1584,37 @@ export function InvestorsContent() {
             <DialogContent className="sm:max-w-[580px]">
               <DialogHeader>
                 <DialogTitle>Tambah Investor Baru</DialogTitle>
-                <DialogDescription>Lengkapi semua data investor di bawah ini</DialogDescription>
+                {/* Tab toggle */}
+                <div className="flex gap-1 mt-2 p-0.5 bg-muted rounded-lg w-fit">
+                  <button type="button" onClick={() => setAddInvestorMode("form")}
+                    className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${addInvestorMode === "form" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                    Input Manual
+                  </button>
+                  <button type="button" onClick={() => setAddInvestorMode("import")}
+                    className={`px-3 py-1 text-xs rounded-md font-medium transition-colors flex items-center gap-1 ${addInvestorMode === "import" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                    <Upload className="h-3 w-3" /> Import JSON
+                  </button>
+                </div>
               </DialogHeader>
-              <InvestorFormFields
-                formData={investorForm}
-                setFormData={setInvestorForm}
-                onSubmit={handleAddInvestor}
-                submitLabel="Simpan Investor"
-                previewId={nextInvestorId(investorForm)}
-                brokers={brokers}
-                isSaving={isSaving}
-                buktiFile={addInvestorFile}
-                onBuktiChange={setAddInvestorFile}
-              />
+              {addInvestorMode === "form" ? (
+                <InvestorFormFields
+                  formData={investorForm}
+                  setFormData={setInvestorForm}
+                  onSubmit={handleAddInvestor}
+                  submitLabel="Simpan Investor"
+                  previewId={nextInvestorId(investorForm)}
+                  brokers={brokers}
+                  isSaving={isSaving}
+                  buktiFile={addInvestorFile}
+                  onBuktiChange={setAddInvestorFile}
+                />
+              ) : (
+                <InvestorImportPanel
+                  existingIds={new Set(investors.map((inv) => inv.id))}
+                  onUpdateInvestor={updateInvestor}
+                  onDone={() => { setAddInvestorMode("form"); setIsAddInvestorOpen(false); }}
+                />
+              )}
             </DialogContent>
           </Dialog>}
         </div>
@@ -1285,159 +1666,193 @@ export function InvestorsContent() {
               ? { label: "Pending", cls: "bg-yellow-100 text-yellow-800" }
               : { label: "Nonaktif", cls: "bg-red-100 text-red-700" };
 
+            const isExpanded = expandedCards.has(investor.id);
+            const modalList = entriesByInvestor.get(investor.id) ?? [];
+
             return (
-            <Card key={investor.id} className={`hover:shadow-md transition-shadow ${isActive ? "" : "opacity-60"}`}>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                      <CardTitle className="text-base leading-tight">{investor.name}</CardTitle>
-                      <Badge
-                        variant="secondary"
-                        className={`${investorBadge.cls} text-[10px] px-1.5`}
-                      >
+            <Card key={investor.id} className={`transition-shadow ${isActive ? "hover:shadow-md" : "opacity-60 hover:shadow-sm"}`}>
+
+              {/* ── Compact header (always visible) ── */}
+              <div
+                className="p-3 cursor-pointer select-none"
+                onClick={() => toggleCard(investor.id)}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  {/* Left: name + badges */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-sm font-semibold leading-tight truncate">{investor.name}</span>
+                      <Badge variant="secondary" className={`${investorBadge.cls} text-[10px] px-1.5 shrink-0`}>
                         {investorBadge.label}
                       </Badge>
                       {investor.isMinBun && (
-                        <Badge variant="secondary" className="bg-primary/10 text-primary text-[10px] px-1.5 gap-0.5">
+                        <Badge variant="secondary" className="bg-primary/10 text-primary text-[10px] px-1.5 gap-0.5 shrink-0">
                           <ShieldCheck className="h-2.5 w-2.5" />
-                          MinBun
-                        </Badge>
-                      )}
-                      {investor.isInternal && (
-                        <Badge variant="secondary" className="bg-primary/20 text-primary text-[10px] px-1.5 gap-0.5 font-semibold">
-                          Internal
+                          {investor.isInternal ? "Internal" : "MinBun"}
                         </Badge>
                       )}
                       {investor.isTami && (
-                        <Badge variant="secondary" className="bg-purple-100 text-purple-700 text-[10px] px-1.5">
-                          Tami
-                        </Badge>
+                        <Badge variant="secondary" className="bg-purple-100 text-purple-700 text-[10px] px-1.5 shrink-0">Tami</Badge>
                       )}
                       {investor.isDirect && (
-                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-[10px] px-1.5">
-                          Direct
-                        </Badge>
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-[10px] px-1.5 shrink-0">Direct</Badge>
                       )}
                     </div>
-                    <span className="text-xs font-mono text-muted-foreground">{investor.id}</span>
+                    <span className="text-[10px] font-mono text-muted-foreground">{investor.id}</span>
                   </div>
-                  {(canEdit || canDelete) && (
-                  <div className="flex gap-1 shrink-0">
+
+                  {/* Right: actions + expand */}
+                  <div className="flex gap-0.5 shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
                     {canEdit && (
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50" onClick={() => handleTopUpClick(investor)} title="Top Up Investasi">
-                      <TrendingUp className="h-3.5 w-3.5" />
-                      <span className="sr-only">Top Up</span>
-                    </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50" onClick={() => handleTopUpClick(investor)} title="Top Up">
+                        <TrendingUp className="h-3.5 w-3.5" />
+                      </Button>
                     )}
                     {canEdit && (
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditInvestorClick(investor)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                      <span className="sr-only">Edit</span>
-                    </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditInvestorClick(investor)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
                     )}
                     {canDelete && (
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteInvestorClick(investor)}>
-                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                      <span className="sr-only">Hapus</span>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteInvestorClick(investor)}>
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => toggleCard(investor.id)}>
+                      {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                     </Button>
-                    )}
-                  </div>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Broker</p>
-                    <p className="font-medium truncate">{investor.brokerName}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">No Handphone</p>
-                    <p className="font-medium truncate">{investor.phone}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Pekerjaan</p>
-                    <p className="font-medium truncate">{investor.occupation}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">No KTP</p>
-                    <p className="font-medium truncate font-mono">{maskKtp(investor.idNumber)}</p>
                   </div>
                 </div>
 
-                <div className="pt-1 border-t border-border/50">
-                  <p className="text-xs text-muted-foreground mb-0.5">Alamat</p>
-                  <p className="text-sm leading-snug text-foreground">{investor.address}</p>
+                {/* Mini investment + progress */}
+                <div className="mt-2 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Total Modal</span>
+                  <span className="font-bold text-sm">{formatCurrency(investor.investmentAmount)}</span>
                 </div>
-
-                <div className="pt-1 border-t border-border/50">
-                  <p className="text-xs text-muted-foreground mb-0.5">Nilai Investasi</p>
-                  <p className="text-lg font-bold text-foreground">
-                    {formatCurrency(investor.investmentAmount)}
-                  </p>
-                </div>
-
-                <div className="pt-1 border-t border-border/50">
-                  <p className="text-xs text-muted-foreground mb-1.5">Alokasi Dana</p>
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Terpakai</span>
-                      <span className={`font-semibold ${danaTermakai > 0 ? "text-orange-600" : "text-muted-foreground"}`}>
-                        {formatCurrency(danaTermakai)}
-                      </span>
+                {investor.investmentAmount > 0 && (
+                  <div className="mt-1.5 space-y-0.5">
+                    <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-orange-400 transition-all"
+                        style={{ width: `${Math.min(100, (danaTermakai / investor.investmentAmount) * 100)}%` }}
+                      />
                     </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Tersedia</span>
-                      <span className={`font-semibold ${danaSisa > 0 ? "text-green-600" : "text-destructive"}`}>
-                        {formatCurrency(danaSisa)}
+                    <div className="flex justify-between text-[10px]">
+                      <span className={danaTermakai > 0 ? "text-orange-500" : "text-muted-foreground"}>
+                        {formatCurrency(danaTermakai)} terpakai
                       </span>
-                    </div>
-                    {investor.investmentAmount > 0 && (
-                      <div className="mt-1.5 h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-orange-400 transition-all"
-                          style={{ width: `${Math.min(100, (danaTermakai / investor.investmentAmount) * 100)}%` }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="pt-1 border-t border-border/50">
-                  <p className="text-xs text-muted-foreground mb-1">Rekening Investor</p>
-                  <div className="flex gap-1.5 items-center text-xs">
-                    <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
-                    <span className="font-medium">{investor.bankName}</span>
-                    <span className="text-muted-foreground">— {investor.accountNumber}</span>
-                  </div>
-                </div>
-
-                <div className="pt-1 border-t border-border/50">
-                  <p className="text-xs text-muted-foreground mb-1">Ahli Waris</p>
-                  <p className="text-sm font-medium">{investor.heirName}</p>
-                  <div className="flex gap-1.5 items-center text-xs mt-0.5">
-                    <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
-                    <span className="font-medium">{investor.heirBankName}</span>
-                    <span className="text-muted-foreground">— {investor.heirAccountNumber}</span>
-                  </div>
-                </div>
-
-                {/* ── Estimasi Bagi Hasil ── */}
-                {transaksis.length > 0 && (
-                  <div className="pt-1 border-t border-border/50">
-                    <p className="text-xs text-muted-foreground mb-1">Estimasi Bagi Hasil</p>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-sm font-bold ${bagHasil > 0 ? "text-green-600" : "text-muted-foreground"}`}>
-                        {formatCurrency(bagHasil)}
-                      </span>
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${bagHasil > 0 ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
-                        +{pct}%
+                      <span className={danaSisa > 0 ? "text-green-600" : "text-destructive"}>
+                        {formatCurrency(danaSisa)} tersedia
                       </span>
                     </div>
                   </div>
                 )}
-              </CardContent>
+              </div>
+
+              {/* ── Expanded detail ── */}
+              {isExpanded && (
+                <CardContent className="border-t pt-3 pb-3 space-y-3 text-sm">
+
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Broker</p>
+                      <p className="font-medium truncate">{investor.brokerName || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">No Handphone</p>
+                      <p className="font-medium truncate">{investor.phone}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Pekerjaan</p>
+                      <p className="font-medium truncate">{investor.occupation || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">No KTP</p>
+                      <p className="font-medium truncate font-mono">{maskKtp(investor.idNumber)}</p>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-border/50 pt-2">
+                    <p className="text-xs text-muted-foreground mb-0.5">Alamat</p>
+                    <p className="text-sm leading-snug">{investor.address}</p>
+                  </div>
+
+                  <div className="border-t border-border/50 pt-2">
+                    <p className="text-xs text-muted-foreground mb-1">Rekening Investor</p>
+                    <div className="flex gap-1.5 items-center text-xs">
+                      <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      <span className="font-medium">{investor.bankName}</span>
+                      <span className="text-muted-foreground">— {investor.accountNumber}</span>
+                    </div>
+                  </div>
+
+                  {(investor.heirName || investor.heirBankName) && (
+                    <div className="border-t border-border/50 pt-2">
+                      <p className="text-xs text-muted-foreground mb-1">Ahli Waris</p>
+                      <p className="text-sm font-medium">{investor.heirName}</p>
+                      {investor.heirBankName && (
+                        <div className="flex gap-1.5 items-center text-xs mt-0.5">
+                          <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          <span className="font-medium">{investor.heirBankName}</span>
+                          <span className="text-muted-foreground">— {investor.heirAccountNumber}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Riwayat Modal ── */}
+                  <div className="border-t border-border/50 pt-2">
+                    <p className="text-xs text-muted-foreground mb-1.5">Riwayat Modal</p>
+                    {modalList.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">Belum ada data modal tercatat</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {modalList.map((entry) => (
+                          <div key={entry.id} className="flex items-start justify-between gap-2 rounded-md bg-muted/40 px-2.5 py-1.5 text-xs">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <ArrowUpCircle className={`h-3 w-3 shrink-0 ${entry.type === "topup" ? "text-green-500" : "text-primary"}`} />
+                              <div className="min-w-0">
+                                <span className="font-medium">
+                                  {entry.type === "topup" ? "Top Up" : "Modal Awal"}
+                                </span>
+                                {entry.keterangan && (
+                                  <span className="text-muted-foreground ml-1">· {entry.keterangan}</span>
+                                )}
+                                {entry.mouId && (
+                                  <span className="ml-1 font-mono text-primary">#{entry.mouId}</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="font-semibold">{formatCurrency(entry.amount)}</span>
+                              {entry.date && (
+                                <p className="text-muted-foreground text-[10px]">
+                                  {new Date(entry.date).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Estimasi Bagi Hasil ── */}
+                  {transaksis.length > 0 && (
+                    <div className="border-t border-border/50 pt-2">
+                      <p className="text-xs text-muted-foreground mb-1">Estimasi Bagi Hasil</p>
+                      <div className="flex items-center justify-between">
+                        <span className={`text-sm font-bold ${bagHasil > 0 ? "text-green-600" : "text-muted-foreground"}`}>
+                          {formatCurrency(bagHasil)}
+                        </span>
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${bagHasil > 0 ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
+                          +{pct}%
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              )}
             </Card>
           )
           })}
