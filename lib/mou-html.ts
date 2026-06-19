@@ -12,7 +12,17 @@ const PIHAK_PERTAMA_I = {
   noTelp:    "0852-9548-9413",
 };
 
-const PIHAK_PERTAMA_II = {
+// PP II untuk investor INV-MB-xxxx (Mimin Berkebun)
+const PIHAK_PERTAMA_II_MB = {
+  nama:      "Parafitra Fidiasari (Mimin Berkebun)",
+  alamat:    "Gg Sikembang RT 5/ RW 2, Podosugih, Pekalongan Barat, Jawa Tengah",
+  pekerjaan: "Karyawan Swasta",
+  noKtp:     "3321015604900001",
+  noTelp:    "0896-7070-0889",
+};
+
+// PP II untuk investor INV-TM-xxxx (Tami)
+const PIHAK_PERTAMA_II_TM = {
   nama:      "Gartiria Hutami",
   alamat:    "Jl. Puspanjolo Barat XII/1, Rt006/Rw004, Bojongsalaman, Semarang, Jawa Tengah",
   pekerjaan: "Karyawan Swasta",
@@ -162,7 +172,7 @@ function calcTrxData(mou: MoU, transaksis: Transaksi[]): TrxData {
 // Template A — Investor Under TM (3 pihak: PP I + PP II + Investor)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[]): string {
+function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAMA_II_MB): string {
   const hasBroker = !!(mou.brokerId && mou.brokerName);
   const date      = fmtDate(mou.date);
   const amount    = fmtRp(mou.investmentAmount);
@@ -213,11 +223,11 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[]): string {
     <p>Sebagai PIHAK PERTAMA I, dan</p>
 
     <div style="margin:.5em 2em;">
-      ${row("Nama",      esc(PIHAK_PERTAMA_II.nama))}
-      ${row("Alamat",    esc(PIHAK_PERTAMA_II.alamat))}
-      ${row("Pekerjaan", esc(PIHAK_PERTAMA_II.pekerjaan))}
-      ${row("No KTP",    esc(PIHAK_PERTAMA_II.noKtp))}
-      ${row("No Telepon",esc(PIHAK_PERTAMA_II.noTelp))}
+      ${row("Nama",      esc(pp2.nama))}
+      ${row("Alamat",    esc(pp2.alamat))}
+      ${row("Pekerjaan", esc(pp2.pekerjaan))}
+      ${row("No KTP",    esc(pp2.noKtp))}
+      ${row("No Telepon",esc(pp2.noTelp))}
     </div>
     <p>Sebagai PIHAK PERTAMA II</p>
 
@@ -330,7 +340,7 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[]): string {
         <tr style="background:#f0f0f0;">
           <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Profit (Rp)</th>
           <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama I<br>${mou.bagiHasilPP1 ?? 50}% (Owner)</th>
-          <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama II<br>${mou.bagiHasilPP2 ?? 15}% (${esc(PIHAK_PERTAMA_II.nama)})</th>
+          <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama II<br>${mou.bagiHasilPP2 ?? 15}% (${esc(pp2.nama)})</th>
           ${hasBroker ? `<th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama III<br>${mou.bagiHasilPP3 ?? 0}% (Broker)</th>` : ""}
           <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Kedua<br>${mou.bagiHasilPK ?? 35}% (Investor)</th>
         </tr>
@@ -438,7 +448,7 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[]): string {
         ${mou.esignPihakPertama2
           ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakPertama2)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
           : `<div class="ss"></div>`}
-        <div><strong>${esc(PIHAK_PERTAMA_II.nama)}</strong></div>
+        <div><strong>${esc(pp2.nama)}</strong></div>
       </div>
       ${hasBroker ? `
       <div class="sb">
@@ -728,8 +738,8 @@ function generateMouHtmlDirect(mou: MoU, transaksis: Transaksi[]): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string {
-  const isUnderTm = (mou.bagiHasilPP2 ?? 0) > 0;
-  return isUnderTm
-    ? generateMouHtmlTm(mou, transaksis)
-    : generateMouHtmlDirect(mou, transaksis);
+  const id = mou.investorId ?? "";
+  if (id.startsWith("INV-D-"))  return generateMouHtmlDirect(mou, transaksis);
+  if (id.startsWith("INV-TM-")) return generateMouHtmlTm(mou, transaksis, PIHAK_PERTAMA_II_TM);
+  return generateMouHtmlTm(mou, transaksis, PIHAK_PERTAMA_II_MB); // INV-MB-xxxx (default)
 }
