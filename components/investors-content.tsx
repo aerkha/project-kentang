@@ -1029,6 +1029,16 @@ export function InvestorsContent() {
     return map;
   }, [transaksis]);
 
+  // ── Modal yang sudah dialokasikan ke PKS per investor ──
+  const mouAllocatedMap = useMemo(() => {
+    const map = new Map<string, number>();
+    mous.forEach((m) => {
+      if (m.isTerminated) return;
+      map.set(m.investorId, (map.get(m.investorId) ?? 0) + m.investmentAmount);
+    });
+    return map;
+  }, [mous]);
+
   // ── Estimasi bagi hasil per investor (dari data transaksi) ──
   const investorPnlMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -1168,6 +1178,12 @@ export function InvestorsContent() {
   // ── Buat PKS dari investor card ──
 
   const handleCreatePks = async (investor: Investor) => {
+    const allocated = mouAllocatedMap.get(investor.id) ?? 0;
+    const available = investor.investmentAmount - allocated;
+    if (available <= 0) {
+      toast.error("Semua modal sudah dialokasikan ke PKS. Lakukan top up terlebih dahulu.");
+      return;
+    }
     const today = todayWibStr();
     const [y, m, d] = today.split("-").map(Number);
     const end = new Date(Date.UTC(y, m - 1, d + 30)).toISOString().slice(0, 10);
@@ -1182,7 +1198,7 @@ export function InvestorsContent() {
         investorIdNumber: investor.idNumber,
         investorPhone: investor.phone,
         contractPeriod: 30,
-        investmentAmount: investor.investmentAmount,
+        investmentAmount: available,
         heirName: investor.heirName || "",
         heirRelationship: "",
         heirPhone: "",
@@ -1781,9 +1797,11 @@ export function InvestorsContent() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredInvestors.map((investor) => {
-            const bagHasil   = investorPnlMap.get(investor.id) ?? 0;
+            const bagHasil     = investorPnlMap.get(investor.id) ?? 0;
             const danaTermakai = investorDanaMap.get(investor.id) ?? 0;
-            const danaSisa   = Math.max(0, investor.investmentAmount - danaTermakai);
+            const danaSisa     = Math.max(0, investor.investmentAmount - danaTermakai);
+            const mouAllocated = mouAllocatedMap.get(investor.id) ?? 0;
+            const modalTersedia = Math.max(0, investor.investmentAmount - mouAllocated);
             const pct = investor.investmentAmount > 0
               ? ((bagHasil / investor.investmentAmount) * 100).toFixed(1)
               : "0.0";
@@ -1866,6 +1884,14 @@ export function InvestorsContent() {
                   <span className="text-muted-foreground">Total Modal</span>
                   <span className="font-bold text-sm">{formatCurrency(investor.investmentAmount)}</span>
                 </div>
+                {mouAllocated > 0 && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Tersedia untuk PKS</span>
+                    <span className={`font-semibold ${modalTersedia <= 0 ? "text-red-500" : "text-blue-600"}`}>
+                      {formatCurrency(modalTersedia)}
+                    </span>
+                  </div>
+                )}
                 {investor.investmentAmount > 0 && (
                   <div className="mt-1.5 space-y-0.5">
                     <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
