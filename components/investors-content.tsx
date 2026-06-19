@@ -2186,7 +2186,7 @@ export function InvestorsContent() {
                   id="topup-amount"
                   type="number"
                   min="1"
-                  step="1000000"
+                  step="any"
                   value={topUpAmount}
                   onChange={(e) => setTopUpAmount(e.target.value)}
                   placeholder="50000000"
