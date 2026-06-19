@@ -1162,13 +1162,11 @@ export function MouContent() {
       return;
     }
     const html = generateMouHtml(mou, transaksis);
-    const w = window.open("", "_blank");
-    if (w) {
-      w.document.write(html);
-      w.document.close();
-      w.focus();
-      setTimeout(() => w.print(), 500);
-    }
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url  = URL.createObjectURL(blob);
+    const w    = window.open(url, "_blank");
+    if (w) w.focus();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
   // ── Count per status ──
