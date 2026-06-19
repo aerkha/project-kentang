@@ -233,15 +233,6 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
 
     <p>Dalam hal ini keduanya bertindak sebagai Pengelola Investasi dan atas nama PT Madani Agri Lestari, berdasarkan Akta Pendirian Nomor AHU-0059177.AH.01.01.Tahun 2021. Selain daripada itu, bertindak sebagai Pengelola Investasi yang selanjutnya disebut PIHAK PERTAMA.</p>
 
-    ${hasBroker ? `
-    <div style="margin:.5em 2em;">
-      ${row("Nama",       esc(mou.brokerName ?? ""))}
-      ${row("Alamat",     esc(mou.brokerAddress ?? ""))}
-      ${row("No. KTP",    esc(mou.brokerIdNumber ?? ""))}
-      ${row("No. Telepon",esc(mou.brokerPhone ?? ""))}
-    </div>
-    <p>Sebagai PIHAK PERTAMA III (Broker/ Mitra Pemasaran), dan</p>
-    ` : ""}
 
     <div style="margin:.5em 2em;">
       ${row("Nama",       esc(mou.investorName))}
@@ -281,9 +272,7 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
     <p>Bagi hasil usaha diterima oleh para pihak dalam bentuk uang tunai dari hasil usaha tersebut di atas dan para pihak sepakat bahwa besaran bagi hasil sebagai berikut:</p>
     <p class="indent">A.&nbsp; PIHAK PERTAMA I &nbsp;&nbsp;: ${mou.bagiHasilPP1 ?? 50} %</p>
     <p class="indent">B.&nbsp; PIHAK PERTAMA II &nbsp;: ${mou.bagiHasilPP2 ?? 15} %</p>
-    ${hasBroker ? `<p class="indent">C.&nbsp; PIHAK PERTAMA III : ${mou.bagiHasilPP3 ?? 0} %</p>
-    <p class="indent">D.&nbsp; PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: ${mou.bagiHasilPK ?? 35} %</p>` :
-    `<p class="indent">C.&nbsp; PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: ${mou.bagiHasilPK ?? 35} %</p>`}
+    <p class="indent">C.&nbsp; PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: ${mou.bagiHasilPK ?? 35} %</p>
     <p>Investasi ini memiliki siklus bagi hasil empat (4) minggu sesuai ketersediaan proyek dan berlaku selama periode perjanjian kerjasama. Dana investasi digunakan untuk membiayai PO <em>All Customer</em> setiap 30 (tiga puluh) hari. Bagi hasil dibayarkan paling lambat setiap 30 (tiga puluh) hari atau sesuai tanggal jatuh tempo.</p>
 
     <p>Tabel simulasi bagi hasil setiap 30 hari:</p>
@@ -450,14 +439,6 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
           : `<div class="ss"></div>`}
         <div><strong>${esc(pp2.nama)}</strong></div>
       </div>
-      ${hasBroker ? `
-      <div class="sb">
-        <div class="bold">PIHAK PERTAMA III</div>
-        ${mou.esignPihakPertama3
-          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakPertama3)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
-          : `<div class="ss"></div>`}
-        <div><strong>${esc(mou.brokerName ?? "")}</strong></div>
-      </div>` : ""}
       <div class="sb">
         <div class="bold">PIHAK KEDUA</div>
         ${mou.esignPihakKedua

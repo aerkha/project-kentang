@@ -16,15 +16,23 @@ export interface TransaksiInvestorEntry {
   pctBrokerII: number;
 }
 
-export type TransaksiStatus = "rencana" | "berjalan" | "selesai" | "bermasalah" | "batal";
+export type TransaksiStatus = "berjalan" | "perbarui" | "selesai" | "bermasalah";
 
 export const TRANSAKSI_STATUS_LABEL: Record<TransaksiStatus, string> = {
-  rencana:     "Rencana",
-  berjalan:    "Berjalan",
-  selesai:     "Selesai",
-  bermasalah:  "Bermasalah",
-  batal:       "Batal",
+  berjalan:   "Berjalan",
+  perbarui:   "Perbarui",
+  selesai:    "Selesai",
+  bermasalah: "Bermasalah",
 };
+
+/** Status efektif: "berjalan" otomatis menjadi "perbarui" setelah 30 hari sejak tanggal transaksi */
+export function effectiveStatus(t: { status: TransaksiStatus; date: string }): TransaksiStatus {
+  if (t.status === "berjalan") {
+    const diffDays = (Date.now() - new Date(t.date).getTime()) / 86_400_000;
+    if (diffDays > 30) return "perbarui";
+  }
+  return t.status;
+}
 
 export interface Transaksi {
   id: string;             // TRX-0001 (customId)
@@ -63,6 +71,14 @@ const TransaksiContext = createContext<TransaksiContextType | undefined>(undefin
 
 // ── Record mappers ──────────────────────────────────────────────────────────
 
+const VALID_STATUSES = new Set<TransaksiStatus>(["berjalan", "perbarui", "selesai", "bermasalah"]);
+function normalizeStatus(s: string): TransaksiStatus {
+  if (VALID_STATUSES.has(s as TransaksiStatus)) return s as TransaksiStatus;
+  // backward-compat: old values
+  if (s === "rencana" || s === "batal") return "berjalan";
+  return "berjalan";
+}
+
 function recordToTransaksi(
   r: Record<string, unknown>,
   pbIdMap: Map<string, string>,
@@ -79,7 +95,7 @@ function recordToTransaksi(
     investorEntries,
     ongkirPerKg:  r.ongkirPerKg as number,
     hargaJual:    r.hargaJual   as number,
-    status:       ((r.status as TransaksiStatus) || "rencana"),
+    status:       (normalizeStatus(r.status as string)),
     catatanAkhir: (r.catatanAkhir as string) || "",
   };
 }

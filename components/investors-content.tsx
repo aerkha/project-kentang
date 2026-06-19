@@ -1021,7 +1021,7 @@ export function InvestorsContent() {
   const investorDanaMap = useMemo(() => {
     const map = new Map<string, number>();
     transaksis.forEach((t) => {
-      if (t.status !== "rencana" && t.status !== "berjalan") return;
+      if (t.status !== "berjalan" && t.status !== "perbarui") return;
       t.investorEntries.forEach((entry) => {
         map.set(entry.investorId, (map.get(entry.investorId) ?? 0) + entry.nilaiInvestasi);
       });

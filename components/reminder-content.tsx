@@ -929,7 +929,7 @@ export function ReminderContent() {
                     const cycleStart = Date.UTC(cmy, cmm - 1, cmd) + (siklus - 1) * cycleMs;
                     const cycleEnd   = cycleStart + cycleMs;
                     const unfinalizedCount = !showDone ? transaksis.filter((t) => {
-                      if (t.status === "selesai" || t.status === "bermasalah" || t.status === "batal") return false;
+                      if (t.status === "selesai" || t.status === "bermasalah") return false;
                       if (!t.investorEntries.some((e) => e.investorId === mouInvestorId)) return false;
                       const [ty, tm, td] = t.date.slice(0, 10).split("-").map(Number);
                       const tDate = Date.UTC(ty, tm - 1, td);

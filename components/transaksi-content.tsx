@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { ErrorDialog } from "@/components/ui/error-dialog";
 import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
-import { useTransaksi, calcTransaksi, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, effectiveStatus, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useAuth } from "@/lib/auth-context";
@@ -135,11 +135,10 @@ function formatDate(s: string) {
 
 function statusVariant(status: TransaksiStatus): string {
   switch (status) {
-    case "selesai":     return "bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-300";
-    case "bermasalah":  return "bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-300";
-    case "batal":       return "bg-gray-100   text-gray-500   dark:bg-gray-800/50   dark:text-gray-400";
-    case "berjalan":    return "bg-blue-100   text-blue-800   dark:bg-blue-900/30   dark:text-blue-300";
-    default:            return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300";
+    case "berjalan":   return "bg-blue-100   text-blue-800   dark:bg-blue-900/30   dark:text-blue-300";
+    case "perbarui":   return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300";
+    case "selesai":    return "bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-300";
+    case "bermasalah": return "bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-300";
   }
 }
 
@@ -611,7 +610,7 @@ export function TransaksiContent() {
       }),
     ongkirPerKg:  parseFloat(f.ongkirPerKg) || 0,
     hargaJual:    parseFloat(f.hargaJual) || 0,
-    status:       existing?.status ?? "rencana",
+    status:       existing?.status ?? "berjalan",
     catatanAkhir: existing?.catatanAkhir ?? "",
   });
 
@@ -690,7 +689,8 @@ export function TransaksiContent() {
 
   const openFinalize = (t: Transaksi) => {
     setSelected(t);
-    setFinalizeStatus(t.status === "rencana" ? "berjalan" : t.status === "berjalan" ? "selesai" : t.status);
+    const eff = effectiveStatus(t);
+    setFinalizeStatus(eff === "berjalan" || eff === "perbarui" ? "selesai" : eff);
     setFinalizeNote(t.catatanAkhir || "");
     setIsFinalizeOpen(true);
   };
@@ -840,8 +840,8 @@ export function TransaksiContent() {
                         <td className="py-3 px-4 font-mono text-xs font-medium">{t.id}</td>
                         <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">{formatDate(t.date)}</td>
                         <td className="py-3 px-4 text-center">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${statusVariant(t.status)}`}>
-                            {TRANSAKSI_STATUS_LABEL[t.status]}
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${statusVariant(effectiveStatus(t))}`}>
+                            {TRANSAKSI_STATUS_LABEL[effectiveStatus(t)]}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-muted-foreground max-w-[120px] truncate">{t.description || "—"}</td>
@@ -932,7 +932,7 @@ export function TransaksiContent() {
             <div className="space-y-2">
               <Label>Catatan Akhir</Label>
               <Textarea
-                placeholder="Isi catatan jika ada — wajib untuk status Bermasalah atau Batal"
+                placeholder="Isi catatan jika ada — wajib untuk status Bermasalah"
                 value={finalizeNote}
                 onChange={(e) => setFinalizeNote(e.target.value)}
                 rows={3}
