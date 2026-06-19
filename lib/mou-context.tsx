@@ -379,11 +379,11 @@ export function MouProvider({ children }: { children: ReactNode }) {
     if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan di server — coba refresh halaman.`);
     const fd = new FormData();
     fd.append("signedDoc", file);
-    const record      = await pb.collection("mous").update(pbId, fd);
+    fd.append("isComplete", "true");
+    const record     = await pb.collection("mous").update(pbId, fd);
     const updatedMou = recordToMou(record, map);
-    mousRef.current = mousRef.current.map((m) => (m.id === id ? updatedMou : m));
+    mousRef.current  = mousRef.current.map((m) => (m.id === id ? updatedMou : m));
     setMous(mousRef.current);
-    await syncInvestorStatus(updatedMou.investorId, mousRef.current);
   };
 
   return (
