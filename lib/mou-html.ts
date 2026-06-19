@@ -440,7 +440,7 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[]): string {
           : `<div class="ss"></div>`}
         <div><strong>${esc(PIHAK_PERTAMA_II.nama)}</strong></div>
       </div>
-      ${hasBroker ? ` ? `
+      ${hasBroker ? `
       <div class="sb">
         <div class="bold">PIHAK PERTAMA III</div>
         ${mou.esignPihakPertama3
