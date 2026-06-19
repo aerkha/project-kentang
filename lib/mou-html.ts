@@ -720,7 +720,12 @@ function generateMouHtmlDirect(mou: MoU, transaksis: Transaksi[]): string {
 
 export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string {
   const id = mou.investorId ?? "";
+  // Routing eksplisit berdasarkan prefix ID investor
   if (id.startsWith("INV-D-"))  return generateMouHtmlDirect(mou, transaksis);
   if (id.startsWith("INV-TM-")) return generateMouHtmlTm(mou, transaksis, PIHAK_PERTAMA_II_TM);
-  return generateMouHtmlTm(mou, transaksis, PIHAK_PERTAMA_II_MB); // INV-MB-xxxx (default)
+  if (id.startsWith("INV-MB-")) return generateMouHtmlTm(mou, transaksis, PIHAK_PERTAMA_II_MB);
+  // Fallback untuk prefix tidak dikenal: pakai bagiHasilPP2 sebagai penanda
+  return (mou.bagiHasilPP2 ?? 0) === 0
+    ? generateMouHtmlDirect(mou, transaksis)
+    : generateMouHtmlTm(mou, transaksis, PIHAK_PERTAMA_II_MB);
 }

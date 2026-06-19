@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useTransaksi, calcTransaksi, type TransaksiStatus } from "@/lib/transaksi-context";
-import { useMou } from "@/lib/mou-context";
+import { useMou, getMouStatus } from "@/lib/mou-context";
 import { usePengeluaran } from "@/lib/cashflow-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1184,6 +1184,20 @@ export function InvestorsContent() {
       toast.error("Semua modal sudah dialokasikan ke PKS. Lakukan top up terlebih dahulu.");
       return;
     }
+
+    // Tentukan default bagi hasil berdasarkan prefix investor ID
+    const isDirect = investor.id.startsWith("INV-D-");
+    const isTm     = investor.id.startsWith("INV-TM-");
+    const defaultPP1 = isDirect ? 60 : 50;
+    const defaultPP2 = isDirect ? 0  : 15;
+    const defaultPK  = isDirect ? 40 : 35;
+
+    // Load e-sign PP I & PP II dari localStorage (sama seperti form buat PKS manual)
+    const loadEsign = (key: string) => { try { return localStorage.getItem(key) ?? ""; } catch { return ""; } };
+    const esignPP1 = loadEsign("pks_esign_pp1");
+    const esignPP2 = isDirect ? "" : loadEsign(isTm ? "pks_esign_pp2_tm" : "pks_esign_pp2");
+    const esignPK  = loadEsign(`pks_esign_inv_${investor.id}`);
+
     const today = todayWibStr();
     const [y, m, d] = today.split("-").map(Number);
     const end = new Date(Date.UTC(y, m - 1, d + 30)).toISOString().slice(0, 10);
@@ -1203,18 +1217,18 @@ export function InvestorsContent() {
         heirRelationship: "",
         heirPhone: "",
         keterangan: "",
-        bagiHasilPP1: 50,
-        bagiHasilPP2: 15,
-        bagiHasilPK: 35,
+        bagiHasilPP1: defaultPP1,
+        bagiHasilPP2: defaultPP2,
+        bagiHasilPK:  defaultPK,
         bagiHasilPP3: 0,
         brokerId: "",
         brokerName: investor.brokerName || "",
         brokerAddress: "",
         brokerIdNumber: "",
         brokerPhone: "",
-        esignPihakPertama1: "",
-        esignPihakPertama2: "",
-        esignPihakKedua: "",
+        esignPihakPertama1: esignPP1,
+        esignPihakPertama2: esignPP2,
+        esignPihakKedua:    esignPK,
         esignPihakPertama3: "",
       });
       toast.success(`Draft PKS untuk ${investor.name} berhasil dibuat — lihat di halaman PKS`);
@@ -1809,7 +1823,7 @@ export function InvestorsContent() {
 
             // Tentukan label & warna badge berdasarkan kondisi PKS investor
             const investorMous = mous.filter((m) => m.investorId === investor.id);
-            const hasDraftMou = investorMous.some((m) => !m.isComplete);
+            const hasDraftMou = investorMous.some((m) => getMouStatus(m) === "draft");
             const investorBadge = isActive
               ? { label: "Aktif",     cls: "bg-green-100 text-green-800" }
               : hasDraftMou
