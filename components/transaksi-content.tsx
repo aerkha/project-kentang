@@ -7,6 +7,7 @@ import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
 import { useTransaksi, calcTransaksi, effectiveStatus, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
+import { useMou } from "@/lib/mou-context";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
@@ -166,12 +167,13 @@ interface TrxFormProps {
   previewId: string;
   investors: Investor[];
   brokers: Broker[];
+  investorIdsWithPks: Set<string>;
   isSaving?: boolean;
 }
 
 function TrxFormFields({
   formData, setFormData, onSubmit, submitLabel, previewId,
-  investors, brokers: _brokers,
+  investors, brokers: _brokers, investorIdsWithPks,
   isSaving = false,
 }: TrxFormProps) {
   // ── Jalur state ──────────────────────────────────────────────────────────
@@ -186,7 +188,7 @@ function TrxFormFields({
   });
 
   const investorsByJalur = (jalur: InvestorJalur) =>
-    investors.filter((inv) => getJalur(inv) === jalur);
+    investors.filter((inv) => getJalur(inv) === jalur && investorIdsWithPks.has(inv.id));
 
   const isInvestorChecked = (investorId: string) =>
     formData.investorEntries.some((e) => e.investorId === investorId);
@@ -532,6 +534,7 @@ export function TransaksiContent() {
   const { transaksis, addTransaksi, updateTransaksi, deleteTransaksi } = useTransaksi();
   const { investors }  = useInvestors();
   const { brokers }    = useBrokers();
+  const { mous }       = useMou();
   const { user, isInvestor } = useAuth();
   const isAdmin   = user?.role === "admin";
   const perm      = usePermissions();
@@ -710,9 +713,16 @@ export function TransaksiContent() {
     }
   };
 
+  // Investor yang boleh muncul di form transaksi: hanya yang punya PKS (draft atau complete)
+  const investorIdsWithPks = useMemo(
+    () => new Set(mous.filter((m) => !m.isTerminated).map((m) => m.investorId)),
+    [mous],
+  );
+
   const sharedFormProps = {
     investors,
     brokers,
+    investorIdsWithPks,
     isSaving,
   };
 
