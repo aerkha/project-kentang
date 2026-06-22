@@ -43,7 +43,9 @@ import {
   Truck,
   Receipt,
   ClipboardCheck,
+  RefreshCw,
 } from "lucide-react";
+import { todayWibStr } from "@/lib/utils";
 
 // ─────────────────────────────────────────────
 // Types
@@ -141,6 +143,20 @@ function statusVariant(status: TransaksiStatus): string {
     case "selesai":    return "bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-300";
     case "bermasalah": return "bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-300";
   }
+}
+
+// Ambil jumlah hari periode dari teks "Periode" (mis. "30 hari"), default 30.
+function parsePeriodeDays(desc: string): number {
+  const m = desc?.match(/\d+/);
+  const n = m ? parseInt(m[0], 10) : 30;
+  return n > 0 ? n : 30;
+}
+
+// Sisa hari sampai periode berakhir = (tanggal + periode) − hari ini.
+function sisaHari(t: { date: string; description: string }): number {
+  const days    = parsePeriodeDays(t.description);
+  const elapsed = (Date.now() - new Date(t.date).getTime()) / 86_400_000;
+  return Math.ceil(days - elapsed);
 }
 
 // Read-only preview box
@@ -713,6 +729,17 @@ export function TransaksiContent() {
     }
   };
 
+  // Perbarui transaksi yang sudah "selesai": kembalikan ke "berjalan" dan
+  // hitung ulang periode 30 hari ke depan (reset tanggal mulai ke hari ini).
+  const handlePerbarui = async (t: Transaksi) => {
+    try {
+      await updateTransaksi(t.id, { status: "berjalan", date: todayWibStr() });
+      toast.success(`Transaksi ${t.id} diperbarui — periode dihitung ulang 30 hari ke depan`);
+    } catch (err) {
+      setErrorInfo(formatPbError(err, "Gagal memperbarui transaksi"));
+    }
+  };
+
   // Investor yang boleh muncul di form transaksi: hanya yang punya PKS (draft atau complete)
   const investorIdsWithPks = useMemo(
     () => new Set(mous.filter((m) => !m.isTerminated).map((m) => m.investorId)),
@@ -854,7 +881,17 @@ export function TransaksiContent() {
                             {TRANSAKSI_STATUS_LABEL[effectiveStatus(t)]}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-muted-foreground max-w-[120px] truncate">{t.description || "—"}</td>
+                        <td className="py-3 px-4 text-muted-foreground max-w-[140px]">
+                          <div className="truncate">{t.description || "—"}</div>
+                          {effectiveStatus(t) === "berjalan" && (() => {
+                            const s = sisaHari(t);
+                            return (
+                              <div className={`text-[10px] ${s < 0 ? "text-red-500" : s <= 3 ? "text-orange-500" : "text-muted-foreground/70"}`}>
+                                {s > 0 ? `Sisa ${s} hari` : s === 0 ? "Hari terakhir" : `Lewat ${-s} hari`}
+                              </div>
+                            );
+                          })()}
+                        </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">{formatRp(t.hpp)}</td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">{formatQty(c.qty)}</td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">{formatRp(t.kebutuhanModal)}</td>
@@ -879,6 +916,16 @@ export function TransaksiContent() {
                             {canEdit && (
                             <Button variant="ghost" size="icon" className="h-7 w-7" title="Ubah status" onClick={() => openFinalize(t)}>
                               <ClipboardCheck className="h-3.5 w-3.5 text-blue-500" />
+                            </Button>
+                            )}
+                            {canEdit && (
+                            <Button
+                              variant="ghost" size="icon" className="h-7 w-7"
+                              title={effectiveStatus(t) === "selesai" ? "Perbarui — mulai periode baru 30 hari" : "Hanya transaksi selesai yang bisa diperbarui"}
+                              disabled={effectiveStatus(t) !== "selesai"}
+                              onClick={() => handlePerbarui(t)}
+                            >
+                              <RefreshCw className="h-3.5 w-3.5 text-amber-600" />
                             </Button>
                             )}
                             {canEdit && (
@@ -933,7 +980,9 @@ export function TransaksiContent() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(Object.keys(TRANSAKSI_STATUS_LABEL) as TransaksiStatus[]).map((s) => (
+                  {(Object.keys(TRANSAKSI_STATUS_LABEL) as TransaksiStatus[])
+                    .filter((s) => s !== "perbarui")
+                    .map((s) => (
                     <SelectItem key={s} value={s}>{TRANSAKSI_STATUS_LABEL[s]}</SelectItem>
                   ))}
                 </SelectContent>

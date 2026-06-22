@@ -25,12 +25,14 @@ export const TRANSAKSI_STATUS_LABEL: Record<TransaksiStatus, string> = {
   bermasalah: "Bermasalah",
 };
 
-/** Status efektif: "berjalan" otomatis menjadi "perbarui" setelah 30 hari sejak tanggal transaksi */
+/**
+ * Status efektif. "perbarui" bukan lagi status otomatis — sisa hari periode
+ * ditampilkan terpisah, dan pembaruan dilakukan manual lewat tombol aksi
+ * (status "selesai" → "berjalan"). Record lama berstatus "perbarui"
+ * diperlakukan sebagai "berjalan".
+ */
 export function effectiveStatus(t: { status: TransaksiStatus; date: string }): TransaksiStatus {
-  if (t.status === "berjalan") {
-    const diffDays = (Date.now() - new Date(t.date).getTime()) / 86_400_000;
-    if (diffDays > 30) return "perbarui";
-  }
+  if (t.status === "perbarui") return "berjalan";
   return t.status;
 }
 
