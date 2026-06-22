@@ -47,6 +47,26 @@ function addDays(dateStr: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
+function daysBetween(startStr: string, endStr: string): number {
+  const [sy, sm, sd] = startStr.slice(0, 10).split("-").map(Number);
+  const [ey, em, ed] = endStr.slice(0, 10).split("-").map(Number);
+  return Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86_400_000);
+}
+
+// Total durasi jangka waktu kontrak (hari) — pakai endDate jika ada,
+// jika tidak fallback ke contractPeriod × siklus. Ini BERBEDA dari
+// contractPeriod yang hanya periode bagi hasil (default 30 hari).
+function totalDurationDays(mou: MoU): number {
+  const endRaw = mou.endDate || addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
+  return daysBetween(mou.date, endRaw);
+}
+
+// Jumlah bulan jangka waktu kontrak (1 bulan = 30 hari). Span kalender
+// dibulatkan ke bulan terdekat, mis. 18 Jun–18 Sep (92 hari) → 3 bulan.
+function durationMonths(mou: MoU): number {
+  return Math.max(1, Math.round(totalDurationDays(mou) / 30));
+}
+
 function fmtRp(n: number) {
   return new Intl.NumberFormat("id-ID").format(n);
 }
@@ -177,7 +197,7 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
   const date      = fmtDate(mou.date);
   const amount    = fmtRp(mou.investmentAmount);
   const words     = esc(cap(terbilang(mou.investmentAmount)));
-  const period    = periodText(mou.contractPeriod);
+  const period    = periodText(durationMonths(mou) * 30);
 
   const { trxQty, trxHpp, trxModal, trxOngkir, trxHargaJual, trxIncome, trxProfit,
           bhOwner, bhMinbun, bhBroker, bhInvestor, estKeuntungan, roiPerBulan, roiSetelahBH } =
@@ -460,11 +480,12 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
 
 function generateMouHtmlDirect(mou: MoU, transaksis: Transaksi[]): string {
   const date        = fmtDate(mou.date);
-  const endDateStr  = fmtDate(mou.endDate || addDays(mou.date, mou.contractPeriod));
+  const endDateStr  = fmtDate(mou.endDate || addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1)));
   const amount      = fmtRp(mou.investmentAmount);
   const words       = esc(cap(terbilang(mou.investmentAmount)));
-  const months      = Math.round(mou.contractPeriod / 30);
-  const periodFull  = periodTextDirect(mou.contractPeriod);
+  const months      = durationMonths(mou);
+  const totalDays   = months * 30;
+  const periodFull  = periodTextDirect(totalDays);
   const monthsLabel = cap(angkaTerbilang(months));
 
   const pp1Pct = mou.bagiHasilPP1 ?? 60;
@@ -633,7 +654,7 @@ function generateMouHtmlDirect(mou: MoU, transaksis: Transaksi[]): string {
 
     <p style="margin-top:.8em;"><strong>B. PIHAK KEDUA</strong></p>
     <ol>
-      <li><p>Menyediakan modal kerja sebesar <strong>Rp. ${amount} (${words})</strong> untuk proyek trading kentang selama ${mou.contractPeriod} hari (${monthsLabel.toLowerCase()} bulan) yang di transfer langsung ke rekening PIHAK PERTAMA <strong>Bank Central Asia 6768043702 atas nama Adie Bayu Putra, S.P.</strong></p></li>
+      <li><p>Menyediakan modal kerja sebesar <strong>Rp. ${amount} (${words})</strong> untuk proyek trading kentang selama ${totalDays} hari (${monthsLabel.toLowerCase()} bulan) yang di transfer langsung ke rekening PIHAK PERTAMA <strong>Bank Central Asia 6768043702 atas nama Adie Bayu Putra, S.P.</strong></p></li>
       <li><p>Bersama-sama dengan PIHAK PERTAMA memantau perkembangan usaha dan mengambil keputusan bersama.</p></li>
       <li><p>Apabila terjadi pembatalan kerja sama yang dilakukan PIHAK PERTAMA, maka PIHAK PERTAMA mengembalikan modal dan keuntungannya.</p></li>
       <li><p>Berhak atas keuntungan usaha sesuai dengan pasal 4.</p></li>
