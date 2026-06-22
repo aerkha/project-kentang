@@ -97,7 +97,7 @@ function getJalur(inv: Investor): InvestorJalur {
 
 const initialForm = (): TrxFormData => ({
   date: "",
-  description: "",
+  description: "30 hari",
   hpp: "",
   kebutuhanModal: "",
   investorEntries: [emptyEntry()],
@@ -306,12 +306,12 @@ function TrxFormFields({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="trx-desc" className="text-xs">Keterangan</Label>
+              <Label htmlFor="trx-desc" className="text-xs">Periode</Label>
               <Input
                 id="trx-desc"
                 value={formData.description}
                 onChange={(e) => set("description", e.target.value)}
-                placeholder="Nama PO / batch (opsional)"
+                placeholder="30 hari"
               />
             </div>
           </div>
@@ -824,7 +824,7 @@ export function TransaksiContent() {
                     <th className="text-left  py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">ID</th>
                     <th className="text-left  py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Tanggal</th>
                     <th className="text-center py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Status</th>
-                    <th className="text-left  py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Keterangan</th>
+                    <th className="text-left  py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Periode</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">HPP</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Qty</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Modal</th>
