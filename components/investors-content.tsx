@@ -175,7 +175,7 @@ interface BrkImportRow {
 }
 
 type RowStatus = "pending" | "importing" | "success" | "error";
-interface InvRowState { row: InvImportRow; status: RowStatus; error?: string; }
+interface InvRowState { row: InvImportRow; status: RowStatus; error?: string; dupWarning?: string; }
 interface BrkRowState { row: BrkImportRow; status: RowStatus; error?: string; }
 
 function FlagBadgeInline({ row }: { row: InvImportRow }) {
@@ -185,8 +185,9 @@ function FlagBadgeInline({ row }: { row: InvImportRow }) {
   return <span className="text-[10px] text-muted-foreground">—</span>;
 }
 
-function InvestorImportPanel({ existingIds, onUpdateInvestor, onReload, onDone }: {
+function InvestorImportPanel({ existingIds, existingKtps, onUpdateInvestor, onReload, onDone }: {
   existingIds: Set<string>;
+  existingKtps: Set<string>;
   onUpdateInvestor: (id: string, data: Partial<Investor>) => Promise<void>;
   onReload: () => Promise<void>;
   onDone: () => void;
@@ -208,7 +209,6 @@ function InvestorImportPanel({ existingIds, onUpdateInvestor, onReload, onDone }
       let parsed: unknown;
       try { parsed = JSON.parse(text); } catch { setParseError("Format JSON tidak valid"); return; }
       if (!Array.isArray(parsed)) { setParseError("JSON harus berupa array [ ... ]"); return; }
-      // customId boleh kosong — akan di-generate otomatis saat import
       const valid = (parsed as InvImportRow[]).filter((r) => r.name);
       if (valid.length === 0) { setParseError("Tidak ada data valid (kolom name wajib diisi)"); return; }
       for (let i = 0; i < valid.length; i++) {
@@ -217,7 +217,22 @@ function InvestorImportPanel({ existingIds, onUpdateInvestor, onReload, onDone }
         if (typeof r.investmentAmount !== "number" || r.investmentAmount <= 0) { setParseError(`Baris ${i+1} (${r.name}): investmentAmount tidak valid`); return; }
       }
       setParseError(null);
-      setRows(valid.map((row) => ({ row, status: "pending" })));
+      const seenInFile = new Set<string>();
+      const seenKtpInFile = new Set<string>();
+      setRows(valid.map((row) => {
+        let dupWarning: string | undefined;
+        if (row.customId) {
+          if (existingIds.has(row.customId)) dupWarning = "ID sudah ada di database";
+          else if (seenInFile.has(row.customId)) dupWarning = "ID duplikat dalam file";
+          seenInFile.add(row.customId);
+        }
+        if (!dupWarning && row.idNumber) {
+          if (existingKtps.has(row.idNumber)) dupWarning = `No KTP ${row.idNumber} sudah terdaftar di database`;
+          else if (seenKtpInFile.has(row.idNumber)) dupWarning = `No KTP ${row.idNumber} duplikat dalam file`;
+          seenKtpInFile.add(row.idNumber);
+        }
+        return { row, status: "pending", dupWarning };
+      }));
       setStep("preview");
     };
     reader.readAsText(file);
@@ -226,21 +241,24 @@ function InvestorImportPanel({ existingIds, onUpdateInvestor, onReload, onDone }
   const handleImport = async () => {
     setIsImporting(true);
     setStep("result");
+    const usedInSession = new Set<string>(existingIds);
     for (let i = 0; i < rows.length; i++) {
-      const { row } = rows[i];
+      const { row, dupWarning } = rows[i];
       setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "importing" } : r));
+      if (dupWarning) {
+        setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "error", error: dupWarning } : r));
+        continue;
+      }
       try {
-        // Auto-generate customId jika kosong, sesuai flag
         const flag = row.isMinBun ? "MB" : row.isTami ? "TM" : "D";
-        const customId = row.customId || await generateCustomId(flag);
-
-        if (existingIds.has(customId)) {
-          await onUpdateInvestor(customId, { name: row.name, address: row.address, brokerName: row.brokerName || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, email: row.email || "", occupation: row.occupation || "", investmentAmount: row.investmentAmount, heirName: row.heirName || "", heirBankName: row.heirBankName || "", heirAccountNumber: row.heirAccountNumber || "", isMinBun: row.isMinBun, isInternal: row.isInternal, isTami: row.isTami, isDirect: row.isDirect, isActive: row.isActive });
-          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success", error: `(diperbarui ${customId})` } : r));
-        } else {
-          await pb.collection("investors").create({ customId, name: row.name, address: row.address, brokerName: row.brokerName || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, email: row.email || "", occupation: row.occupation || "", investmentAmount: row.investmentAmount, heirName: row.heirName || "", heirBankName: row.heirBankName || "", heirAccountNumber: row.heirAccountNumber || "", isMinBun: row.isMinBun === true, isInternal: row.isInternal === true, isTami: row.isTami === true, isDirect: row.isDirect === true, isActive: row.isActive !== false, buktiTransfer: "", createdBy: pb.authStore.record?.id ?? "", updatedBy: pb.authStore.record?.id ?? "" });
-          setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success", error: customId } : r));
+        let customId = row.customId || await generateCustomId(flag);
+        // Pastikan ID yang di-generate juga tidak konflik dengan batch ini
+        while (usedInSession.has(customId)) {
+          customId = await generateCustomId(flag);
         }
+        usedInSession.add(customId);
+        await pb.collection("investors").create({ customId, name: row.name, address: row.address, brokerName: row.brokerName || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, email: row.email || "", occupation: row.occupation || "", investmentAmount: row.investmentAmount, heirName: row.heirName || "", heirBankName: row.heirBankName || "", heirAccountNumber: row.heirAccountNumber || "", isMinBun: row.isMinBun === true, isInternal: row.isInternal === true, isTami: row.isTami === true, isDirect: row.isDirect === true, isActive: row.isActive !== false, buktiTransfer: "", createdBy: pb.authStore.record?.id ?? "", updatedBy: pb.authStore.record?.id ?? "" });
+        setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success", error: customId } : r));
       } catch (err) {
         const pbErr = err as { data?: { data?: Record<string, { message?: string }> }; message?: string };
         const msg = pbErr?.data?.data ? Object.entries(pbErr.data.data).map(([k, v]) => `${k}: ${v?.message}`).join(", ") : pbErr?.message ?? "Gagal";
@@ -279,7 +297,13 @@ function InvestorImportPanel({ existingIds, onUpdateInvestor, onReload, onDone }
 
       {step === "preview" && (
         <>
-          <p className="text-sm text-muted-foreground"><strong>{rows.length} investor</strong> siap diimport.</p>
+          {(() => { const dupCount = rows.filter(r => r.dupWarning).length; return dupCount > 0 ? (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+              <XCircle className="h-4 w-4 mt-0.5 shrink-0 text-amber-500" />
+              <span><strong>{dupCount} baris</strong> memiliki ID yang sudah ada dan akan dilewati saat import.</span>
+            </div>
+          ) : null; })()}
+          <p className="text-sm text-muted-foreground"><strong>{rows.length} investor</strong> siap diimport ({rows.filter(r => !r.dupWarning).length} baru).</p>
           <div className="border rounded-lg overflow-hidden">
             <div className="overflow-y-auto max-h-[260px]">
               <table className="w-full text-xs">
@@ -289,9 +313,12 @@ function InvestorImportPanel({ existingIds, onUpdateInvestor, onReload, onDone }
                   <th className="text-left px-3 py-2 font-medium">Tipe</th>
                   <th className="text-right px-3 py-2 font-medium">Investasi</th>
                 </tr></thead>
-                <tbody>{rows.map(({ row }, i) => (
-                  <tr key={i} className={i % 2 === 0 ? "bg-background" : "bg-muted/30"}>
-                    <td className="px-3 py-2 font-mono">{row.customId}</td>
+                <tbody>{rows.map(({ row, dupWarning }, i) => (
+                  <tr key={i} className={dupWarning ? "bg-amber-50" : i % 2 === 0 ? "bg-background" : "bg-muted/30"}>
+                    <td className="px-3 py-2 font-mono">
+                      {row.customId || <span className="text-muted-foreground italic">auto</span>}
+                      {dupWarning && <span className="ml-1 text-amber-600">⚠ {dupWarning}</span>}
+                    </td>
                     <td className="px-3 py-2">{row.name}</td>
                     <td className="px-3 py-2"><FlagBadgeInline row={row} /></td>
                     <td className="px-3 py-2 text-right">{fmtRp(row.investmentAmount)}</td>
@@ -1728,6 +1755,7 @@ export function InvestorsContent() {
               ) : (
                 <InvestorImportPanel
                   existingIds={new Set(investors.map((inv) => inv.id))}
+                  existingKtps={new Set(investors.map((inv) => inv.idNumber).filter(Boolean))}
                   onUpdateInvestor={updateInvestor}
                   onReload={reloadInvestors}
                   onDone={() => { setAddInvestorMode("form"); setIsAddInvestorOpen(false); }}
