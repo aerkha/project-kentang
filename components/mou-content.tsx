@@ -179,6 +179,15 @@ function endDate(mou: MoU) {
   return mou.endDate || addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
 }
 
+// Jangka waktu kontrak dalam bulan (1 bulan = 30 hari), dihitung dari rentang
+// tanggal mulai → berakhir. Berbeda dari contractPeriod yang hanya periode bagi hasil.
+function durationMonths(mou: MoU) {
+  const [sy, sm, sd] = mou.date.slice(0, 10).split("-").map(Number);
+  const [ey, em, ed] = endDate(mou).slice(0, 10).split("-").map(Number);
+  const days = Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86_400_000);
+  return Math.max(1, Math.round(days / 30));
+}
+
 // ─────────────────────────────────────────────
 // KeteranganCombobox — input + dropdown saran dari data existing
 // ─────────────────────────────────────────────
@@ -1329,7 +1338,7 @@ export function MouContent() {
                         <td className="py-3 px-4 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1 text-muted-foreground">
                             <CalendarDays className="h-3 w-3" />
-                            {mou.contractPeriod} hari
+                            {durationMonths(mou) * 30} hari
                           </div>
                         </td>
                         <td className="py-3 px-4 text-right font-medium">
