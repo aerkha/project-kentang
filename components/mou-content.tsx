@@ -1049,6 +1049,27 @@ export function MouContent() {
     if (!selected) return;
     if (!validateBagiHasil()) return;
 
+    // Validasi investmentAmount tidak melebihi modal tersedia investor.
+    // Alokasi dihitung dari semua PKS non-terminated MILIK INVESTOR INI,
+    // kecuali PKS yang sedang diedit (selected.id) agar nilainya sendiri tidak dihitung dua kali.
+    const inv = investors.find((i) => i.id === selected.investorId);
+    if (inv) {
+      const allocated = mous
+        .filter((m) => m.investorId === selected.investorId && !m.isTerminated && m.id !== selected.id)
+        .reduce((sum, m) => sum + m.investmentAmount, 0);
+      const available = inv.investmentAmount - allocated;
+      const requested = parseFloat(form.investmentAmount) || 0;
+      if (requested > available + 0.01) {
+        setErrorInfo({
+          title: "Nilai investasi melebihi modal tersedia",
+          fields: [{ field: "investmentAmount", code: "exceeds_available",
+            message: `Modal tersedia: Rp ${available.toLocaleString("id-ID")}. Nilai yang dimasukkan: Rp ${requested.toLocaleString("id-ID")}.` }],
+          raw: `Available: ${available}, Requested: ${requested}`,
+        });
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
       await updateMou(selected.id, {

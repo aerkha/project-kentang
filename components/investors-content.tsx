@@ -242,11 +242,25 @@ function InvestorImportPanel({ existingIds, existingKtps, onUpdateInvestor, onRe
     setIsImporting(true);
     setStep("result");
     const usedInSession = new Set<string>(existingIds);
+    // No KTP: cek terhadap KESELURUHAN data di database (fetch segar agar
+    // menangkap record yang ditambahkan setelah halaman dimuat) + lacak KTP
+    // yang dipakai selama sesi import ini untuk cegah duplikat antar-baris.
+    const usedKtps = new Set<string>(existingKtps);
+    try {
+      const dbRecords = await pb.collection("investors").getFullList({ fields: "idNumber" });
+      dbRecords.forEach((r) => { const k = (r.idNumber as string)?.trim(); if (k) usedKtps.add(k); });
+    } catch { /* gagal fetch — fallback ke data yang sudah ada di memori */ }
+
     for (let i = 0; i < rows.length; i++) {
       const { row, dupWarning } = rows[i];
       setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "importing" } : r));
       if (dupWarning) {
         setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "error", error: dupWarning } : r));
+        continue;
+      }
+      const ktp = row.idNumber?.trim();
+      if (ktp && usedKtps.has(ktp)) {
+        setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "error", error: `No KTP ${ktp} sudah terdaftar di database` } : r));
         continue;
       }
       try {
@@ -258,6 +272,7 @@ function InvestorImportPanel({ existingIds, existingKtps, onUpdateInvestor, onRe
         }
         usedInSession.add(customId);
         await pb.collection("investors").create({ customId, name: row.name, address: row.address, brokerName: row.brokerName || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, email: row.email || "", occupation: row.occupation || "", investmentAmount: row.investmentAmount, heirName: row.heirName || "", heirBankName: row.heirBankName || "", heirAccountNumber: row.heirAccountNumber || "", isMinBun: row.isMinBun === true, isInternal: row.isInternal === true, isTami: row.isTami === true, isDirect: row.isDirect === true, isActive: row.isActive !== false, buktiTransfer: "", createdBy: pb.authStore.record?.id ?? "", updatedBy: pb.authStore.record?.id ?? "" });
+        if (ktp) usedKtps.add(ktp);
         setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success", error: customId } : r));
       } catch (err) {
         const pbErr = err as { data?: { data?: Record<string, { message?: string }> }; message?: string };
