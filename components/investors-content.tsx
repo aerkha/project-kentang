@@ -4,7 +4,7 @@ import { useState, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
-import { useTransaksi, calcTransaksi, type TransaksiStatus } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, activeInvestorIds, type TransaksiStatus } from "@/lib/transaksi-context";
 import { useMou, getMouStatus } from "@/lib/mou-context";
 import { usePengeluaran } from "@/lib/cashflow-context";
 import { Button } from "@/components/ui/button";
@@ -167,7 +167,7 @@ interface InvImportRow {
   customId: string; name: string; idNumber: string; address: string; brokerName: string;
   bankName: string; accountNumber: string; phone: string; email: string; occupation: string;
   investmentAmount: number; heirName: string; heirBankName: string; heirAccountNumber: string;
-  isMinBun: boolean; isInternal: boolean; isTami: boolean; isDirect: boolean; isActive: boolean;
+  isMinBun: boolean; isInternal: boolean; isTami: boolean; isDirect: boolean;
 }
 interface BrkImportRow {
   customId: string; name: string; address: string; email: string; idNumber: string;
@@ -271,7 +271,7 @@ function InvestorImportPanel({ existingIds, existingKtps, onUpdateInvestor, onRe
           customId = await generateCustomId(flag);
         }
         usedInSession.add(customId);
-        await pb.collection("investors").create({ customId, name: row.name, address: row.address, brokerName: row.brokerName || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, email: row.email || "", occupation: row.occupation || "", investmentAmount: row.investmentAmount, heirName: row.heirName || "", heirBankName: row.heirBankName || "", heirAccountNumber: row.heirAccountNumber || "", isMinBun: row.isMinBun === true, isInternal: row.isInternal === true, isTami: row.isTami === true, isDirect: row.isDirect === true, isActive: row.isActive !== false, buktiTransfer: "", createdBy: pb.authStore.record?.id ?? "", updatedBy: pb.authStore.record?.id ?? "" });
+        await pb.collection("investors").create({ customId, name: row.name, address: row.address, brokerName: row.brokerName || "", idNumber: row.idNumber, bankName: row.bankName, accountNumber: row.accountNumber, phone: row.phone, email: row.email || "", occupation: row.occupation || "", investmentAmount: row.investmentAmount, heirName: row.heirName || "", heirBankName: row.heirBankName || "", heirAccountNumber: row.heirAccountNumber || "", isMinBun: row.isMinBun === true, isInternal: row.isInternal === true, isTami: row.isTami === true, isDirect: row.isDirect === true, buktiTransfer: "", createdBy: pb.authStore.record?.id ?? "", updatedBy: pb.authStore.record?.id ?? "" });
         if (ktp) usedKtps.add(ktp);
         setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, status: "success", error: customId } : r));
       } catch (err) {
@@ -1040,6 +1040,9 @@ export function InvestorsContent() {
   const visibleInvestors = isInvestor && user?.investorId
     ? investors.filter((inv) => inv.id === user.investorId)
     : investors;
+
+  // Status aktif diturunkan dari transaksi — satu sumber kebenaran (PKS hanya formalitas).
+  const activeIds = useMemo(() => activeInvestorIds(transaksis), [transaksis]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<"all" | "minbun" | "tami" | "direct">("all");
@@ -1862,9 +1865,10 @@ export function InvestorsContent() {
             const pct = investor.investmentAmount > 0
               ? ((bagHasil / investor.investmentAmount) * 100).toFixed(1)
               : "0.0";
-            const isActive = investor.isActive === true;
+            const isActive = activeIds.has(investor.id);
 
-            // Tentukan label & warna badge berdasarkan kondisi PKS investor
+            // Status aktif murni dari transaksi. Draft PKS hanya label antara saat
+            // belum ada transaksi berjalan/bermasalah untuk investor ini.
             const investorMous = mous.filter((m) => m.investorId === investor.id);
             const hasDraftMou = investorMous.some((m) => getMouStatus(m) === "draft");
             const investorBadge = isActive

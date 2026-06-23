@@ -36,6 +36,37 @@ export function effectiveStatus(t: { status: TransaksiStatus; date: string }): T
   return t.status;
 }
 
+/**
+ * Status aktif investor diturunkan sepenuhnya dari transaksi — transaksi adalah
+ * satu-satunya sumber kebenaran (PKS hanya formalitas). Tidak ada flag isActive
+ * tersimpan yang bisa drift.
+ *
+ * Investor AKTIF ⟺ punya ≥1 transaksi berstatus "berjalan" atau "bermasalah"
+ * (modal belum kembali) dengan nilai investasi > 0. Tanpa partisipasi semacam
+ * itu — termasuk modal yang masih parkir / investor baru — investor NONAKTIF.
+ */
+const ACTIVE_TRANSAKSI_STATUS = new Set<TransaksiStatus>(["berjalan", "bermasalah"]);
+
+export function isInvestorActive(investorId: string, transaksis: Transaksi[]): boolean {
+  return transaksis.some(
+    (t) =>
+      ACTIVE_TRANSAKSI_STATUS.has(effectiveStatus(t)) &&
+      t.investorEntries.some((e) => e.investorId === investorId && e.nilaiInvestasi > 0),
+  );
+}
+
+/** Set ID semua investor aktif — sekali lewat, untuk dipakai di list/dashboard. */
+export function activeInvestorIds(transaksis: Transaksi[]): Set<string> {
+  const ids = new Set<string>();
+  for (const t of transaksis) {
+    if (!ACTIVE_TRANSAKSI_STATUS.has(effectiveStatus(t))) continue;
+    for (const e of t.investorEntries) {
+      if (e.nilaiInvestasi > 0) ids.add(e.investorId);
+    }
+  }
+  return ids;
+}
+
 export interface Transaksi {
   id: string;             // TRX-0001 (customId)
   date: string;

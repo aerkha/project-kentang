@@ -32,7 +32,6 @@ interface ImportRow {
   isInternal: boolean;
   isTami: boolean;
   isDirect: boolean;
-  isActive: boolean;
 }
 
 type RowStatus = "pending" | "importing" | "success" | "error";
@@ -175,7 +174,6 @@ export function InvestorsImportDialog({ canCreate }: Props) {
             isInternal:       row.isInternal,
             isTami:           row.isTami,
             isDirect:         row.isDirect,
-            isActive:         row.isActive,
           });
           setRows((prev) => prev.map((r, idx) =>
             idx === i ? { ...r, status: "success", error: "(diperbarui)" } : r
@@ -210,7 +208,6 @@ export function InvestorsImportDialog({ canCreate }: Props) {
           isInternal:       row.isInternal === true,
           isTami:           row.isTami    === true,
           isDirect:         row.isDirect  === true,
-          isActive:         row.isActive  !== false,
           buktiTransfer:    "",
           createdBy:        pb.authStore.record?.id ?? "",
           updatedBy:        pb.authStore.record?.id ?? "",

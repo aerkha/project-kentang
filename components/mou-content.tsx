@@ -152,8 +152,9 @@ const initialForm: MouFormData = {
 // Helpers
 // ─────────────────────────────────────────────
 
-// Status PKS dihitung oleh getMouStatus dari lib/mou-context — satu sumber
-// kebenaran yang sama dengan logika sinkronisasi isActive investor & cash flow.
+// Status PKS dihitung oleh getMouStatus dari lib/mou-context. Catatan: status
+// aktif/nonaktif investor TIDAK diturunkan dari PKS, melainkan dari transaksi
+// (lihat isInvestorActive di lib/transaksi-context) — PKS hanya formalitas.
 
 function formatDate(s: string) {
   if (!s) return "-";

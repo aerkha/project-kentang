@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
 import { useMou } from "@/lib/mou-context";
-import { useTransaksi, calcTransaksi, type Transaksi, type TransaksiStatus } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, activeInvestorIds, type Transaksi, type TransaksiStatus } from "@/lib/transaksi-context";
 import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -158,15 +158,18 @@ export function DashboardContent() {
   const { mous }        = useMou();
   const { transaksis }  = useTransaksi();
 
+  // Status aktif investor diturunkan dari transaksi — satu sumber kebenaran.
+  const activeIds = useMemo(() => activeInvestorIds(transaksis), [transaksis]);
+
   // ── Portfolio metrics (hanya investor aktif) ──
   const metrics = useMemo(() => {
-    const activeInvestors = investors.filter((inv) => inv.isActive !== false);
+    const activeInvestors = investors.filter((inv) => activeIds.has(inv.id));
     const totalInvestors  = activeInvestors.length;
     const totalInvestment = activeInvestors.reduce((sum, inv) => sum + inv.investmentAmount, 0);
     const avgInvestment   = totalInvestors > 0 ? totalInvestment / totalInvestors : 0;
     const totalBrokers    = brokers.length;
     return { totalInvestors, totalInvestment, avgInvestment, totalBrokers };
-  }, [investors, brokers]);
+  }, [investors, brokers, activeIds]);
 
 
   // ── Chart: investasi per broker — stacked per investor ──
@@ -177,7 +180,7 @@ export function DashboardContent() {
       "#14b8a6","#eab308","#a855f7","#22c55e","#0ea5e9",
     ];
 
-    const active = investors.filter((inv) => inv.isActive !== false && inv.investmentAmount > 0);
+    const active = investors.filter((inv) => activeIds.has(inv.id) && inv.investmentAmount > 0);
 
     // Urutan broker: dari daftar broker, lalu "Tanpa Broker"
     const brokerOrder: string[] = [];
@@ -201,11 +204,11 @@ export function DashboardContent() {
     const colorMap   = new Map(active.map((inv, i) => [inv.id, COLORS[i % COLORS.length]]));
 
     return { data, investorIds, idToName, colorMap };
-  }, [investors, brokers]);
+  }, [investors, brokers, activeIds]);
 
   // ── Chart: kontribusi investasi per investor aktif ──
   const investorContribData = useMemo(() => {
-    const active        = investors.filter((inv) => inv.isActive !== false && inv.investmentAmount > 0);
+    const active        = investors.filter((inv) => activeIds.has(inv.id) && inv.investmentAmount > 0);
     const withBroker    = active.filter((inv) => !!inv.brokerName?.trim());
     const withoutBroker = active.filter((inv) => !inv.brokerName?.trim());
     const total         = active.reduce((s, inv) => s + inv.investmentAmount, 0);
@@ -235,7 +238,7 @@ export function DashboardContent() {
       hasNoBroker: withoutBroker.length > 0,
       activeCount: active.length,
     };
-  }, [investors]);
+  }, [investors, activeIds]);
 
   // ── Filter state ──
   const [dateRange,      setDateRange]      = useState<DateRange | undefined>(undefined);
