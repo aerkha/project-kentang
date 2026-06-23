@@ -131,6 +131,19 @@ function calcMouDistribution(
 
   return { totalProfit, owner, hasanah, investor, trader, minbun, brokerI, brokerII, effectivePct };
 }
+
+// PK% (bagi hasil investor) untuk sebuah entry transaksi. Split investor/owner
+// hanya tersimpan di PKS, jadi %-nya diambil dari PKS milik investor. Masa aktif
+// / terminate PKS sudah tidak relevan — PKS berlaku selama transaksinya jalan —
+// jadi tidak ada filter window/terminate; ambil PKS terbaru bila lebih dari satu.
+// Transaksi tidak bisa dibuat tanpa PKS, jadi default 35 hanya jaring pengaman.
+function investorPkPct(investorId: string, mous: MoU[]): number {
+  const latest = mous
+    .filter((m) => m.investorId === investorId)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  return latest?.bagiHasilPK ?? 35;
+}
+
 const MONTHS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
 
 function monthLabel(ym: string) {
@@ -350,11 +363,9 @@ export function DashboardContent() {
       income += c.income;
       profit += c.profit;
     });
-    // Bagi hasil dihitung per-PKS dari rekapData agar mengikuti skema masing-masing PKS
-    const bagHasil = rekapData.reduce((s, r) => s + r.investor, 0);
-
-    // Bagi hasil Trader, MinBun, Broker — langsung dari pct per entry transaksi
-    let bagHasilTrader = 0, bagHasilMinbun = 0, bagHasilBroker = 0, grossProfitMinbun = 0;
+    // Bagi hasil Investor, Trader, MinBun, Broker — semua langsung dari transaksi.
+    // Investor: profit × PK% dari PKS investor (split investor hanya ada di PKS).
+    let bagHasil = 0, bagHasilTrader = 0, bagHasilMinbun = 0, bagHasilBroker = 0, grossProfitMinbun = 0;
     filteredTransaksis.forEach((t) => {
       if (t.status !== "selesai" && t.status !== "bermasalah") return;
       const calc = calcTransaksi(t);
@@ -368,6 +379,7 @@ export function DashboardContent() {
         const pM  = allZero ? (hasBroker ? 0 : 5)  : e.pctMinBun;
         const pBI = allZero ? (hasBroker ? 5 : 0)  : e.pctBrokerI;
         const pBII= allZero ? 0                    : e.pctBrokerII;
+        bagHasil       += profit * investorPkPct(e.investorId, mous) / 100;
         bagHasilTrader += profit * pT   / 100;
         bagHasilMinbun += profit * pM   / 100;
         bagHasilBroker += profit * (pBI + pBII) / 100;
@@ -389,7 +401,7 @@ export function DashboardContent() {
       periodLabel,
       isFiltered: !!(dateRange?.from || dateRange?.to || filterBroker || filterInvestor),
     };
-  }, [filteredTransaksis, filteredMousByPeriod, rekapData, dateRange, filterBroker, filterInvestor]);
+  }, [filteredTransaksis, filteredMousByPeriod, mous, dateRange, filterBroker, filterInvestor]);
 
   // ── Chart: modal per bulan stacked by keterangan ──
   const modalByKeteranganData = useMemo(() => {
@@ -1120,13 +1132,11 @@ export function DashboardContent() {
               </thead>
               <tbody>
                 {filteredInvestors.map((investor) => {
-                  // Cari PKS aktif investor ini (non-terminated, bukan expired, sudah ada signed doc)
+                  // PKS aktif = berstatus draft atau completed (yakni belum
+                  // terminated). Masa aktif/expiry PKS tidak lagi relevan — PKS
+                  // berlaku selama transaksinya jalan.
                   const activeMou = mous
-                    .filter((m) =>
-                      m.investorId === investor.id &&
-                      !m.isTerminated &&
-                      m.hasSignedDoc,
-                    )
+                    .filter((m) => m.investorId === investor.id && !m.isTerminated)
                     .sort((a, b) => b.date.localeCompare(a.date))[0];
 
                   return (

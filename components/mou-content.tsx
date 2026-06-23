@@ -1570,7 +1570,6 @@ export function MouContent() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Terminate / Reactivate dialog ── */}
       {/* ── Upload Signed Doc dialog ── */}
       <Dialog open={isUploadDocOpen} onOpenChange={(open) => {
         if (!open) { resetUploadDialog(); }

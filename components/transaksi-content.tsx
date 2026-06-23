@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { ErrorDialog } from "@/components/ui/error-dialog";
 import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
-import { useTransaksi, calcTransaksi, effectiveStatus, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, effectiveStatus, isInvestorActive, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useMou } from "@/lib/mou-context";
@@ -344,7 +344,7 @@ function TrxFormFields({
                 HPP (Rp/kg) <span className="text-destructive">*</span>
               </Label>
               <Input
-                id="trx-hpp" type="number" min="0" step="100"
+                id="trx-hpp" type="number" min="0" step="10"
                 value={formData.hpp}
                 onChange={(e) => set("hpp", e.target.value)}
                 placeholder="2000" required
@@ -550,7 +550,7 @@ export function TransaksiContent() {
   const { transaksis, addTransaksi, updateTransaksi, deleteTransaksi } = useTransaksi();
   const { investors }  = useInvestors();
   const { brokers }    = useBrokers();
-  const { mous }       = useMou();
+  const { mous, updateMou } = useMou();
   const { user, isInvestor } = useAuth();
   const isAdmin   = user?.role === "admin";
   const perm      = usePermissions();
@@ -633,12 +633,43 @@ export function TransaksiContent() {
     catatanAkhir: existing?.catatanAkhir ?? "",
   });
 
+  // ── Sinkronisasi status terminate PKS dari transaksi ──
+  // PKS investor di-terminate saat investor tak lagi punya transaksi aktif
+  // (berjalan/bermasalah) — mis. transaksi selesai atau investor dikeluarkan dari
+  // entries — dan di-reaktivasi saat aktif kembali (renewal / masuk transaksi
+  // baru). Hanya menyentuh investor yang terlibat di mutasi ini, sehingga draft
+  // PKS baru yang belum pernah dipakai transaksi tetap non-terminated (masih bisa
+  // dipilih di form). nextTransaksis dibangun lokal karena state context async.
+  const reconcilePksTermination = async (
+    affectedInvestorIds: string[],
+    nextTransaksis: Transaksi[],
+  ) => {
+    try {
+      const ids = Array.from(new Set(affectedInvestorIds));
+      for (const invId of ids) {
+        const desired = !isInvestorActive(invId, nextTransaksis);
+        for (const pks of mous.filter((m) => m.investorId === invId)) {
+          if ((pks.isTerminated ?? false) !== desired) {
+            await updateMou(pks.id, { isTerminated: desired });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[transaksi] gagal sinkronkan status terminate PKS:", err);
+    }
+  };
+
   // ── Submit handlers ──
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      await addTransaksi(formToData(form));
+      const data = formToData(form);
+      await addTransaksi(data);
+      await reconcilePksTermination(
+        data.investorEntries.map((e) => e.investorId),
+        [...transaksis, { id: nextId(), ...data }],
+      );
       toast.success("Transaksi berhasil disimpan");
       setForm(initialForm());
       setIsAddOpen(false);
@@ -654,7 +685,12 @@ export function TransaksiContent() {
     if (!selected) return;
     setIsSaving(true);
     try {
-      await updateTransaksi(selected.id, formToData(form, selected));
+      const data = formToData(form, selected);
+      await updateTransaksi(selected.id, data);
+      await reconcilePksTermination(
+        [...selected.investorEntries, ...data.investorEntries].map((e) => e.investorId),
+        transaksis.map((t) => (t.id === selected.id ? { ...t, ...data } : t)),
+      );
       toast.success("Transaksi berhasil diperbarui");
       setForm(initialForm());
       setSelected(null);
@@ -696,6 +732,10 @@ export function TransaksiContent() {
     setIsDeleting(true);
     try {
       await deleteTransaksi(selected.id);
+      await reconcilePksTermination(
+        selected.investorEntries.map((e) => e.investorId),
+        transaksis.filter((t) => t.id !== selected.id),
+      );
       toast.success("Transaksi berhasil dihapus");
       setSelected(null);
       setIsDeleteOpen(false);
@@ -719,6 +759,10 @@ export function TransaksiContent() {
     setIsFinalizing(true);
     try {
       await updateTransaksi(selected.id, { status: finalizeStatus, catatanAkhir: finalizeNote });
+      await reconcilePksTermination(
+        selected.investorEntries.map((e) => e.investorId),
+        transaksis.map((t) => (t.id === selected.id ? { ...t, status: finalizeStatus, catatanAkhir: finalizeNote } : t)),
+      );
       toast.success(`Status transaksi ${selected.id} diubah ke "${TRANSAKSI_STATUS_LABEL[finalizeStatus]}"`);
       setIsFinalizeOpen(false);
       setSelected(null);
@@ -734,6 +778,10 @@ export function TransaksiContent() {
   const handlePerbarui = async (t: Transaksi) => {
     try {
       await updateTransaksi(t.id, { status: "berjalan", date: todayWibStr() });
+      await reconcilePksTermination(
+        t.investorEntries.map((e) => e.investorId),
+        transaksis.map((x) => (x.id === t.id ? { ...x, status: "berjalan", date: todayWibStr() } : x)),
+      );
       toast.success(`Transaksi ${t.id} diperbarui — periode dihitung ulang 30 hari ke depan`);
     } catch (err) {
       setErrorInfo(formatPbError(err, "Gagal memperbarui transaksi"));
