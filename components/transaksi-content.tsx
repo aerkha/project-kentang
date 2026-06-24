@@ -279,6 +279,29 @@ function TrxFormFields({
   const set = (k: keyof Omit<TrxFormData, "investorEntries">, v: string) =>
     setFormData({ ...formData, [k]: v });
 
+  // Investor yang nilainya melebihi sisa modal — dipakai untuk validasi & tampilan error
+  const overLimitEntries = useMemo(() => {
+    const ids = new Set<string>();
+    formData.investorEntries.forEach((e) => {
+      if (!e.investorId) return;
+      const inv = investors.find((x) => x.id === e.investorId);
+      if (!inv) return;
+      const nilai = parseFloat(e.nilaiInvestasi) || 0;
+      if (nilai > sisaModal(inv)) ids.add(e.investorId);
+    });
+    return ids;
+  // sisaModal depends on committedModal which is stable; include investors as dep
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.investorEntries, investors, committedModal]);
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    if (overLimitEntries.size > 0) {
+      e.preventDefault();
+      return;
+    }
+    onSubmit(e);
+  };
+
   const hpp         = parseFloat(formData.hpp) || 0;
   const modal       = parseFloat(formData.kebutuhanModal) || 0;
   const qty         = hpp > 0 ? modal / hpp : 0;
@@ -310,7 +333,7 @@ function TrxFormFields({
   }, [formData.investorEntries, investors]);
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-0">
+    <form onSubmit={handleFormSubmit} className="flex flex-col gap-0">
       <div className="overflow-y-auto max-h-[62vh] pr-2 space-y-5">
 
         {/* ── Info Pengiriman ── */}
@@ -494,13 +517,18 @@ function TrxFormFields({
                             )}
                           </div>
                           {checked && (
-                            <Input
-                              type="number" min="0" step="100000"
-                              value={entry?.nilaiInvestasi ?? ""}
-                              onChange={(e) => updateNilai(inv.id, e.target.value)}
-                              className="w-36 h-8 text-xs shrink-0"
-                              placeholder="Nilai investasi"
-                            />
+                            <div className="flex flex-col items-end gap-0.5 shrink-0">
+                              <Input
+                                type="number" min="0" max={sisa} step="100000"
+                                value={entry?.nilaiInvestasi ?? ""}
+                                onChange={(e) => updateNilai(inv.id, e.target.value)}
+                                className={`w-36 h-8 text-xs ${overLimitEntries.has(inv.id) ? "border-red-500 focus-visible:ring-red-500" : ""}`}
+                                placeholder="Nilai investasi"
+                              />
+                              {overLimitEntries.has(inv.id) && (
+                                <span className="text-[10px] text-red-500">Maks {formatRp(sisa)}</span>
+                              )}
+                            </div>
                           )}
                           {!checked && (
                             <span className="w-36 shrink-0 px-3 py-1.5 text-xs text-muted-foreground bg-muted rounded-md">
@@ -556,7 +584,7 @@ function TrxFormFields({
       </div>
 
       <DialogFooter className="mt-4 pt-4 border-t shrink-0">
-        <Button type="submit" disabled={isSaving}>
+        <Button type="submit" disabled={isSaving || overLimitEntries.size > 0}>
           {isSaving ? "Menyimpan…" : submitLabel}
         </Button>
       </DialogFooter>

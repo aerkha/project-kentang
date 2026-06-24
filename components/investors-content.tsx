@@ -1848,10 +1848,13 @@ export function InvestorsContent() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredInvestors.map((investor) => {
-            const bagHasil     = investorPnlMap.get(investor.id) ?? 0;
-            const danaTermakai = investorDanaMap.get(investor.id) ?? 0;
-            const danaSisa     = Math.max(0, investor.investmentAmount - danaTermakai);
-            const mouAllocated = mouAllocatedMap.get(investor.id) ?? 0;
+            const bagHasil      = investorPnlMap.get(investor.id) ?? 0;
+            const danaTermakai  = investorDanaMap.get(investor.id) ?? 0;
+            const mouAllocated  = mouAllocatedMap.get(investor.id) ?? 0;
+            // Modal benar-benar tersedia = total − max(terpakai transaksi, terikat PKS)
+            // karena PKS aktif yang belum masuk transaksi pun sudah "dipakai".
+            const committed     = Math.max(danaTermakai, mouAllocated);
+            const danaSisa      = Math.max(0, investor.investmentAmount - committed);
             const modalTersedia = Math.max(0, investor.investmentAmount - mouAllocated);
             const pct = investor.investmentAmount > 0
               ? ((bagHasil / investor.investmentAmount) * 100).toFixed(1)
@@ -1949,7 +1952,7 @@ export function InvestorsContent() {
                     <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
                       <div
                         className="h-full rounded-full bg-orange-400 transition-all"
-                        style={{ width: `${Math.min(100, (danaTermakai / investor.investmentAmount) * 100)}%` }}
+                        style={{ width: `${Math.min(100, (committed / investor.investmentAmount) * 100)}%` }}
                       />
                     </div>
                     <div className="flex justify-between text-[10px]">
