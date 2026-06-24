@@ -186,8 +186,8 @@ interface TrxFormProps {
   investorIdsWithPks: Set<string>;
   /** Modal yang sudah terikat di transaksi aktif lain per investor (exclude transaksi yg sedang diedit) */
   committedModal: Map<string, number>;
-  /** PKS aktif per investor: investorId → MoU */
-  mouByInvestor: Map<string, MoU>;
+  /** Semua PKS aktif per investor: investorId → MoU[] */
+  mouByInvestor: Map<string, MoU[]>;
   isSaving?: boolean;
 }
 
@@ -494,7 +494,7 @@ function TrxFormFields({
                     {jalurInvestors.map((inv) => {
                       const checked = isInvestorChecked(inv.id);
                       const entry   = formData.investorEntries.find((e) => e.investorId === inv.id);
-                      const pksId   = mouByInvestor.get(inv.id)?.id ?? "";
+                      const pksList = mouByInvestor.get(inv.id) ?? [];
                       const sisa    = sisaModal(inv);
                       return (
                         <div key={inv.id} className="flex items-center gap-3">
@@ -512,8 +512,14 @@ function TrxFormFields({
                                 </span>
                               )}
                             </div>
-                            {pksId && (
-                              <span className="font-mono text-[10px] text-blue-600/70">{pksId}</span>
+                            {pksList.length > 0 && (
+                              <div className="flex flex-wrap gap-x-2">
+                                {pksList.map((m) => (
+                                  <span key={m.id} className="font-mono text-[10px] text-blue-600/70">
+                                    {m.id} ({formatRp(m.investmentAmount)})
+                                  </span>
+                                ))}
+                              </div>
                             )}
                           </div>
                           {checked && (
@@ -862,13 +868,14 @@ export function TransaksiContent() {
     return map;
   }, [transaksis, editingTransaksi]);
 
-  // PKS aktif terbaru per investor (untuk tampilkan ID PKS di form)
+  // Semua PKS aktif per investor (untuk tampilkan semua ID PKS di form)
   const mouByInvestor = useMemo(() => {
-    const map = new Map<string, MoU>();
+    const map = new Map<string, MoU[]>();
     for (const m of mous) {
       if (m.isTerminated) continue;
-      const existing = map.get(m.investorId);
-      if (!existing || m.date > existing.date) map.set(m.investorId, m);
+      const list = map.get(m.investorId) ?? [];
+      list.push(m);
+      map.set(m.investorId, list);
     }
     return map;
   }, [mous]);
