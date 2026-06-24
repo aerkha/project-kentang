@@ -837,11 +837,9 @@ export function TransaksiContent() {
 
   // Investor yang boleh muncul di form transaksi: hanya yang punya PKS (draft atau complete)
   // Investor boleh dipilih di form jika punya PKS aktif (non-terminated) ATAU
-  // PKS draft yang ter-terminate (belum selesai formal — bisa terjadi karena
-  // transaksi dihapus sebelum siklus tuntas). Hanya PKS complete+terminated
-  // yang benar-benar memerlukan PKS baru.
+  // Investor boleh dipilih di form hanya jika punya PKS yang belum ter-terminate.
   const investorIdsWithPks = useMemo(
-    () => new Set(mous.filter((m) => !m.isTerminated || !m.isComplete).map((m) => m.investorId)),
+    () => new Set(mous.filter((m) => !m.isTerminated).map((m) => m.investorId)),
     [mous],
   );
 
