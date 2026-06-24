@@ -600,7 +600,7 @@ export function TransaksiContent() {
   const { transaksis, addTransaksi, updateTransaksi, deleteTransaksi } = useTransaksi();
   const { investors }  = useInvestors();
   const { brokers }    = useBrokers();
-  const { mous, updateMou } = useMou();
+  const { mous, updateMou, deleteMou } = useMou();
   const { user, isInvestor } = useAuth();
   const isAdmin   = user?.role === "admin";
   const perm      = usePermissions();
@@ -782,8 +782,7 @@ export function TransaksiContent() {
     setIsDeleting(true);
     try {
       await deleteTransaksi(selected.id);
-      // Hapus = koreksi data, bukan akhir siklus — PKS tidak di-terminate agar
-      // investor tetap bisa dipilih di transaksi berikutnya.
+      await Promise.all(pksToBulkDelete.map((m) => deleteMou(m.id)));
       toast.success("Transaksi berhasil dihapus");
       setSelected(null);
       setIsDeleteOpen(false);
@@ -837,8 +836,12 @@ export function TransaksiContent() {
   };
 
   // Investor yang boleh muncul di form transaksi: hanya yang punya PKS (draft atau complete)
+  // Investor boleh dipilih di form jika punya PKS aktif (non-terminated) ATAU
+  // PKS draft yang ter-terminate (belum selesai formal — bisa terjadi karena
+  // transaksi dihapus sebelum siklus tuntas). Hanya PKS complete+terminated
+  // yang benar-benar memerlukan PKS baru.
   const investorIdsWithPks = useMemo(
-    () => new Set(mous.filter((m) => !m.isTerminated).map((m) => m.investorId)),
+    () => new Set(mous.filter((m) => !m.isTerminated || !m.isComplete).map((m) => m.investorId)),
     [mous],
   );
 
@@ -871,6 +874,24 @@ export function TransaksiContent() {
     }
     return map;
   }, [mous]);
+
+  // PKS yang akan ikut dihapus saat transaksi dihapus:
+  // - Hanya investor dalam transaksi terpilih yang tidak punya transaksi aktif lain
+  // - Hanya PKS yang masih "bisa dipakai" (!isTerminated || !isComplete)
+  const pksToBulkDelete = useMemo(() => {
+    if (!selected) return [];
+    const remainingActiveInvestors = new Set(
+      transaksis
+        .filter((t) => t.id !== selected.id)
+        .filter((t) => { const e = effectiveStatus(t); return e === "berjalan" || e === "bermasalah"; })
+        .flatMap((t) => t.investorEntries.map((e) => e.investorId)),
+    );
+    return mous.filter((m) => {
+      if (!selected.investorEntries.some((e) => e.investorId === m.investorId)) return false;
+      if (remainingActiveInvestors.has(m.investorId)) return false;
+      return !m.isTerminated || !m.isComplete;
+    });
+  }, [selected, transaksis, mous]);
 
   const sharedFormProps = {
     investors,
@@ -1153,15 +1174,31 @@ export function TransaksiContent() {
 
       {/* ── Delete Dialog ── */}
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
-        <DialogContent className="sm:max-w-[400px]">
+        <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
             <DialogTitle>Hapus Transaksi</DialogTitle>
             <DialogDescription>
               Yakin ingin menghapus transaksi <strong>{selected?.id}</strong>
-              {selected?.description ? ` — ${selected.description}` : ""}?{" "}
-              Tindakan ini tidak dapat dibatalkan.
+              {selected?.description ? ` — ${selected.description}` : ""}?
             </DialogDescription>
           </DialogHeader>
+          {pksToBulkDelete.length > 0 && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 space-y-2">
+              <p className="text-sm font-medium text-destructive">PKS yang ikut dihapus:</p>
+              <ul className="space-y-1">
+                {pksToBulkDelete.map((m) => (
+                  <li key={m.id} className="flex items-center justify-between text-xs">
+                    <span className="font-mono text-muted-foreground">{m.id}</span>
+                    <span className="font-medium">{m.investorName}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted-foreground">
+                PKS investor yang masih aktif di transaksi lain tidak akan dihapus.
+              </p>
+            </div>
+          )}
+          <p className="text-sm text-destructive font-medium">Tindakan ini tidak dapat dibatalkan.</p>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setIsDeleteOpen(false)} disabled={isDeleting}>Batal</Button>
             <Button variant="destructive" onClick={confirmDelete} disabled={isDeleting}>
