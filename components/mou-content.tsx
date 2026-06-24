@@ -891,26 +891,38 @@ export function MouContent() {
   // ── Investor auto-fill ──
   const handleInvestorSelect = (investorId: string) => {
     const inv = investors.find((i) => i.id === investorId);
-    if (inv) {
-      const savedTtd = loadStoredEsign(esignInvKey(investorId));
-      setForm((prev) => ({
-        ...prev,
-        investorId: inv.id,
-        investorName: inv.name,
-        investorAddress: inv.address,
-        investorOccupation: inv.occupation,
-        investorIdNumber: inv.idNumber,
-        investorPhone: inv.phone,
-        investmentAmount: inv.investmentAmount.toString(),
-        heirName: inv.heirName,
-        esignPihakKedua: savedTtd,
-      }));
-      if (savedTtd) {
-        setSavedEsignFields((s) => new Set([...s, "esignPihakKedua"]));
-      } else {
-        setSavedEsignFields((s) => { const n = new Set(s); n.delete("esignPihakKedua"); return n; });
-      }
-    }
+    if (!inv) return;
+
+    const savedTtd = loadStoredEsign(esignInvKey(investorId));
+    // Sinkronkan broker dari data investor: cari broker berdasarkan nama
+    const broker = inv.brokerName ? brokers.find((b) => b.name === inv.brokerName) : null;
+    const savedPP3 = broker ? loadStoredEsign(ESIGN_KEYS.esignPihakPertama3) : "";
+
+    setForm((prev) => ({
+      ...prev,
+      investorId: inv.id,
+      investorName: inv.name,
+      investorAddress: inv.address,
+      investorOccupation: inv.occupation,
+      investorIdNumber: inv.idNumber,
+      investorPhone: inv.phone,
+      investmentAmount: inv.investmentAmount.toString(),
+      heirName: inv.heirName,
+      esignPihakKedua: savedTtd,
+      // Auto-fill broker jika investor punya broker yang terdaftar
+      brokerId:           broker ? broker.id      : "",
+      brokerName:         broker ? broker.name    : "",
+      brokerAddress:      broker ? broker.address : "",
+      brokerIdNumber:     broker ? broker.idNumber : "",
+      brokerPhone:        broker ? broker.phone   : "",
+      bagiHasilPP3:       broker ? prev.bagiHasilPP3 : "0",
+      esignPihakPertama3: broker ? savedPP3 : "",
+    }));
+
+    const newSaved = new Set<string>();
+    if (savedTtd) newSaved.add("esignPihakKedua");
+    if (broker && savedPP3) newSaved.add("esignPihakPertama3");
+    setSavedEsignFields(newSaved);
   };
 
   const [isSaving, setIsSaving] = useState(false);
