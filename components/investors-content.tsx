@@ -1234,6 +1234,10 @@ export function InvestorsContent() {
     const esignPP2 = isDirect ? "" : loadEsign(isTm ? "pks_esign_pp2_tm" : "pks_esign_pp2");
     const esignPK  = loadEsign(`pks_esign_inv_${investor.id}`);
 
+    const brokerRec = investor.brokerName
+      ? brokers.find((b) => b.name === investor.brokerName) ?? null
+      : null;
+
     const today = todayWibStr();
     const [y, m, d] = today.split("-").map(Number);
     const end = new Date(Date.UTC(y, m - 1, d + 30)).toISOString().slice(0, 10);
@@ -1257,11 +1261,11 @@ export function InvestorsContent() {
         bagiHasilPP2: defaultPP2,
         bagiHasilPK:  defaultPK,
         bagiHasilPP3: 0,
-        brokerId: "",
-        brokerName: investor.brokerName || "",
-        brokerAddress: "",
-        brokerIdNumber: "",
-        brokerPhone: "",
+        brokerId:      brokerRec?.id      ?? "",
+        brokerName:    brokerRec?.name    ?? investor.brokerName ?? "",
+        brokerAddress: brokerRec?.address ?? "",
+        brokerIdNumber: brokerRec?.idNumber ?? "",
+        brokerPhone:   brokerRec?.phone   ?? "",
         esignPihakPertama1: esignPP1,
         esignPihakPertama2: esignPP2,
         esignPihakKedua:    esignPK,

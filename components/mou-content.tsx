@@ -1127,6 +1127,11 @@ export function MouContent() {
   const openEdit = (mou: MoU) => {
     setSelected(mou);
     setSavedEsignFields(new Set());
+    // Jika brokerId kosong tapi brokerName ada, coba resolve dari master data broker
+    const resolvedBroker =
+      !mou.brokerId && mou.brokerName
+        ? brokers.find((b) => b.name === mou.brokerName) ?? null
+        : null;
     setForm({
       date: mou.date,
       endDate: mou.endDate ?? "",
@@ -1148,11 +1153,11 @@ export function MouContent() {
       esignPihakPertama1: mou.esignPihakPertama1 ?? "",
       esignPihakPertama2: mou.esignPihakPertama2 ?? "",
       esignPihakKedua: mou.esignPihakKedua ?? "",
-      brokerId:      mou.brokerId      ?? "",
-      brokerName:    mou.brokerName    ?? "",
-      brokerAddress: mou.brokerAddress ?? "",
-      brokerIdNumber: mou.brokerIdNumber ?? "",
-      brokerPhone:   mou.brokerPhone   ?? "",
+      brokerId:       resolvedBroker ? resolvedBroker.id       : (mou.brokerId      ?? ""),
+      brokerName:     resolvedBroker ? resolvedBroker.name     : (mou.brokerName    ?? ""),
+      brokerAddress:  resolvedBroker ? resolvedBroker.address  : (mou.brokerAddress ?? ""),
+      brokerIdNumber: resolvedBroker ? resolvedBroker.idNumber : (mou.brokerIdNumber ?? ""),
+      brokerPhone:    resolvedBroker ? resolvedBroker.phone    : (mou.brokerPhone   ?? ""),
       bagiHasilPP3:  String(mou.bagiHasilPP3 ?? 0),
       esignPihakPertama3: mou.esignPihakPertama3 ?? "",
     });
@@ -1344,6 +1349,7 @@ export function MouContent() {
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">No. PKS</th>
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Tanggal</th>
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Investor</th>
+                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Broker</th>
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Keterangan</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground">Periode</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground">Nilai Investasi</th>
@@ -1365,6 +1371,11 @@ export function MouContent() {
                         <td className="py-3 px-4">
                           <div className="font-medium">{mou.investorName}</div>
                           <div className="text-xs text-muted-foreground">{mou.investorId}</div>
+                        </td>
+                        <td className="py-3 px-4">
+                          {mou.brokerName
+                            ? <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">{mou.brokerName}</span>
+                            : <span className="text-xs text-muted-foreground italic">—</span>}
                         </td>
                         <td className="py-3 px-4 text-muted-foreground text-xs max-w-[160px]">
                           {mou.keterangan || <span className="italic opacity-50">—</span>}
