@@ -170,6 +170,20 @@ export function getMouStatus(mou: MoU): MouStatus {
   return mou.isComplete ? "complete" : "draft";
 }
 
+/**
+ * PK% (bagi hasil investor / Pihak Kedua) untuk seorang investor. Split investor
+ * hanya tersimpan di PKS, jadi %-nya diambil dari PKS milik investor. Masa aktif /
+ * terminate PKS tidak relevan — PKS berlaku selama transaksinya jalan — jadi tanpa
+ * filter window/terminate; ambil PKS terbaru bila lebih dari satu. Dipakai bersama
+ * oleh dashboard & halaman investor agar konsisten. Default 35 hanya jaring pengaman.
+ */
+export function investorPkPct(investorId: string, mous: MoU[]): number {
+  const latest = mous
+    .filter((m) => m.investorId === investorId)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  return latest?.bagiHasilPK ?? 35;
+}
+
 function isCustomIdConflict(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const data = (err as { data?: { data?: { customId?: { code?: string } } } }).data;

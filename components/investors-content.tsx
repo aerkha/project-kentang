@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useTransaksi, calcTransaksi, activeInvestorIds, type TransaksiStatus } from "@/lib/transaksi-context";
-import { useMou, getMouStatus } from "@/lib/mou-context";
+import { useMou, getMouStatus, investorPkPct } from "@/lib/mou-context";
 import { usePengeluaran } from "@/lib/cashflow-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1062,11 +1062,13 @@ export function InvestorsContent() {
       return next;
     });
 
-  // ── Dana terpakai per investor (transaksi aktif: rencana + berjalan) ──
+  // ── Dana terpakai per investor (transaksi aktif: modal belum kembali) ──
+  // Sejalan dengan definisi investor aktif: berjalan + bermasalah (perbarui = legacy
+  // berjalan). Transaksi bermasalah pun modalnya masih terpakai.
   const investorDanaMap = useMemo(() => {
     const map = new Map<string, number>();
     transaksis.forEach((t) => {
-      if (t.status !== "berjalan" && t.status !== "perbarui") return;
+      if (t.status !== "berjalan" && t.status !== "perbarui" && t.status !== "bermasalah") return;
       t.investorEntries.forEach((entry) => {
         map.set(entry.investorId, (map.get(entry.investorId) ?? 0) + entry.nilaiInvestasi);
       });
@@ -1091,22 +1093,11 @@ export function InvestorsContent() {
       if (t.status !== "selesai" && t.status !== "bermasalah") return;
       const c = calcTransaksi(t);
       if (c.totalInvestasi === 0) return;
-      const [ty, tm, td] = (t.date as string).slice(0, 10).split("-").map(Number);
-      const tTime = Date.UTC(ty, tm - 1, td);
       t.investorEntries.forEach((entry) => {
         const ratio = entry.nilaiInvestasi / c.totalInvestasi;
-        // Pakai % Pihak Kedua dari PKS investor yang periodenya mencakup
-        // tanggal transaksi — konsisten dengan dashboard & dokumen PKS.
-        const mou = mous.find((m) => {
-          if (m.investorId !== entry.investorId) return false;
-          const [my, mm, md] = m.date.slice(0, 10).split("-").map(Number);
-          const start = Date.UTC(my, mm - 1, md);
-          const mouEnd = m.endDate
-            ? (() => { const [ey, em, ed2] = m.endDate.slice(0,10).split("-").map(Number); return Date.UTC(ey, em-1, ed2); })()
-            : start + m.contractPeriod * (m.siklus ?? 1) * 86_400_000;
-          return tTime >= start && tTime < mouEnd;
-        });
-        const pkPct = (mou?.bagiHasilPK ?? 35) / 100;
+        // PK% dari PKS investor lewat helper bersama investorPkPct — konsisten
+        // dengan dashboard. Masa aktif PKS tidak relevan (PKS = formalitas).
+        const pkPct = investorPkPct(entry.investorId, mous) / 100;
         const bh    = c.profit > 0 ? c.profit * pkPct * ratio : 0;
         map.set(entry.investorId, (map.get(entry.investorId) ?? 0) + bh);
       });

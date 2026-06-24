@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
-import { useMou } from "@/lib/mou-context";
+import { useMou, investorPkPct } from "@/lib/mou-context";
 import { useTransaksi, calcTransaksi, activeInvestorIds, type Transaksi, type TransaksiStatus } from "@/lib/transaksi-context";
 import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -130,18 +130,6 @@ function calcMouDistribution(
   hasanah = investor + trader + minbun + brokerI + brokerII;
 
   return { totalProfit, owner, hasanah, investor, trader, minbun, brokerI, brokerII, effectivePct };
-}
-
-// PK% (bagi hasil investor) untuk sebuah entry transaksi. Split investor/owner
-// hanya tersimpan di PKS, jadi %-nya diambil dari PKS milik investor. Masa aktif
-// / terminate PKS sudah tidak relevan — PKS berlaku selama transaksinya jalan —
-// jadi tidak ada filter window/terminate; ambil PKS terbaru bila lebih dari satu.
-// Transaksi tidak bisa dibuat tanpa PKS, jadi default 35 hanya jaring pengaman.
-function investorPkPct(investorId: string, mous: MoU[]): number {
-  const latest = mous
-    .filter((m) => m.investorId === investorId)
-    .sort((a, b) => b.date.localeCompare(a.date))[0];
-  return latest?.bagiHasilPK ?? 35;
 }
 
 const MONTHS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
