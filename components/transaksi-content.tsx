@@ -782,10 +782,8 @@ export function TransaksiContent() {
     setIsDeleting(true);
     try {
       await deleteTransaksi(selected.id);
-      await reconcilePksTermination(
-        selected.investorEntries.map((e) => e.investorId),
-        transaksis.filter((t) => t.id !== selected.id),
-      );
+      // Hapus = koreksi data, bukan akhir siklus — PKS tidak di-terminate agar
+      // investor tetap bisa dipilih di transaksi berikutnya.
       toast.success("Transaksi berhasil dihapus");
       setSelected(null);
       setIsDeleteOpen(false);

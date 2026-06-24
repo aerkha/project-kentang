@@ -1026,7 +1026,7 @@ function parseInternalRef(catatan: string): string | null {
 
 export function InvestorsContent() {
   const { investors, addInvestor, updateInvestor, deleteInvestor, reloadInvestors, uploadBuktiTransfer, getBuktiUrl } = useInvestors();
-  const { entriesByInvestor } = useModalEntries();
+  const { entriesByInvestor, addEntry } = useModalEntries();
   const { mous, addMou } = useMou();
   const { brokers, addBroker, updateBroker, deleteBroker, reloadBrokers } = useBrokers();
   const { transaksis, syncInvestorInfo } = useTransaksi();
@@ -1474,6 +1474,13 @@ export function InvestorsContent() {
     try {
       const newAmount = topUpInvestor.investmentAmount + nominal;
       await updateInvestor(topUpInvestor.id, { investmentAmount: newAmount });
+
+      // Catat ke riwayat modal
+      await addEntry(topUpInvestor.id, {
+        amount: nominal,
+        date:   todayWibStr(),
+        type:   "topup",
+      });
 
       // Sinkronkan entri cash flow internal jika investor internal
       if (topUpInvestor.isInternal) {
