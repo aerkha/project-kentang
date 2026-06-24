@@ -743,7 +743,7 @@ function MouFormFields({
 // Main component
 // ─────────────────────────────────────────────
 
-type Filter = "semua" | "draft" | "complete";
+type Filter = "semua" | "draft" | "complete" | "terminated";
 
 export function MouContent() {
   const { mous, addMou, updateMou, deleteMou, uploadSignedDoc } = useMou();
@@ -967,9 +967,9 @@ export function MouContent() {
         setSavedEsignFields((s) => { const n = new Set(s); n.delete("esignPihakPertama3"); return n; });
       }
     }
-    // Reset broker esign jika broker diganti
+    // Reset broker esign jika broker diganti — merge ke newForm agar tidak tertimpa setForm berikutnya
     if (newForm.brokerId !== form.brokerId && form.brokerId) {
-      setForm((prev) => ({ ...prev, esignPihakPertama3: "" }));
+      newForm = { ...newForm, esignPihakPertama3: "" };
     }
     setForm(newForm);
   };
@@ -1041,7 +1041,7 @@ export function MouContent() {
         brokerAddress: form.brokerAddress,
         brokerIdNumber: form.brokerIdNumber,
         brokerPhone:   form.brokerPhone,
-        bagiHasilPP3:  parseFloat(form.bagiHasilPP3) || 0,
+        bagiHasilPP3:  form.brokerId ? (parseFloat(form.bagiHasilPP3) || 0) : 0,
         esignPihakPertama1: form.esignPihakPertama1,
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
@@ -1107,7 +1107,7 @@ export function MouContent() {
         brokerAddress: form.brokerAddress,
         brokerIdNumber: form.brokerIdNumber,
         brokerPhone:   form.brokerPhone,
-        bagiHasilPP3:  parseFloat(form.bagiHasilPP3) || 0,
+        bagiHasilPP3:  form.brokerId ? (parseFloat(form.bagiHasilPP3) || 0) : 0,
         esignPihakPertama1: form.esignPihakPertama1,
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
@@ -1239,9 +1239,10 @@ export function MouContent() {
 
   // ── Count per status ──
   const counts = {
-    semua:    visibleMous.length,
-    draft:    visibleMous.filter((m) => getMouStatus(m) === "draft").length,
-    complete: visibleMous.filter((m) => getMouStatus(m) === "complete").length,
+    semua:      visibleMous.length,
+    draft:      visibleMous.filter((m) => getMouStatus(m) === "draft").length,
+    complete:   visibleMous.filter((m) => getMouStatus(m) === "complete").length,
+    terminated: visibleMous.filter((m) => getMouStatus(m) === "terminated").length,
   };
 
   return (
@@ -1302,7 +1303,7 @@ export function MouContent() {
 
       {/* ── Filter tabs ── */}
       <div className="flex flex-wrap gap-2">
-        {(["semua", "draft", "complete"] as Filter[]).map((f) => (
+        {(["semua", "draft", "complete", "terminated"] as Filter[]).map((f) => (
           <Button
             key={f}
             variant={filter === f ? "default" : "outline"}
@@ -1322,11 +1323,10 @@ export function MouContent() {
           <CardContent className="flex flex-col items-center justify-center py-14">
             <FileText className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-1">
-              {filter === "semua"
-                ? "Belum ada PKS"
-                : filter === "complete"
-                ? "Belum ada PKS yang selesai"
-                : "Belum ada PKS draft"}
+              {filter === "semua"      ? "Belum ada PKS" :
+               filter === "complete"  ? "Belum ada PKS yang selesai" :
+               filter === "terminated"? "Belum ada PKS yang terminated" :
+               "Belum ada PKS draft"}
             </h3>
             <p className="text-muted-foreground text-sm">
               {filter === "semua"
@@ -1395,11 +1395,13 @@ export function MouContent() {
                         <td className="py-3 px-4 text-center">
                           <Badge
                             variant="secondary"
-                            className={status === "complete"
-                              ? "bg-green-100 text-green-800 hover:bg-green-100"
-                              : "bg-muted text-muted-foreground hover:bg-muted"}
+                            className={
+                              status === "complete"   ? "bg-green-100 text-green-800 hover:bg-green-100" :
+                              status === "terminated" ? "bg-red-100 text-red-800 hover:bg-red-100" :
+                              "bg-muted text-muted-foreground hover:bg-muted"
+                            }
                           >
-                            {status === "complete" ? "Complete" : "Draft"}
+                            {status === "complete" ? "Complete" : status === "terminated" ? "Terminated" : "Draft"}
                           </Badge>
                         </td>
                         <td className="py-3 px-4">
@@ -1437,6 +1439,7 @@ export function MouContent() {
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
+                            {!mou.isTerminated && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -1448,6 +1451,7 @@ export function MouContent() {
                                 ? <CircleDashed className="h-3.5 w-3.5 text-muted-foreground" />
                                 : <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />}
                             </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"

@@ -163,10 +163,11 @@ function todayUtc(): Date {
   return parseUtcDate(todayWibStr());
 }
 
-export type MouStatus = "draft" | "complete";
+export type MouStatus = "draft" | "complete" | "terminated";
 
-/** Status PKS: draft (belum final) atau complete (sudah final). */
+/** Status PKS: terminated > complete > draft. */
 export function getMouStatus(mou: MoU): MouStatus {
+  if (mou.isTerminated) return "terminated";
   return mou.isComplete ? "complete" : "draft";
 }
 

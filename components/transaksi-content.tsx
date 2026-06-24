@@ -712,6 +712,7 @@ export function TransaksiContent() {
       .map((e) => {
         const inv = investors.find((x) => x.id === e.investorId);
         return {
+          mouId:              e.mouId,
           investorId:         e.investorId,
           investorName:       inv?.name ?? e.investorId,
           investorBrokerName: inv?.brokerName ?? "",
@@ -811,7 +812,7 @@ export function TransaksiContent() {
             const available = mous.filter(
               (m) => m.investorId === e.investorId && !m.isTerminated && !assignedMouIds.has(m.id),
             );
-            const mouId = available[0]?.id ?? "";
+            const mouId = e.mouId || (available[0]?.id ?? "");
             if (mouId) assignedMouIds.add(mouId);
             return {
               mouId,
@@ -917,7 +918,7 @@ export function TransaksiContent() {
 
   // PKS yang akan ikut dihapus saat transaksi dihapus:
   // - Hanya investor dalam transaksi terpilih yang tidak punya transaksi aktif lain
-  // - Hanya PKS yang masih "bisa dipakai" (!isTerminated || !isComplete)
+  // - Hanya PKS yang belum terminated DAN belum complete (!isTerminated && !isComplete)
   const pksToBulkDelete = useMemo(() => {
     if (!selected) return [];
     const remainingActiveInvestors = new Set(
@@ -929,7 +930,7 @@ export function TransaksiContent() {
     return mous.filter((m) => {
       if (!selected.investorEntries.some((e) => e.investorId === m.investorId)) return false;
       if (remainingActiveInvestors.has(m.investorId)) return false;
-      return !m.isTerminated || !m.isComplete;
+      return !m.isTerminated && !m.isComplete;
     });
   }, [selected, transaksis, mous]);
 

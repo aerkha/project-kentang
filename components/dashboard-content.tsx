@@ -323,7 +323,7 @@ export function DashboardContent() {
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((mou, idx) => {
-        const dist       = calcMouDistribution(mou, transaksis);
+        const dist       = calcMouDistribution(mou, filteredTransaksis);
         const modal      = mou.investmentAmount;
         const [uy, um, ud] = mou.date.slice(0, 10).split("-").map(Number);
         const [ty, tm, td] = todayWibStr().split("-").map(Number);
@@ -341,7 +341,7 @@ export function DashboardContent() {
           roiMinbun:         roi(dist.minbun),
         };
       });
-  }, [filteredMousByPeriod, transaksis]);
+  }, [filteredMousByPeriod, filteredTransaksis]);
 
   // ── Period summary metrics ──
   const periodMetrics = useMemo(() => {

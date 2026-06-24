@@ -6,6 +6,7 @@ import pb from "./pocketbase";
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
 export interface TransaksiInvestorEntry {
+  mouId: string;              // ID PKS yang dipakai; "" untuk entry lama
   investorId: string;
   investorName: string;
   investorBrokerName: string;  // "" jika langsung (tanpa broker)
@@ -135,6 +136,7 @@ function recordToTransaksi(
 
 function recordToInvestorEntry(r: Record<string, unknown>): TransaksiInvestorEntry {
   return {
+    mouId:              (r.mouId              as string) || "",
     investorId:         r.investorId         as string,
     investorName:       r.investorName       as string,
     investorBrokerName: (r.investorBrokerName as string) || "",
@@ -179,6 +181,7 @@ async function createInvestorEntries(
     entries.map((e) =>
       pb.collection("transaksi_investors").create({
         transaksiId:         transaksiPbId,
+        mouId:               e.mouId ?? "",
         investorId:          e.investorId,
         investorName:        e.investorName,
         investorBrokerName:  e.investorBrokerName,

@@ -1271,7 +1271,11 @@ export function InvestorsContent() {
         esignPihakKedua:    esignPK,
         esignPihakPertama3: "",
       });
-      toast.success(`Draft PKS untuk ${investor.name} berhasil dibuat — lihat di halaman PKS`);
+      if (brokerRec) {
+        toast.success(`Draft PKS untuk ${investor.name} berhasil dibuat — buka di halaman PKS untuk mengatur komisi broker (PP3 saat ini 0%)`);
+      } else {
+        toast.success(`Draft PKS untuk ${investor.name} berhasil dibuat — lihat di halaman PKS`);
+      }
     } catch (err) {
       const pbErr = err as { response?: { message?: string }; data?: { message?: string }; message?: string };
       const detail =
