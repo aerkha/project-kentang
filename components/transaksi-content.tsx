@@ -52,6 +52,7 @@ import { todayWibStr } from "@/lib/utils";
 // ─────────────────────────────────────────────
 
 interface InvestorEntryForm {
+  mouId: string;
   investorId: string;
   nilaiInvestasi: string;
   pctTrader: string;
@@ -84,7 +85,7 @@ function investorPct(
 }
 
 const emptyEntry = (): InvestorEntryForm => ({
-  investorId: "", nilaiInvestasi: "",
+  mouId: "", investorId: "", nilaiInvestasi: "",
   pctTrader: "10", pctMinBun: "5", pctBrokerI: "0", pctBrokerII: "0",
 });
 
@@ -183,17 +184,16 @@ interface TrxFormProps {
   previewId: string;
   investors: Investor[];
   brokers: Broker[];
-  investorIdsWithPks: Set<string>;
+  /** Semua PKS aktif (non-terminated) */
+  activeMous: MoU[];
   /** Modal yang sudah terikat di transaksi aktif lain per investor (exclude transaksi yg sedang diedit) */
   committedModal: Map<string, number>;
-  /** Semua PKS aktif per investor: investorId → MoU[] */
-  mouByInvestor: Map<string, MoU[]>;
   isSaving?: boolean;
 }
 
 function TrxFormFields({
   formData, setFormData, onSubmit, submitLabel, previewId,
-  investors, brokers: _brokers, investorIdsWithPks, committedModal, mouByInvestor,
+  investors, brokers: _brokers, activeMous, committedModal,
   isSaving = false,
 }: TrxFormProps) {
   // ── Jalur state ──────────────────────────────────────────────────────────
@@ -207,39 +207,62 @@ function TrxFormFields({
     return s;
   });
 
-  const isInvestorChecked = (investorId: string) =>
-    formData.investorEntries.some((e) => e.investorId === investorId);
-
-  // Sisa modal = total investmentAmount investor − yang sudah terikat di transaksi aktif lain
+  // Sisa modal investor dari transaksi lain (bukan form ini)
   const sisaModal = (inv: Investor) =>
     Math.max(0, inv.investmentAmount - (committedModal.get(inv.id) ?? 0));
 
-  // Investor yang muncul di jalur: punya PKS aktif & masih ada sisa modal.
-  // Yang sudah ter-checked tetap ditampilkan (mis. saat edit transaksi).
-  const investorsByJalur = (jalur: InvestorJalur) =>
-    investors.filter(
-      (inv) =>
-        getJalur(inv) === jalur &&
-        investorIdsWithPks.has(inv.id) &&
-        (sisaModal(inv) > 0 || isInvestorChecked(inv.id)),
-    );
+  // Sisa efektif untuk ditampilkan di baris PKS (min PKS budget vs investor sisa)
+  const displaySisaForPks = (mou: MoU): number => {
+    const inv = investors.find((x) => x.id === mou.investorId);
+    if (!inv) return mou.investmentAmount;
+    return Math.min(mou.investmentAmount, sisaModal(inv));
+  };
+
+  const isPksChecked = (mou: MoU): boolean =>
+    formData.investorEntries.some((e) => e.mouId === mou.id);
+
+  const getEntryForPks = (mou: MoU): InvestorEntryForm | undefined =>
+    formData.investorEntries.find((e) => e.mouId === mou.id);
+
+  // PKS yang ditampilkan per jalur: punya sisa > 0 atau sudah ter-checked
+  const pksByJalur = (jalur: InvestorJalur): MoU[] =>
+    activeMous.filter((m) => {
+      const inv = investors.find((x) => x.id === m.investorId);
+      if (!inv || getJalur(inv) !== jalur) return false;
+      return displaySisaForPks(m) > 0 || isPksChecked(m);
+    });
 
   const toggleJalur = (jalur: InvestorJalur) => {
     if (openJalurs.has(jalur)) {
-      // Tutup jalur: hapus semua investor jalur ini dari entries
-      const ids = new Set(investorsByJalur(jalur).map((i) => i.id));
+      // Tutup jalur: hapus semua PKS entries di jalur ini
+      const mouIds = new Set(
+        activeMous
+          .filter((m) => { const inv = investors.find((x) => x.id === m.investorId); return inv && getJalur(inv) === jalur; })
+          .map((m) => m.id),
+      );
       setFormData((prev) => ({
         ...prev,
-        investorEntries: prev.investorEntries.filter((e) => !ids.has(e.investorId)),
+        investorEntries: prev.investorEntries.filter((e) => !mouIds.has(e.mouId)),
       }));
       setOpenJalurs((prev) => { const n = new Set(prev); n.delete(jalur); return n; });
     } else {
-      // Buka jalur: tambah semua investor jalur ini ke entries (pre-checked semua)
-      const toAdd = investorsByJalur(jalur).map((inv) => ({
-        investorId: inv.id,
-        nilaiInvestasi: sisaModal(inv).toString(),
-        ...investorPct(inv.brokerName ?? ""),
-      }));
+      // Buka jalur: tambah semua PKS di jalur ini yang belum ter-checked
+      const toAdd = pksByJalur(jalur)
+        .filter((m) => !isPksChecked(m))
+        .map((m) => {
+          const inv = investors.find((x) => x.id === m.investorId);
+          const pct = investorPct(inv?.brokerName ?? "");
+          const alreadyEntered = formData.investorEntries
+            .filter((e) => e.investorId === m.investorId)
+            .reduce((s, e) => s + (parseFloat(e.nilaiInvestasi) || 0), 0);
+          const remaining = Math.max(0, (inv ? sisaModal(inv) : 0) - alreadyEntered);
+          return {
+            mouId: m.id,
+            investorId: m.investorId,
+            nilaiInvestasi: Math.min(m.investmentAmount, remaining).toString(),
+            ...pct,
+          };
+        });
       setFormData((prev) => ({
         ...prev,
         investorEntries: [
@@ -251,48 +274,70 @@ function TrxFormFields({
     }
   };
 
-  const toggleInvestor = (inv: Investor) => {
+  const togglePks = (mou: MoU) => {
     setFormData((prev) => {
-      const alreadyIn = prev.investorEntries.some((e) => e.investorId === inv.id);
+      const alreadyIn = prev.investorEntries.some((e) => e.mouId === mou.id);
       if (alreadyIn) {
-        return { ...prev, investorEntries: prev.investorEntries.filter((e) => e.investorId !== inv.id) };
+        return { ...prev, investorEntries: prev.investorEntries.filter((e) => e.mouId !== mou.id) };
       }
-      const pct = investorPct(inv.brokerName ?? "");
+      const inv = investors.find((x) => x.id === mou.investorId);
+      const pct = investorPct(inv?.brokerName ?? "");
+      const alreadyEntered = prev.investorEntries
+        .filter((e) => e.investorId === mou.investorId)
+        .reduce((s, e) => s + (parseFloat(e.nilaiInvestasi) || 0), 0);
+      const remaining = Math.max(0, (inv ? sisaModal(inv) : 0) - alreadyEntered);
       return {
         ...prev,
         investorEntries: [
           ...prev.investorEntries.filter((e) => e.investorId),
-          { investorId: inv.id, nilaiInvestasi: sisaModal(inv).toString(), ...pct },
+          {
+            mouId: mou.id,
+            investorId: mou.investorId,
+            nilaiInvestasi: Math.min(mou.investmentAmount, remaining).toString(),
+            ...pct,
+          },
         ],
       };
     });
   };
 
-  const updateNilai = (investorId: string, value: string) => {
+  const updateNilai = (mouId: string, value: string) => {
     setFormData((prev) => ({
       ...prev,
       investorEntries: prev.investorEntries.map((e) =>
-        e.investorId === investorId ? { ...e, nilaiInvestasi: value } : e,
+        e.mouId === mouId ? { ...e, nilaiInvestasi: value } : e,
       ),
     }));
   };
   const set = (k: keyof Omit<TrxFormData, "investorEntries">, v: string) =>
     setFormData({ ...formData, [k]: v });
 
-  // Investor yang nilainya melebihi sisa modal — dipakai untuk validasi & tampilan error
+  // PKS entries yang nilainya melebihi batas — keyed by mouId
   const overLimitEntries = useMemo(() => {
     const ids = new Set<string>();
+    // Hitung total per investor dari semua PKS yang ter-checked
+    const totalByInvestor = new Map<string, number>();
     formData.investorEntries.forEach((e) => {
-      if (!e.investorId) return;
+      if (!e.mouId || !e.nilaiInvestasi) return;
+      const nilai = parseFloat(e.nilaiInvestasi) || 0;
+      totalByInvestor.set(e.investorId, (totalByInvestor.get(e.investorId) ?? 0) + nilai);
+    });
+    formData.investorEntries.forEach((e) => {
+      if (!e.mouId || !e.nilaiInvestasi) return;
+      const mou = activeMous.find((m) => m.id === e.mouId);
+      if (!mou) return;
+      const nilai = parseFloat(e.nilaiInvestasi) || 0;
+      // Per-PKS cap
+      if (nilai > mou.investmentAmount) { ids.add(e.mouId); return; }
+      // Per-investor total cap
       const inv = investors.find((x) => x.id === e.investorId);
       if (!inv) return;
-      const nilai = parseFloat(e.nilaiInvestasi) || 0;
-      if (nilai > sisaModal(inv)) ids.add(e.investorId);
+      const sisa = Math.max(0, inv.investmentAmount - (committedModal.get(inv.id) ?? 0));
+      if ((totalByInvestor.get(e.investorId) ?? 0) > sisa) ids.add(e.mouId);
     });
     return ids;
-  // sisaModal depends on committedModal which is stable; include investors as dep
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.investorEntries, investors, committedModal]);
+  }, [formData.investorEntries, activeMous, investors, committedModal]);
 
   const handleFormSubmit = (e: React.FormEvent) => {
     if (overLimitEntries.size > 0) {
@@ -318,17 +363,19 @@ function TrxFormFields({
     selisih < 0   ? "text-orange-600" :
                     "text-red-600";
 
-  // Ringkasan broker dari investor yang dipilih
+  // Ringkasan broker dari investor yang dipilih (deduplikasi per investor)
   const brokerSummary = useMemo(() => {
-    const map = new Map<string, string[]>(); // brokerName → [investorName]
+    const sets = new Map<string, Set<string>>(); // brokerName → Set<investorName>
     formData.investorEntries.forEach((e) => {
       if (!e.investorId) return;
       const inv = investors.find((x) => x.id === e.investorId);
       if (!inv) return;
       const key = inv.brokerName?.trim() || "__langsung";
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(inv.name);
+      if (!sets.has(key)) sets.set(key, new Set());
+      sets.get(key)!.add(inv.name);
     });
+    const map = new Map<string, string[]>();
+    sets.forEach((names, key) => map.set(key, Array.from(names)));
     return map;
   }, [formData.investorEntries, investors]);
 
@@ -478,61 +525,53 @@ function TrxFormFields({
             ))}
           </div>
 
-          {/* Investor list per jalur */}
+          {/* PKS list per jalur — setiap PKS adalah satu baris checkbox mandiri */}
           {(["MB", "TM", "D"] as InvestorJalur[]).map((jalur) => {
             if (!openJalurs.has(jalur)) return null;
-            const jalurInvestors = investorsByJalur(jalur);
+            const jalurPks = pksByJalur(jalur);
             return (
               <div key={jalur} className="rounded-md border border-border p-3 space-y-2 bg-muted/20">
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                   {JALUR_LABEL[jalur]}
                 </p>
-                {jalurInvestors.length === 0 ? (
+                {jalurPks.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic">Mohon buat PKS terlebih dahulu</p>
                 ) : (
                   <div className="space-y-2">
-                    {jalurInvestors.map((inv) => {
-                      const checked = isInvestorChecked(inv.id);
-                      const entry   = formData.investorEntries.find((e) => e.investorId === inv.id);
-                      const pksList = mouByInvestor.get(inv.id) ?? [];
-                      const sisa    = sisaModal(inv);
+                    {jalurPks.map((mou) => {
+                      const checked   = isPksChecked(mou);
+                      const entry     = getEntryForPks(mou);
+                      const isOver    = overLimitEntries.has(mou.id);
+                      const sisa      = displaySisaForPks(mou);
+                      const inv       = investors.find((x) => x.id === mou.investorId);
                       return (
-                        <div key={inv.id} className="flex items-center gap-3">
+                        <div key={mou.id} className="flex items-center gap-3">
                           <Checkbox
                             checked={checked}
-                            onCheckedChange={() => toggleInvestor(inv)}
+                            onCheckedChange={() => togglePks(mou)}
                           />
                           <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                             <div className="flex items-center gap-2">
-                              <span className="font-mono text-[10px] text-muted-foreground shrink-0">{inv.id}</span>
-                              <span className="text-sm truncate">{inv.name}</span>
-                              {inv.brokerName && (
+                              <span className="font-mono text-sm font-semibold text-foreground shrink-0">{mou.id}</span>
+                              {inv?.brokerName && (
                                 <span className="text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-1.5 py-0.5 rounded shrink-0">
                                   {inv.brokerName}
                                 </span>
                               )}
                             </div>
-                            {pksList.length > 0 && (
-                              <div className="flex flex-wrap gap-x-2">
-                                {pksList.map((m) => (
-                                  <span key={m.id} className="font-mono text-[10px] text-blue-600/70">
-                                    {m.id} ({formatRp(m.investmentAmount)})
-                                  </span>
-                                ))}
-                              </div>
-                            )}
+                            <span className="text-xs text-muted-foreground truncate">{mou.investorName}</span>
                           </div>
                           {checked && (
                             <div className="flex flex-col items-end gap-0.5 shrink-0">
                               <Input
-                                type="number" min="0" max={sisa} step="100000"
+                                type="number" min="0" step="100000"
                                 value={entry?.nilaiInvestasi ?? ""}
-                                onChange={(e) => updateNilai(inv.id, e.target.value)}
-                                className={`w-36 h-8 text-xs ${overLimitEntries.has(inv.id) ? "border-red-500 focus-visible:ring-red-500" : ""}`}
+                                onChange={(e) => updateNilai(mou.id, e.target.value)}
+                                className={`w-36 h-8 text-xs ${isOver ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                                 placeholder="Nilai investasi"
                               />
-                              {overLimitEntries.has(inv.id) && (
-                                <span className="text-[10px] text-red-500">Maks {formatRp(sisa)}</span>
+                              {isOver && (
+                                <span className="text-[10px] text-red-500">Melebihi batas</span>
                               )}
                             </div>
                           )}
@@ -760,20 +799,30 @@ export function TransaksiContent() {
 
   const openEdit = (t: Transaksi) => {
     setSelected(t);
+    // Assign mouId ke setiap entry: pilih PKS investor yang belum dipakai entry lain
+    const assignedMouIds = new Set<string>();
     setForm({
       date:        t.date,
       description: t.description,
       hpp:         t.hpp.toString(),
       kebutuhanModal: t.kebutuhanModal.toString(),
       investorEntries: t.investorEntries.length > 0
-        ? t.investorEntries.map((e) => ({
-            investorId:    e.investorId,
-            nilaiInvestasi: e.nilaiInvestasi.toString(),
-            pctTrader:     e.pctTrader.toString(),
-            pctMinBun:     e.pctMinBun.toString(),
-            pctBrokerI:    e.pctBrokerI.toString(),
-            pctBrokerII:   e.pctBrokerII.toString(),
-          }))
+        ? t.investorEntries.map((e) => {
+            const available = mous.filter(
+              (m) => m.investorId === e.investorId && !m.isTerminated && !assignedMouIds.has(m.id),
+            );
+            const mouId = available[0]?.id ?? "";
+            if (mouId) assignedMouIds.add(mouId);
+            return {
+              mouId,
+              investorId:     e.investorId,
+              nilaiInvestasi: e.nilaiInvestasi.toString(),
+              pctTrader:      e.pctTrader.toString(),
+              pctMinBun:      e.pctMinBun.toString(),
+              pctBrokerI:     e.pctBrokerI.toString(),
+              pctBrokerII:    e.pctBrokerII.toString(),
+            };
+          })
         : [emptyEntry()],
       ongkirPerKg: t.ongkirPerKg.toString(),
       hargaJual:   t.hargaJual.toString(),
@@ -841,14 +890,6 @@ export function TransaksiContent() {
     }
   };
 
-  // Investor yang boleh muncul di form transaksi: hanya yang punya PKS (draft atau complete)
-  // Investor boleh dipilih di form jika punya PKS aktif (non-terminated) ATAU
-  // Investor boleh dipilih di form hanya jika punya PKS yang belum ter-terminate.
-  const investorIdsWithPks = useMemo(
-    () => new Set(mous.filter((m) => !m.isTerminated).map((m) => m.investorId)),
-    [mous],
-  );
-
   // Modal yang sudah terikat di transaksi aktif lain per investor.
   // Saat mengedit, kecualikan transaksi yang sedang diedit agar investor-nya
   // tetap bisa diubah (sisaModal dihitung dari transaksi lain saja).
@@ -868,17 +909,11 @@ export function TransaksiContent() {
     return map;
   }, [transaksis, editingTransaksi]);
 
-  // Semua PKS aktif per investor (untuk tampilkan semua ID PKS di form)
-  const mouByInvestor = useMemo(() => {
-    const map = new Map<string, MoU[]>();
-    for (const m of mous) {
-      if (m.isTerminated) continue;
-      const list = map.get(m.investorId) ?? [];
-      list.push(m);
-      map.set(m.investorId, list);
-    }
-    return map;
-  }, [mous]);
+  // Semua PKS aktif (non-terminated) — diteruskan ke form sebagai daftar item checkbox
+  const activeMous = useMemo(
+    () => mous.filter((m) => !m.isTerminated),
+    [mous],
+  );
 
   // PKS yang akan ikut dihapus saat transaksi dihapus:
   // - Hanya investor dalam transaksi terpilih yang tidak punya transaksi aktif lain
@@ -901,9 +936,8 @@ export function TransaksiContent() {
   const sharedFormProps = {
     investors,
     brokers,
-    investorIdsWithPks,
+    activeMous,
     committedModal,
-    mouByInvestor,
     isSaving,
   };
 
