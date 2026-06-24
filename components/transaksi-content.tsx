@@ -4,10 +4,10 @@ import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { ErrorDialog } from "@/components/ui/error-dialog";
 import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
-import { useTransaksi, calcTransaksi, effectiveStatus, isInvestorActive, activeInvestorIds, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, effectiveStatus, isInvestorActive, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
-import { useMou } from "@/lib/mou-context";
+import { useMou, type MoU } from "@/lib/mou-context";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
@@ -184,14 +184,16 @@ interface TrxFormProps {
   investors: Investor[];
   brokers: Broker[];
   investorIdsWithPks: Set<string>;
-  /** Investor yang modalnya sedang terpakai di transaksi aktif lain — tak bisa dipilih ulang */
-  unavailableInvestorIds: Set<string>;
+  /** Modal yang sudah terikat di transaksi aktif lain per investor (exclude transaksi yg sedang diedit) */
+  committedModal: Map<string, number>;
+  /** PKS aktif per investor: investorId → MoU */
+  mouByInvestor: Map<string, MoU>;
   isSaving?: boolean;
 }
 
 function TrxFormFields({
   formData, setFormData, onSubmit, submitLabel, previewId,
-  investors, brokers: _brokers, investorIdsWithPks, unavailableInvestorIds,
+  investors, brokers: _brokers, investorIdsWithPks, committedModal, mouByInvestor,
   isSaving = false,
 }: TrxFormProps) {
   // ── Jalur state ──────────────────────────────────────────────────────────
@@ -208,15 +210,18 @@ function TrxFormFields({
   const isInvestorChecked = (investorId: string) =>
     formData.investorEntries.some((e) => e.investorId === investorId);
 
-  // Investor yang muncul di jalur: punya PKS aktif & modalnya belum terpakai di
-  // transaksi aktif lain. Yang sudah ter-checked tetap ditampilkan (mis. saat edit
-  // transaksi, investor miliknya sendiri).
+  // Sisa modal = total investmentAmount investor − yang sudah terikat di transaksi aktif lain
+  const sisaModal = (inv: Investor) =>
+    Math.max(0, inv.investmentAmount - (committedModal.get(inv.id) ?? 0));
+
+  // Investor yang muncul di jalur: punya PKS aktif & masih ada sisa modal.
+  // Yang sudah ter-checked tetap ditampilkan (mis. saat edit transaksi).
   const investorsByJalur = (jalur: InvestorJalur) =>
     investors.filter(
       (inv) =>
         getJalur(inv) === jalur &&
         investorIdsWithPks.has(inv.id) &&
-        (!unavailableInvestorIds.has(inv.id) || isInvestorChecked(inv.id)),
+        (sisaModal(inv) > 0 || isInvestorChecked(inv.id)),
     );
 
   const toggleJalur = (jalur: InvestorJalur) => {
@@ -232,7 +237,7 @@ function TrxFormFields({
       // Buka jalur: tambah semua investor jalur ini ke entries (pre-checked semua)
       const toAdd = investorsByJalur(jalur).map((inv) => ({
         investorId: inv.id,
-        nilaiInvestasi: inv.investmentAmount.toString(),
+        nilaiInvestasi: sisaModal(inv).toString(),
         ...investorPct(inv.brokerName ?? ""),
       }));
       setFormData((prev) => ({
@@ -257,7 +262,7 @@ function TrxFormFields({
         ...prev,
         investorEntries: [
           ...prev.investorEntries.filter((e) => e.investorId),
-          { investorId: inv.id, nilaiInvestasi: inv.investmentAmount.toString(), ...pct },
+          { investorId: inv.id, nilaiInvestasi: sisaModal(inv).toString(), ...pct },
         ],
       };
     });
@@ -460,25 +465,32 @@ function TrxFormFields({
                   {JALUR_LABEL[jalur]}
                 </p>
                 {jalurInvestors.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic">Tidak ada investor di jalur ini</p>
+                  <p className="text-xs text-muted-foreground italic">Mohon buat PKS terlebih dahulu</p>
                 ) : (
                   <div className="space-y-2">
                     {jalurInvestors.map((inv) => {
                       const checked = isInvestorChecked(inv.id);
-                      const entry = formData.investorEntries.find((e) => e.investorId === inv.id);
+                      const entry   = formData.investorEntries.find((e) => e.investorId === inv.id);
+                      const pksId   = mouByInvestor.get(inv.id)?.id ?? "";
+                      const sisa    = sisaModal(inv);
                       return (
                         <div key={inv.id} className="flex items-center gap-3">
                           <Checkbox
                             checked={checked}
                             onCheckedChange={() => toggleInvestor(inv)}
                           />
-                          <div className="flex-1 min-w-0 flex items-center gap-2">
-                            <span className="font-mono text-[10px] text-muted-foreground shrink-0">{inv.id}</span>
-                            <span className="text-sm truncate">{inv.name}</span>
-                            {inv.brokerName && (
-                              <span className="text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-1.5 py-0.5 rounded shrink-0">
-                                {inv.brokerName}
-                              </span>
+                          <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-[10px] text-muted-foreground shrink-0">{inv.id}</span>
+                              <span className="text-sm truncate">{inv.name}</span>
+                              {inv.brokerName && (
+                                <span className="text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-1.5 py-0.5 rounded shrink-0">
+                                  {inv.brokerName}
+                                </span>
+                              )}
+                            </div>
+                            {pksId && (
+                              <span className="font-mono text-[10px] text-blue-600/70">{pksId}</span>
                             )}
                           </div>
                           {checked && (
@@ -492,7 +504,7 @@ function TrxFormFields({
                           )}
                           {!checked && (
                             <span className="w-36 shrink-0 px-3 py-1.5 text-xs text-muted-foreground bg-muted rounded-md">
-                              {inv.investmentAmount > 0 ? formatRp(inv.investmentAmount) : "—"}
+                              {sisa > 0 ? formatRp(sisa) : "—"}
                             </span>
                           )}
                         </div>
@@ -804,23 +816,42 @@ export function TransaksiContent() {
     [mous],
   );
 
-  // Investor yang modalnya sedang terpakai di transaksi aktif (berjalan/bermasalah)
-  // tak boleh dipilih ulang. Saat mengedit sebuah transaksi, investor milik
-  // transaksi itu sendiri dikecualikan agar tetap bisa diubah/dilepas.
+  // Modal yang sudah terikat di transaksi aktif lain per investor.
+  // Saat mengedit, kecualikan transaksi yang sedang diedit agar investor-nya
+  // tetap bisa diubah (sisaModal dihitung dari transaksi lain saja).
   const editingTransaksi = isEditOpen ? selected : null;
-  const unavailableInvestorIds = useMemo(() => {
-    const ids = activeInvestorIds(transaksis);
-    if (editingTransaksi) {
-      for (const e of editingTransaksi.investorEntries) ids.delete(e.investorId);
+  const committedModal = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const t of transaksis) {
+      if (editingTransaksi && t.id === editingTransaksi.id) continue;
+      const eff = effectiveStatus(t);
+      if (eff !== "berjalan" && eff !== "bermasalah") continue;
+      for (const e of t.investorEntries) {
+        if (e.nilaiInvestasi > 0) {
+          map.set(e.investorId, (map.get(e.investorId) ?? 0) + e.nilaiInvestasi);
+        }
+      }
     }
-    return ids;
+    return map;
   }, [transaksis, editingTransaksi]);
+
+  // PKS aktif terbaru per investor (untuk tampilkan ID PKS di form)
+  const mouByInvestor = useMemo(() => {
+    const map = new Map<string, MoU>();
+    for (const m of mous) {
+      if (m.isTerminated) continue;
+      const existing = map.get(m.investorId);
+      if (!existing || m.date > existing.date) map.set(m.investorId, m);
+    }
+    return map;
+  }, [mous]);
 
   const sharedFormProps = {
     investors,
     brokers,
     investorIdsWithPks,
-    unavailableInvestorIds,
+    committedModal,
+    mouByInvestor,
     isSaving,
   };
 
