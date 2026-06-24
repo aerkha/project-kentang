@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { ErrorDialog } from "@/components/ui/error-dialog";
 import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
-import { useTransaksi, calcTransaksi, effectiveStatus, isInvestorActive, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, effectiveStatus, isInvestorActive, activeInvestorIds, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useMou } from "@/lib/mou-context";
@@ -184,12 +184,14 @@ interface TrxFormProps {
   investors: Investor[];
   brokers: Broker[];
   investorIdsWithPks: Set<string>;
+  /** Investor yang modalnya sedang terpakai di transaksi aktif lain — tak bisa dipilih ulang */
+  unavailableInvestorIds: Set<string>;
   isSaving?: boolean;
 }
 
 function TrxFormFields({
   formData, setFormData, onSubmit, submitLabel, previewId,
-  investors, brokers: _brokers, investorIdsWithPks,
+  investors, brokers: _brokers, investorIdsWithPks, unavailableInvestorIds,
   isSaving = false,
 }: TrxFormProps) {
   // ── Jalur state ──────────────────────────────────────────────────────────
@@ -203,11 +205,19 @@ function TrxFormFields({
     return s;
   });
 
-  const investorsByJalur = (jalur: InvestorJalur) =>
-    investors.filter((inv) => getJalur(inv) === jalur && investorIdsWithPks.has(inv.id));
-
   const isInvestorChecked = (investorId: string) =>
     formData.investorEntries.some((e) => e.investorId === investorId);
+
+  // Investor yang muncul di jalur: punya PKS aktif & modalnya belum terpakai di
+  // transaksi aktif lain. Yang sudah ter-checked tetap ditampilkan (mis. saat edit
+  // transaksi, investor miliknya sendiri).
+  const investorsByJalur = (jalur: InvestorJalur) =>
+    investors.filter(
+      (inv) =>
+        getJalur(inv) === jalur &&
+        investorIdsWithPks.has(inv.id) &&
+        (!unavailableInvestorIds.has(inv.id) || isInvestorChecked(inv.id)),
+    );
 
   const toggleJalur = (jalur: InvestorJalur) => {
     if (openJalurs.has(jalur)) {
@@ -794,10 +804,23 @@ export function TransaksiContent() {
     [mous],
   );
 
+  // Investor yang modalnya sedang terpakai di transaksi aktif (berjalan/bermasalah)
+  // tak boleh dipilih ulang. Saat mengedit sebuah transaksi, investor milik
+  // transaksi itu sendiri dikecualikan agar tetap bisa diubah/dilepas.
+  const editingTransaksi = isEditOpen ? selected : null;
+  const unavailableInvestorIds = useMemo(() => {
+    const ids = activeInvestorIds(transaksis);
+    if (editingTransaksi) {
+      for (const e of editingTransaksi.investorEntries) ids.delete(e.investorId);
+    }
+    return ids;
+  }, [transaksis, editingTransaksi]);
+
   const sharedFormProps = {
     investors,
     brokers,
     investorIdsWithPks,
+    unavailableInvestorIds,
     isSaving,
   };
 
