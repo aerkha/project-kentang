@@ -44,6 +44,9 @@ import {
   Receipt,
   ClipboardCheck,
   RefreshCw,
+  Coins,
+  Upload,
+  FileCheck,
 } from "lucide-react";
 import { todayWibStr } from "@/lib/utils";
 
@@ -158,6 +161,57 @@ function sisaHari(t: { date: string; description: string }): number {
   const days    = parsePeriodeDays(t.description);
   const elapsed = (Date.now() - new Date(t.date).getTime()) / 86_400_000;
   return Math.ceil(days - elapsed);
+}
+
+// ─────────────────────────────────────────────
+// Bagi Hasil calculator (for dialog display)
+// ─────────────────────────────────────────────
+
+type BagiHasilRow = {
+  keterangan: "Investor" | "Broker" | "Trader" | "MinBun";
+  nama:       string;
+  jumlah:     number;
+  checkKey:   string; // sesuai format bagiHasilChecks: "{investorId}_Investor", "{broker}_Broker", "Trader", "MinBun"
+};
+
+function calcBagiHasilRows(t: Transaksi, mous: MoU[]): BagiHasilRow[] {
+  const rows: BagiHasilRow[] = [];
+  const c = calcTransaksi(t);
+  if (c.totalInvestasi === 0 || c.profit <= 0) return rows;
+
+  let traderTotal = 0, minbunTotal = 0;
+  const brokerMap = new Map<string, number>();
+
+  for (const entry of t.investorEntries) {
+    if (entry.nilaiInvestasi <= 0) continue;
+    const latest = mous
+      .filter((m) => m.investorId === entry.investorId)
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
+    const pkPct    = ((latest?.bagiHasilPK) ?? 35) / 100;
+    const ratio    = entry.nilaiInvestasi / c.totalInvestasi;
+    const profit   = c.profit * ratio;
+    const allZero  = entry.pctTrader === 0 && entry.pctMinBun === 0 && entry.pctBrokerI === 0 && entry.pctBrokerII === 0;
+    const hasBroker = !!entry.investorBrokerName;
+    const pT   = allZero ? 10                  : entry.pctTrader;
+    const pM   = allZero ? (hasBroker ? 0 : 5) : entry.pctMinBun;
+    const pBI  = allZero ? (hasBroker ? 5 : 0) : entry.pctBrokerI;
+    const pBII = allZero ? 0                   : entry.pctBrokerII;
+
+    const invAmt = profit * pkPct;
+    if (invAmt > 0)
+      rows.push({ keterangan: "Investor", nama: entry.investorName, jumlah: invAmt, checkKey: `${entry.investorId}_Investor` });
+    traderTotal += profit * pT / 100;
+    minbunTotal += profit * pM / 100;
+    const brokerAmt = profit * (pBI + pBII) / 100;
+    if (brokerAmt > 0 && hasBroker)
+      brokerMap.set(entry.investorBrokerName, (brokerMap.get(entry.investorBrokerName) ?? 0) + brokerAmt);
+  }
+
+  for (const [name, amt] of brokerMap)
+    rows.push({ keterangan: "Broker", nama: name, jumlah: amt, checkKey: `${name}_Broker` });
+  if (traderTotal > 0) rows.push({ keterangan: "Trader", nama: "Trader", jumlah: traderTotal, checkKey: "Trader" });
+  if (minbunTotal > 0) rows.push({ keterangan: "MinBun", nama: "MinBun", jumlah: minbunTotal, checkKey: "MinBun" });
+  return rows;
 }
 
 // Read-only preview box
@@ -642,7 +696,7 @@ function TrxFormFields({
 // ─────────────────────────────────────────────
 
 export function TransaksiContent() {
-  const { transaksis, addTransaksi, updateTransaksi, deleteTransaksi } = useTransaksi();
+  const { transaksis, addTransaksi, updateTransaksi, deleteTransaksi, uploadBuktiTransaksi } = useTransaksi();
   const { investors }  = useInvestors();
   const { brokers }    = useBrokers();
   const { mous, updateMou, deleteMou } = useMou();
@@ -665,6 +719,11 @@ export function TransaksiContent() {
   const [finalizeNote, setFinalizeNote]       = useState("");
   const [errorInfo, setErrorInfo]             = useState<PbErrorInfo | null>(null);
   const [form, setForm]                       = useState<TrxFormData>(initialForm());
+  const [isBagiHasilOpen, setIsBagiHasilOpen]   = useState(false);
+  const [bagiHasilTrx, setBagiHasilTrx]         = useState<Transaksi | null>(null);
+  const [bagiHasilFile, setBagiHasilFile]        = useState<File | null>(null);
+  const [bagiHasilPreview, setBagiHasilPreview]  = useState<string | null>(null);
+  const [isSubmittingBH, setIsSubmittingBH]      = useState(false);
 
   // Filter untuk investor: hanya tampilkan transaksi yang melibatkan investor tersebut
   const visibleTransaksis = useMemo(() => {
@@ -876,18 +935,61 @@ export function TransaksiContent() {
     }
   };
 
-  // Perbarui transaksi yang sudah "selesai": kembalikan ke "berjalan" dan
-  // hitung ulang periode 30 hari ke depan (reset tanggal mulai ke hari ini).
-  const handlePerbarui = async (t: Transaksi) => {
+  // Bagi Hasil dialog handlers
+  const openBagiHasil = (t: Transaksi) => {
+    setBagiHasilTrx(t);
+    setBagiHasilFile(null);
+    setBagiHasilPreview(null);
+    setIsBagiHasilOpen(true);
+  };
+
+  const handleBagiHasilFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setBagiHasilFile(file);
+    if (file && file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (ev) => setBagiHasilPreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setBagiHasilPreview(null);
+    }
+  };
+
+  const handleBagiHasil = async (action: "perbarui" | "selesai") => {
+    if (!bagiHasilTrx) return;
+    setIsSubmittingBH(true);
     try {
-      await updateTransaksi(t.id, { status: "berjalan", date: todayWibStr() });
-      await reconcilePksTermination(
-        t.investorEntries.map((e) => e.investorId),
-        transaksis.map((x) => (x.id === t.id ? { ...x, status: "berjalan", date: todayWibStr() } : x)),
-      );
-      toast.success(`Transaksi ${t.id} diperbarui — periode dihitung ulang 30 hari ke depan`);
+      if (bagiHasilFile) {
+        await uploadBuktiTransaksi(bagiHasilTrx.id, "Investor", bagiHasilFile);
+      }
+      if (action === "selesai") {
+        const rows = calcBagiHasilRows(bagiHasilTrx, mous);
+        const allChecks: Record<string, boolean> = {};
+        rows.forEach((r) => { allChecks[r.checkKey] = true; });
+        await updateTransaksi(bagiHasilTrx.id, { bagiHasilChecks: allChecks, bagiHasilDone: true });
+        toast.success(`Bagi hasil TRX ${bagiHasilTrx.id} ditandai selesai`);
+      } else {
+        const today = todayWibStr();
+        await updateTransaksi(bagiHasilTrx.id, {
+          status: "berjalan",
+          date: today,
+          bagiHasilDone: false,
+          bagiHasilChecks: {},
+        });
+        await reconcilePksTermination(
+          bagiHasilTrx.investorEntries.map((e) => e.investorId),
+          transaksis.map((x) =>
+            x.id === bagiHasilTrx.id ? { ...x, status: "berjalan" as TransaksiStatus, date: today } : x,
+          ),
+        );
+        toast.success(`TRX ${bagiHasilTrx.id} diperbarui — periode baru dimulai`);
+      }
+      setIsBagiHasilOpen(false);
+      setBagiHasilTrx(null);
     } catch (err) {
-      setErrorInfo(formatPbError(err, "Gagal memperbarui transaksi"));
+      setErrorInfo(formatPbError(err, "Gagal menyimpan bagi hasil"));
+    } finally {
+      setIsSubmittingBH(false);
     }
   };
 
@@ -1107,14 +1209,14 @@ export function TransaksiContent() {
                               <ClipboardCheck className="h-3.5 w-3.5 text-blue-500" />
                             </Button>
                             )}
-                            {canEdit && (
+                            {canEdit && (effectiveStatus(t) === "selesai" || effectiveStatus(t) === "bermasalah") && (
                             <Button
                               variant="ghost" size="icon" className="h-7 w-7"
-                              title={effectiveStatus(t) === "selesai" ? "Perbarui — mulai periode baru 30 hari" : "Hanya transaksi selesai yang bisa diperbarui"}
-                              disabled={effectiveStatus(t) !== "selesai"}
-                              onClick={() => handlePerbarui(t)}
+                              title={t.bagiHasilDone ? "Bagi hasil sudah lunas" : "Bagi Hasil"}
+                              disabled={t.bagiHasilDone === true}
+                              onClick={() => openBagiHasil(t)}
                             >
-                              <RefreshCw className="h-3.5 w-3.5 text-amber-600" />
+                              <Coins className={`h-3.5 w-3.5 ${t.bagiHasilDone ? "text-muted-foreground" : "text-green-600"}`} />
                             </Button>
                             )}
                             {canEdit && (
@@ -1243,6 +1345,131 @@ export function TransaksiContent() {
             <Button variant="outline" onClick={() => setIsDeleteOpen(false)} disabled={isDeleting}>Batal</Button>
             <Button variant="destructive" onClick={confirmDelete} disabled={isDeleting}>
               {isDeleting ? "Menghapus…" : "Hapus"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Bagi Hasil Dialog ── */}
+      <Dialog
+        open={isBagiHasilOpen}
+        onOpenChange={(open) => {
+          setIsBagiHasilOpen(open);
+          if (!open) { setBagiHasilTrx(null); setBagiHasilFile(null); setBagiHasilPreview(null); }
+        }}
+      >
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Coins className="h-4 w-4 text-green-600" />
+              Bagi Hasil — {bagiHasilTrx?.id}
+            </DialogTitle>
+            <DialogDescription>
+              Rincian bagi hasil · Upload bukti transfer · Pilih tindakan
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Bagi Hasil table */}
+          {bagiHasilTrx && (() => {
+            const rows = calcBagiHasilRows(bagiHasilTrx, mous);
+            if (rows.length === 0) return (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                Tidak ada profit untuk dibagi hasil.
+              </p>
+            );
+            const total = rows.reduce((s, r) => s + r.jumlah, 0);
+            const colorsKet: Record<string, string> = {
+              Investor: "bg-orange-100 text-orange-700 border-orange-200",
+              Broker:   "bg-blue-100   text-blue-700   border-blue-200",
+              Trader:   "bg-purple-100 text-purple-700 border-purple-200",
+              MinBun:   "bg-green-100  text-green-700  border-green-200",
+            };
+            return (
+              <div className="rounded-lg border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/30">
+                      <th className="py-2 px-3 text-left font-medium text-muted-foreground">Penerima</th>
+                      <th className="py-2 px-3 text-left font-medium text-muted-foreground">Jenis</th>
+                      <th className="py-2 px-3 text-right font-medium text-muted-foreground">Jumlah</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={i} className="border-b border-border/50">
+                        <td className="py-2 px-3">{r.nama}</td>
+                        <td className="py-2 px-3">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${colorsKet[r.keterangan]}`}>
+                            {r.keterangan}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-right font-semibold">{formatRp(r.jumlah)}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-muted/20">
+                      <td colSpan={2} className="py-2 px-3 text-xs text-muted-foreground font-medium">Total Bagi Hasil</td>
+                      <td className="py-2 px-3 text-right font-bold">{formatRp(total)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+
+          {/* Bukti upload */}
+          <div className="space-y-2">
+            <Label className="text-xs">Bukti Transfer (opsional)</Label>
+            <label className={`flex flex-col items-center justify-center w-full border-2 border-dashed rounded-lg cursor-pointer transition-colors p-4 gap-2 ${
+              bagiHasilFile
+                ? "border-green-400 bg-green-50 dark:bg-green-950/20"
+                : "border-border hover:border-primary/50 hover:bg-muted/40"
+            }`}>
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                className="hidden"
+                onChange={handleBagiHasilFileChange}
+              />
+              {bagiHasilFile ? (
+                <div className="flex flex-col items-center gap-1 text-center">
+                  <FileCheck className="h-7 w-7 text-green-500" />
+                  <span className="text-sm font-medium text-green-700 dark:text-green-400">{bagiHasilFile.name}</span>
+                  <span className="text-xs text-muted-foreground">{(bagiHasilFile.size / 1024).toFixed(0)} KB · Klik untuk ganti</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-1 text-center">
+                  <Upload className="h-7 w-7 text-muted-foreground" />
+                  <span className="text-sm">Klik untuk pilih bukti transfer</span>
+                  <span className="text-xs text-muted-foreground">JPG, PNG, atau PDF</span>
+                </div>
+              )}
+            </label>
+            {bagiHasilPreview && (
+              <div className="rounded-lg overflow-hidden border">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={bagiHasilPreview} alt="Preview bukti" className="w-full max-h-40 object-contain bg-muted" />
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 flex-wrap sm:flex-nowrap">
+            <Button variant="outline" onClick={() => setIsBagiHasilOpen(false)} disabled={isSubmittingBH}>
+              Batal
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void handleBagiHasil("perbarui")}
+              disabled={isSubmittingBH}
+            >
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+              {isSubmittingBH ? "Menyimpan…" : "Perbarui"}
+            </Button>
+            <Button
+              onClick={() => void handleBagiHasil("selesai")}
+              disabled={isSubmittingBH}
+            >
+              <ClipboardCheck className="h-3.5 w-3.5 mr-1.5" />
+              {isSubmittingBH ? "Menyimpan…" : "Selesai"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { todayWibStr } from "@/lib/utils";
-import { useTransaksi, calcTransaksi, type Transaksi, BUKTI_FIELD_TRX } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { usePengeluaran } from "@/lib/cashflow-context";
@@ -42,8 +42,6 @@ import {
   Save,
   ChevronDown,
   ChevronUp,
-  Upload,
-  FileCheck,
   Send,
   RefreshCw,
   Mail,
@@ -233,7 +231,7 @@ function ChannelBadge({ status, icon }: { status: string; icon: React.ReactNode 
 
 export function ReminderContent() {
   const { mous }                                      = useMou();
-  const { transaksis, updateTransaksi, uploadBuktiTransaksi } = useTransaksi();
+  const { transaksis, updateTransaksi } = useTransaksi();
   const { investors }                                 = useInvestors();
   const { brokers }                                   = useBrokers();
   const { pengeluarans, addPengeluaran }              = usePengeluaran();
@@ -251,14 +249,7 @@ export function ReminderContent() {
     [investors],
   );
 
-  // ── State dialog bukti transfer ──
-  type BuktiTarget = { trx: Transaksi; keterangan: string; row: PaymentRow } | null;
-  const [buktiTarget,   setBuktiTarget]  = useState<BuktiTarget>(null);
-  const [buktiFile,     setBuktiFile]    = useState<File | null>(null);
-  const [buktiPreview,  setBuktiPreview] = useState<string | null>(null);
-  const [isUploading,   setIsUploading]  = useState(false);
-
-  // ── State dialog konfirmasi internal (tanpa upload bukti) ──
+  // ── State dialog konfirmasi internal (MinBun & investor internal) ──
   type InternalTarget = { trx: Transaksi; keterangan: string; row: PaymentRow } | null;
   const [internalTarget,  setInternalTarget]  = useState<InternalTarget>(null);
   const [isConfirmingInt, setIsConfirmingInt] = useState(false);
@@ -312,15 +303,37 @@ export function ReminderContent() {
     return { investor, trader, minbun, broker, totalTasks, doneTasks };
   }, [tasks, doneKeys]);
 
-  // Klik ceklis: buka dialog upload bukti atau dialog konfirmasi internal
+  // Klik ceklis: konfirmasi cashflow untuk internal/MinBun, langsung centang untuk yang lain
   const handleToggleRow = (trx: Transaksi, row: PaymentRow) => {
     const isChecked = !!trx.bagiHasilChecks?.[row.checkKey] || doneKeys.has(`${trx.id}__${row.checkKey}`);
     if (!isChecked) {
-      setBuktiTarget({ trx, keterangan: row.keterangan, row });
-      setBuktiFile(null);
-      setBuktiPreview(null);
+      const isMinBun     = row.keterangan === "MinBun";
+      const isInternalInv = row.keterangan === "Investor" && !!row.investorId && internalInvestorIds.has(row.investorId);
+      if (isMinBun || isInternalInv) {
+        setInternalTarget({ trx, keterangan: row.keterangan, row });
+      } else {
+        void handleDirectCheck(trx, row);
+      }
     } else {
       void handleUncheck(trx, row);
+    }
+  };
+
+  const handleDirectCheck = async (trx: Transaksi, row: PaymentRow) => {
+    const key       = `${trx.id}__${row.checkKey}`;
+    const latestTask = tasks.find((t) => t.trx.id === trx.id);
+    const latestTrx  = latestTask?.trx ?? trx;
+    const checks     = { ...(latestTrx.bagiHasilChecks ?? {}), [row.checkKey]: true };
+    const allDone    = latestTask ? latestTask.rows.every((r) => checks[r.checkKey]) : false;
+    setToggling(key);
+    try {
+      await updateTransaksi(trx.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+      setDoneKeys((prev) => new Set(prev).add(key));
+      toast.success(`${row.keterangan} — ${row.nama} ditandai selesai`);
+    } catch {
+      toast.error("Gagal menyimpan perubahan. Coba lagi.");
+    } finally {
+      setToggling(null);
     }
   };
 
@@ -403,111 +416,6 @@ export function ReminderContent() {
     } finally {
       setIsConfirmingInt(false);
       setToggling(null);
-    }
-  };
-
-  // Submit dialog: upload bukti → mark check → catat cashflow → notif investor
-  const handleConfirmBukti = async () => {
-    if (!buktiTarget || !buktiFile) return;
-    const { trx: snapshotTrx, keterangan, row } = buktiTarget;
-    const key = `${snapshotTrx.id}__${row.checkKey}`;
-
-    const latestTask   = tasks.find((t) => t.trx.id === snapshotTrx.id);
-    const latestTrx    = latestTask?.trx ?? snapshotTrx;
-    const checks       = { ...(latestTrx.bagiHasilChecks ?? {}), [row.checkKey]: true };
-    const allDone      = latestTask ? latestTask.rows.every((r) => checks[r.checkKey]) : false;
-
-    setIsUploading(true);
-    setToggling(key);
-    try {
-      // 1. Upload bukti transfer
-      const buktiUrl = await uploadBuktiTransaksi(snapshotTrx.id, keterangan, buktiFile);
-
-      // 2. Simpan status ceklis
-      await updateTransaksi(snapshotTrx.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
-      setDoneKeys((prev) => new Set(prev).add(key));
-
-      // 2b. Catat cashflow untuk MinBun dan investor internal
-      const isMinBun           = keterangan === "MinBun";
-      const isInternalInvestor = keterangan === "Investor" && !!row.investorId && internalInvestorIds.has(row.investorId);
-      if (isMinBun || isInternalInvestor) {
-        const tag   = isMinBun
-          ? `[Reminder] TRX ${snapshotTrx.id} · MinBun`
-          : `[Internal-Profit:${row.investorId}:${snapshotTrx.id}]`;
-        const today = todayWibStr();
-        if (cashflowTagRecorded(tag)) {
-          toast.info("Entri Arus Kas sudah ada — tidak dicatat ulang.");
-        } else if (isMinBun) {
-          await addPengeluaran({
-            date:      today,
-            deskripsi: `Bagi Hasil MinBun — TRX ${snapshotTrx.id}`,
-            debet:     row.jumlah,
-            kredit:    0,
-            kategori:  "Fee MinBun",
-            catatan:   tag,
-          });
-          toast.success(`Bagi hasil MinBun TRX ${snapshotTrx.id} dicatat di Arus Kas`);
-        } else {
-          await addPengeluaran({
-            date:      today,
-            deskripsi: `Profit Internal — ${row.nama} — TRX ${snapshotTrx.id}`,
-            debet:     row.jumlah,
-            kredit:    0,
-            kategori:  "BagHas Modal MinBun",
-            catatan:   tag,
-          });
-          toast.success(`Profit internal ${row.nama} dicatat di Arus Kas`);
-        }
-      }
-
-      // 3. Kirim notifikasi ke investor (non-blocking)
-      const pbToken = pb.authStore.token;
-      if (pbToken && keterangan === "Investor" && row.investorId) {
-        fetch("/api/notify-investor", {
-          method:  "POST",
-          headers: {
-            "Authorization": `Bearer ${pbToken}`,
-            "Content-Type":  "application/json",
-          },
-          body: JSON.stringify({
-            transaksiId: snapshotTrx.id,
-            keterangan,
-            investorId:  row.investorId,
-            jumlah:      row.jumlah,
-            buktiUrl,
-          }),
-        })
-          .then((r) => r.json())
-          .then((data: { waStatus?: string; emailStatus?: string }) => {
-            const parts: string[] = [];
-            if (data.waStatus    === "sent")    parts.push("💬 WA terkirim");
-            if (data.waStatus    === "skipped") parts.push("💬 WA (belum diset)");
-            if (data.emailStatus === "sent")    parts.push("✉️ Email terkirim");
-            if (data.emailStatus === "skipped") parts.push("✉️ Email (belum diset)");
-            if (parts.length) toast.info(`Notifikasi investor: ${parts.join(" · ")}`);
-            void refreshLogs();
-          })
-          .catch(() => toast.warning("Notifikasi investor gagal dikirim. Cek konfigurasi API."));
-      }
-
-      setBuktiTarget(null);
-    } catch {
-      toast.error("Gagal mengupload bukti transfer. Coba lagi.");
-    } finally {
-      setIsUploading(false);
-      setToggling(null);
-    }
-  };
-
-  const handleBuktiFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] ?? null;
-    setBuktiFile(file);
-    if (file && file.type.startsWith("image/")) {
-      const reader = new FileReader();
-      reader.onload = (ev) => setBuktiPreview(ev.target?.result as string);
-      reader.readAsDataURL(file);
-    } else {
-      setBuktiPreview(null);
     }
   };
 
@@ -801,35 +709,14 @@ export function ReminderContent() {
                                     {rowDone
                                       ? "Tandai belum dibayar"
                                       : pr.keterangan === "MinBun"
-                                        ? "Upload bukti & catat ke Arus Kas"
+                                        ? "Catat ke Arus Kas"
                                         : pr.keterangan === "Investor" && pr.investorId && internalInvestorIds.has(pr.investorId)
-                                          ? "Upload bukti & catat ke Arus Kas"
-                                          : "Upload bukti & tandai selesai"}
+                                          ? "Catat profit internal ke Arus Kas"
+                                          : "Tandai selesai"}
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
 
-                              {/* Ikon bukti transfer jika sudah ada file */}
-                              {(() => {
-                                const buktiUrl = task.trx[BUKTI_FIELD_TRX[pr.keterangan] as keyof Transaksi] as string | undefined;
-                                if (!buktiUrl) return null;
-                                return (
-                                  <TooltipProvider delayDuration={200}>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <a href={buktiUrl} target="_blank" rel="noopener noreferrer"
-                                          className="inline-flex items-center justify-center h-7 w-7 rounded-md text-green-600 hover:bg-green-50 transition-colors"
-                                        >
-                                          <FileCheck className="h-4 w-4" />
-                                        </a>
-                                      </TooltipTrigger>
-                                      <TooltipContent side="left" className="text-xs">
-                                        Lihat bukti transfer
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                );
-                              })()}
                             </div>
                           </td>
                         </tr>
@@ -1149,84 +1036,6 @@ export function ReminderContent() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Dialog Upload Bukti Transfer ── */}
-      <Dialog open={!!buktiTarget} onOpenChange={(open) => { if (!open) { setBuktiTarget(null); setBuktiFile(null); setBuktiPreview(null); } }}>
-        <DialogContent className="sm:max-w-[440px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Upload className="h-4 w-4" />
-              Upload Bukti Transfer
-            </DialogTitle>
-            <DialogDescription>
-              Upload bukti transfer untuk{" "}
-              <span className="font-semibold">{buktiTarget?.keterangan}</span>
-              {" "}—{" "}
-              <span className="font-semibold">{buktiTarget?.row.nama}</span>
-              {" "}sebesar{" "}
-              <span className="font-semibold">
-                {buktiTarget ? formatCurrency(buktiTarget.row.jumlah) : ""}
-              </span>
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label className="text-xs">
-                File Bukti Transfer <span className="text-destructive">*</span>
-              </Label>
-              <label className={`flex flex-col items-center justify-center w-full border-2 border-dashed rounded-lg cursor-pointer transition-colors p-4 gap-2 ${
-                buktiFile ? "border-green-400 bg-green-50 dark:bg-green-950/20" : "border-border hover:border-primary/50 hover:bg-muted/40"
-              }`}>
-                <input
-                  type="file"
-                  accept="image/*,.pdf"
-                  className="hidden"
-                  onChange={handleBuktiFileChange}
-                />
-                {buktiFile ? (
-                  <div className="flex flex-col items-center gap-1 text-center">
-                    <FileCheck className="h-8 w-8 text-green-500" />
-                    <span className="text-sm font-medium text-green-700 dark:text-green-400">{buktiFile.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {(buktiFile.size / 1024).toFixed(0)} KB · Klik untuk ganti
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-1 text-center">
-                    <Upload className="h-8 w-8 text-muted-foreground" />
-                    <span className="text-sm font-medium">Klik untuk pilih file</span>
-                    <span className="text-xs text-muted-foreground">Gambar (JPG, PNG) atau PDF</span>
-                  </div>
-                )}
-              </label>
-            </div>
-
-            {/* Preview gambar */}
-            {buktiPreview && (
-              <div className="rounded-lg overflow-hidden border border-border">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={buktiPreview} alt="Preview bukti" className="w-full max-h-48 object-contain bg-muted" />
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setBuktiTarget(null)} disabled={isUploading}>
-              Batal
-            </Button>
-            <Button onClick={handleConfirmBukti} disabled={!buktiFile || isUploading}>
-              {isUploading ? (
-                "Menyimpan…"
-              ) : (
-                <>
-                  <FileCheck className="h-4 w-4 mr-1.5" />
-                  Konfirmasi &amp; Tandai Selesai
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
