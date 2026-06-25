@@ -346,7 +346,12 @@ export function ReminderContent() {
     try {
       await updateTransaksi(trx.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
       setDoneKeys((prev) => { const s = new Set(prev); s.delete(key); return s; });
-      toast.info(`${row.keterangan} ditandai belum dibayar. Entri Cash Flow tidak dihapus otomatis.`);
+      const hasCashFlow =
+        row.keterangan === "MinBun" ||
+        (row.keterangan === "Investor" && !!row.investorId && internalInvestorIds.has(row.investorId));
+      toast.info(
+        `${row.keterangan} ditandai belum dibayar.${hasCashFlow ? " Entri Cash Flow tidak dihapus otomatis." : ""}`,
+      );
     } catch {
       toast.error("Gagal menyimpan perubahan. Coba lagi.");
     } finally {
