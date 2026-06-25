@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
 
-/** Escape nilai string untuk filter PocketBase agar aman dari injection. */
 function pbEsc(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
@@ -11,17 +10,16 @@ function pbEsc(value: string): string {
  * POST /api/notify-investor
  *
  * Kirim notifikasi ke investor bahwa bagi hasilnya sudah dibayar.
- * Body: { mouId, keterangan, investorId, jumlah, buktiUrl, mouCustomId }
+ * Body: { transaksiId, keterangan, investorId, jumlah, buktiUrl }
  * Auth : Authorization: Bearer <pb_token>
  */
 
 interface NotifyBody {
-  mouCustomId:  string;
-  keterangan:   string;
-  investorId:   string;
-  jumlah:       number;
-  buktiUrl:     string;
-  siklus?:      number;
+  transaksiId: string;
+  keterangan:  string;
+  investorId:  string;
+  jumlah:      number;
+  buktiUrl:    string;
 }
 
 type ChannelStatus = "sent" | "failed" | "skipped";
@@ -44,258 +42,53 @@ function fmtRp(n: number) {
 
 // ── History helpers ────────────────────────────────────────────────────────────
 
-interface MouRecord {
-  id:               string;   // PB internal id
-  customId:         string;   // MOU-YYYYMM-NNN
-  date:             string;
-  contractPeriod:   number;
-  siklus?:          number;
-  investmentAmount: number;
-  bagiHasilPK:      number;   // % bagi hasil PKS (default 35)
-  isTerminated:     boolean;
-  signedDoc:        string;
-  bagiHasilChecks?: Record<string, boolean>;
-  bagiHasilDone?:   boolean;
-}
-
-interface TiRecord {
-  transaksiId:        string;
-  investorId:         string;
-  investorBrokerName: string;
-  nilaiInvestasi:     number;
-  pctTrader:          number;
-  pctMinBun:          number;
-  pctBrokerI:         number;
-  pctBrokerII:        number;
-}
-
-interface TrxRecord {
-  id:             string;
-  date:           string;  // dibutuhkan untuk filter per periode MoU
-  hpp:            number;
-  kebutuhanModal: number;
-  ongkirPerKg:    number;
-  hargaJual:      number;
-  status:         string;
-}
-
-interface BagiHasil {
-  investor: number;
-  trader:   number;
-  minbun:   number;
-  broker:   number;
-}
-
-/**
- * Hitung bagi hasil untuk satu investor dalam satu transaksi.
- * Formula ini identik dengan reminder-content.tsx::calcBagiHasil:
- *
- *   investor = profit × ratio × pkPct
- *   trader   = profit × ratio × pctTrader/100
- *   minbun   = profit × ratio × pctMinBun/100
- *   broker   = profit × ratio × (pctBrokerI+pctBrokerII)/100
- *
- * investor mendapat pkPct (mis. 35%) dari porsi profit-nya.
- * trader/minbun/broker dibayar dari sisa porsi Pihak Pertama — bukan dari investor's share.
- */
-function calcBagiHasil(
-  profit:     number,
-  pkPct:      number,
-  ti:         TiRecord,
-  totalModal: number,
-): BagiHasil {
-  if (totalModal <= 0 || profit <= 0) return { investor: 0, trader: 0, minbun: 0, broker: 0 };
-  const ratio    = ti.nilaiInvestasi / totalModal;
-  const share    = profit * ratio;              // porsi profit proporsional investor ini
-  const investor = share * pkPct;               // mis. 35% dari porsi profit-nya
-  const allZero   = ti.pctTrader === 0 && ti.pctMinBun === 0 && ti.pctBrokerI === 0 && ti.pctBrokerII === 0;
-  const hasBroker = !!ti.investorBrokerName;
-  const pT  = allZero ? 10                   : ti.pctTrader;
-  const pM  = allZero ? (hasBroker ? 0 : 5)  : ti.pctMinBun;
-  const pBI = allZero ? (hasBroker ? 5 : 0)  : ti.pctBrokerI;
-  const pBII= allZero ? 0                    : ti.pctBrokerII;
-  const trader   = share * pT           / 100;
-  const minbun   = share * pM           / 100;
-  const broker   = share * (pBI + pBII) / 100;
-  return { investor, trader, minbun, broker };
-}
-
 interface HistoryRow {
-  mouCustomId:      string;
-  periodeStart:     string;
-  periodeEnd:       string;
-  investmentAmount: number;
-  bh:               BagiHasil;
-  status:           string;
-  lunas:            boolean;
-}
-
-function computeMouStatus(mou: Pick<MouRecord, "date" | "contractPeriod" | "siklus" | "isTerminated" | "signedDoc">): string {
-  if (mou.isTerminated) return "dihentikan";
-  const todayStr = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
-  const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
-  const endStr    = new Date(Date.UTC(y, m - 1, d + mou.contractPeriod * (mou.siklus ?? 1))).toISOString().slice(0, 10);
-  // Periode eksklusif [start, end) — konsisten dengan getMouStatus di client
-  if (endStr <= todayStr) return "expired";
-  if (mou.date.slice(0, 10) < todayStr || mou.signedDoc) return "aktif";
-  return "pending";
+  transaksiId:    string;
+  tanggal:        string;
+  status:         string;
+  nilaiInvestasi: number;
+  bagiHasilDone:  boolean;
 }
 
 async function buildHistory(
   pb:         PocketBase,
-  investorId: string,   // customId investor, mis. "INV-0001"
+  investorId: string,
 ): Promise<HistoryRow[]> {
-  // 1. Ambil semua MoU milik investor ini
-  let mous: MouRecord[] = [];
   try {
-    const raw = await pb.collection("mous").getFullList({
+    // 1. Ambil semua transaksi_investors milik investor ini
+    const tiRecords = await pb.collection("transaksi_investors").getFullList({
       filter: `investorId = "${pbEsc(investorId)}"`,
-      sort:   "date",
+      fields: "transaksiId,nilaiInvestasi",
     });
-    mous = raw.map((r) => ({
-      id:               r.id               as string,
-      customId:         r.customId         as string,
-      date:             r.date             as string,
-      contractPeriod:   r.contractPeriod   as number,
-      siklus:           (r.siklus          as number) || 1,
-      investmentAmount: r.investmentAmount as number,
-      bagiHasilPK:      (r.bagiHasilPK    as number) ?? 35,
-      isTerminated:     r.isTerminated === true,
-      signedDoc:        Array.isArray(r.signedDoc) ? ((r.signedDoc[0] as string) || "") : ((r.signedDoc as string) || ""),
-      bagiHasilChecks:  (r.bagiHasilChecks as Record<string, boolean>) || {},
-      bagiHasilDone:    r.bagiHasilDone   as boolean,
-    }));
+    if (tiRecords.length === 0) return [];
+
+    // 2. Ambil transaksi-nya (hanya yang selesai/bermasalah)
+    const trxIds    = [...new Set(tiRecords.map((r) => r.transaksiId as string))];
+    const idFilter  = trxIds.map((id) => `id = "${pbEsc(id)}"`).join(" || ");
+    const trxRecords = await pb.collection("transaksis").getFullList({
+      filter: `(${idFilter}) && (status = "selesai" || status = "bermasalah")`,
+      sort:   "-date",
+      fields: "id,customId,date,status,bagiHasilDone",
+    });
+
+    const trxMap = new Map(trxRecords.map((r) => [r.id as string, r]));
+
+    return tiRecords
+      .map((ti) => {
+        const trx = trxMap.get(ti.transaksiId as string);
+        if (!trx) return null;
+        return {
+          transaksiId:    trx.customId    as string,
+          tanggal:        trx.date        as string,
+          status:         trx.status      as string,
+          nilaiInvestasi: ti.nilaiInvestasi as number,
+          bagiHasilDone:  (trx.bagiHasilDone as boolean) || false,
+        };
+      })
+      .filter((r): r is HistoryRow => r !== null);
   } catch {
     return [];
   }
-  if (mous.length === 0) return [];
-
-  // 2. Ambil semua TI records milik investor ini.
-  let myTis: TiRecord[] = [];
-  try {
-    const res = await pb.collection("transaksi_investors").getFullList({
-      filter: `investorId = "${pbEsc(investorId)}"`,
-      sort:   "-created",
-    });
-    myTis = res.map((r) => ({
-      transaksiId:        r.transaksiId        as string,
-      investorId:         r.investorId         as string,
-      investorBrokerName: (r.investorBrokerName as string) || "",
-      nilaiInvestasi:     r.nilaiInvestasi     as number,
-      pctTrader:      (r.pctTrader     as number) ?? 10,
-      pctMinBun:      (r.pctMinBun     as number) ?? 5,
-      pctBrokerI:     (r.pctBrokerI    as number) ?? 0,
-      pctBrokerII:    (r.pctBrokerII   as number) ?? 0,
-    }));
-  } catch {
-    // koleksi belum ada atau kosong — BH akan 0
-  }
-  if (myTis.length === 0) {
-    return mous.map((mou) => ({
-      mouCustomId:      mou.customId,
-      periodeStart:     mou.date,
-      periodeEnd:       addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1)),
-      investmentAmount: mou.investmentAmount,
-      bh:               { investor: 0, trader: 0, minbun: 0, broker: 0 },
-      status:           computeMouStatus(mou),
-      lunas:            mou.bagiHasilDone === true,
-    }));
-  }
-
-  // 3. Ambil transaksis yang direferens oleh TI di atas (max 10 record, sudah dibatasi di step 2)
-  const trxIdSet = new Set(myTis.map((ti) => ti.transaksiId));
-  const trxMap   = new Map<string, TrxRecord>();
-  try {
-    const idFilter = [...trxIdSet].map((id) => `id = "${pbEsc(id)}"`).join(" || ");
-    const raw = await pb.collection("transaksis").getFullList({ filter: idFilter });
-    for (const r of raw) {
-      trxMap.set(r.id as string, {
-        id:             r.id             as string,
-        date:           r.date           as string,
-        hpp:            r.hpp            as number,
-        kebutuhanModal: r.kebutuhanModal as number,
-        ongkirPerKg:    r.ongkirPerKg    as number,
-        hargaJual:      r.hargaJual      as number,
-        status:         (r.status        as string) || "rencana",
-      });
-    }
-  } catch { /* abaikan */ }
-
-  // 4. Ambil SEMUA TI untuk transaksi-transaksi tersebut (bukan hanya milik investor ini)
-  //    Diperlukan untuk menghitung totalModal yang benar (penyebut rasio).
-  //    Jumlah transaksi sudah dibatasi 10, jadi filter ini aman.
-  const totalModalMap = new Map<string, number>(); // transaksiId → total semua investor
-  if (trxIdSet.size > 0) {
-    try {
-      const idFilter = [...trxIdSet].map((id) => `transaksiId = "${pbEsc(id)}"`).join(" || ");
-      const raw = await pb.collection("transaksi_investors").getFullList({
-        filter: idFilter,
-        fields: "transaksiId,nilaiInvestasi",
-      });
-      for (const r of raw) {
-        const tid = r.transaksiId as string;
-        totalModalMap.set(tid, (totalModalMap.get(tid) ?? 0) + (r.nilaiInvestasi as number));
-      }
-    } catch { /* abaikan */ }
-  }
-
-  // 5. Hitung bagi hasil per MoU — filter transaksi berdasarkan periode MoU
-  return mous.map((mou) => {
-    const [my, mm, md] = mou.date.slice(0, 10).split("-").map(Number);
-    const mouStart = Date.UTC(my, mm - 1, md);
-    const mouEnd   = mouStart + mou.contractPeriod * (mou.siklus ?? 1) * 86_400_000;
-    const pkPct    = (mou.bagiHasilPK ?? 35) / 100;
-    const periodeEnd = addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
-
-    let totalBh: BagiHasil = { investor: 0, trader: 0, minbun: 0, broker: 0 };
-
-    for (const ti of myTis) {
-      const trx = trxMap.get(ti.transaksiId);
-      if (!trx) continue;
-
-      // Filter: hanya transaksi yang tanggalnya masuk periode MoU ini.
-      // Batas akhir eksklusif [start, end) — transaksi di tanggal akhir milik
-      // periode perpanjangan, agar tidak terhitung dobel di kedua MoU.
-      const [ty, tm, td] = (trx.date as string).slice(0, 10).split("-").map(Number);
-      const tDate = Date.UTC(ty, tm - 1, td);
-      if (tDate < mouStart || tDate >= mouEnd) continue;
-      if (trx.status !== "selesai" && trx.status !== "bermasalah") continue;
-
-      // Hitung profit transaksi
-      const qty         = trx.hpp > 0 ? trx.kebutuhanModal / trx.hpp : 0;
-      const totalOngkir = trx.ongkirPerKg * qty;
-      const income      = trx.hargaJual * qty;
-      const profit      = income - (trx.kebutuhanModal + totalOngkir);
-
-      // totalModal = jumlah SEMUA investor dalam transaksi ini (bukan hanya investor ini)
-      const totalModal = totalModalMap.get(ti.transaksiId) ?? ti.nilaiInvestasi;
-
-      const bh = calcBagiHasil(profit, pkPct, ti, totalModal);
-      totalBh = {
-        investor: totalBh.investor + bh.investor,
-        trader:   totalBh.trader   + bh.trader,
-        minbun:   totalBh.minbun   + bh.minbun,
-        broker:   totalBh.broker   + bh.broker,
-      };
-    }
-
-    return {
-      mouCustomId:      mou.customId,
-      periodeStart:     mou.date,
-      periodeEnd,
-      investmentAmount: mou.investmentAmount,
-      bh:               totalBh,
-      status:           computeMouStatus(mou),
-      lunas:            mou.bagiHasilDone === true,
-    };
-  });
-}
-
-/** Tambahkan N hari ke tanggal string "YYYY-MM-DD" — menggunakan UTC agar aman lintas timezone */
-function addDays(dateStr: string, days: number): string {
-  const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d + days));
-  return date.toISOString().slice(0, 10);
 }
 
 // ── Email HTML ─────────────────────────────────────────────────────────────────
@@ -303,34 +96,16 @@ function addDays(dateStr: string, days: number): string {
 function buildHistoryTableHtml(rows: HistoryRow[]): string {
   if (rows.length === 0) return "";
 
-  const statusLabel: Record<string, string> = {
-    aktif:      "Aktif",
-    pending:    "Menunggu TTD",
-    expired:    "Berakhir",
-    selesai:    "Selesai",
-    dihentikan: "Dihentikan",
-  };
-  const statusColor: Record<string, string> = {
-    aktif:      "#16a34a",
-    pending:    "#d97706",
-    expired:    "#dc2626",
-    selesai:    "#2563eb",
-    dihentikan: "#6b7280",
-  };
-
   const rowsHtml = rows.map((r, i) => {
-    const bg = i % 2 === 0 ? "#ffffff" : "#f9fafb";
-    const statusLbl   = statusLabel[r.status]  ?? r.status;
-    const statusClr   = statusColor[r.status]  ?? "#6b7280";
-    const lunasIcon   = r.lunas ? "✅" : "⏳";
-    const totalBh     = r.bh.investor + r.bh.trader + r.bh.minbun + r.bh.broker;
+    const bg        = i % 2 === 0 ? "#ffffff" : "#f9fafb";
+    const lunasIcon = r.bagiHasilDone ? "✅" : "⏳";
+    const statusLbl = r.status === "selesai" ? "Selesai" : r.status === "bermasalah" ? "Bermasalah" : r.status;
+    const statusClr = r.status === "selesai" ? "#16a34a" : "#dc2626";
     return `
     <tr style="background:${bg};">
-      <td style="padding:9px 10px;font-family:monospace;font-size:12px;font-weight:700;white-space:nowrap;">${r.mouCustomId}</td>
-      <td style="padding:9px 10px;font-size:12px;white-space:nowrap;">${fmtDate(r.periodeStart)}</td>
-      <td style="padding:9px 10px;font-size:12px;white-space:nowrap;">${fmtDate(r.periodeEnd)}</td>
-      <td style="padding:9px 10px;font-size:12px;text-align:right;white-space:nowrap;">${fmtRp(r.investmentAmount)}</td>
-      <td style="padding:9px 10px;font-size:12px;text-align:right;white-space:nowrap;color:#16a34a;font-weight:600;">${totalBh > 0 ? fmtRp(r.bh.investor) : "—"}</td>
+      <td style="padding:9px 10px;font-family:monospace;font-size:12px;font-weight:700;white-space:nowrap;">${r.transaksiId}</td>
+      <td style="padding:9px 10px;font-size:12px;white-space:nowrap;">${fmtDate(r.tanggal)}</td>
+      <td style="padding:9px 10px;font-size:12px;text-align:right;white-space:nowrap;">${fmtRp(r.nilaiInvestasi)}</td>
       <td style="padding:9px 10px;font-size:12px;text-align:center;">
         <span style="color:${statusClr};font-size:11px;font-weight:600;">${statusLbl}</span>
       </td>
@@ -338,21 +113,18 @@ function buildHistoryTableHtml(rows: HistoryRow[]): string {
     </tr>`;
   }).join("");
 
-  const totalInvestment = rows.reduce((s, r) => s + r.investmentAmount, 0);
-  const totalInvestor   = rows.reduce((s, r) => s + r.bh.investor, 0);
+  const totalInvestment = rows.reduce((s, r) => s + r.nilaiInvestasi, 0);
 
   return `
   <div style="margin-top:28px;">
-    <h2 style="margin:0 0 12px;font-size:14px;color:#111827;font-weight:700;">📊 Ringkasan Seluruh PKS</h2>
+    <h2 style="margin:0 0 12px;font-size:14px;color:#111827;font-weight:700;">📊 Ringkasan Partisipasi Transaksi</h2>
     <div style="overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:440px;">
         <thead>
           <tr style="background:#f3f4f6;border-bottom:2px solid #e5e7eb;">
-            <th style="padding:9px 10px;text-align:left;color:#6b7280;font-weight:600;white-space:nowrap;">No. PKS</th>
-            <th style="padding:9px 10px;text-align:left;color:#6b7280;font-weight:600;white-space:nowrap;">Tgl Mulai</th>
-            <th style="padding:9px 10px;text-align:left;color:#6b7280;font-weight:600;white-space:nowrap;">Tgl Selesai</th>
+            <th style="padding:9px 10px;text-align:left;color:#6b7280;font-weight:600;white-space:nowrap;">No. TRX</th>
+            <th style="padding:9px 10px;text-align:left;color:#6b7280;font-weight:600;white-space:nowrap;">Tanggal</th>
             <th style="padding:9px 10px;text-align:right;color:#6b7280;font-weight:600;white-space:nowrap;">Nilai Investasi</th>
-            <th style="padding:9px 10px;text-align:right;color:#6b7280;font-weight:600;white-space:nowrap;">Bagi Hasil Anda</th>
             <th style="padding:9px 10px;text-align:center;color:#6b7280;font-weight:600;">Status</th>
             <th style="padding:9px 10px;text-align:center;color:#6b7280;font-weight:600;">Lunas</th>
           </tr>
@@ -360,9 +132,8 @@ function buildHistoryTableHtml(rows: HistoryRow[]): string {
         <tbody>${rowsHtml}</tbody>
         <tfoot>
           <tr style="background:#f0fdf4;border-top:2px solid #e5e7eb;">
-            <td colspan="3" style="padding:9px 10px;font-size:12px;color:#6b7280;font-weight:600;">${rows.length} PKS</td>
+            <td colspan="2" style="padding:9px 10px;font-size:12px;color:#6b7280;font-weight:600;">${rows.length} transaksi</td>
             <td style="padding:9px 10px;text-align:right;font-weight:700;font-size:12px;">${fmtRp(totalInvestment)}</td>
-            <td style="padding:9px 10px;text-align:right;font-weight:700;color:#16a34a;font-size:12px;">${fmtRp(totalInvestor)}</td>
             <td colspan="2"></td>
           </tr>
         </tfoot>
@@ -373,14 +144,14 @@ function buildHistoryTableHtml(rows: HistoryRow[]): string {
 
 function buildEmailHtml(opts: {
   investorName: string;
-  mouCustomId:  string;
+  transaksiId:  string;
   keterangan:   string;
   jumlah:       number;
   buktiUrl:     string;
   tanggal:      string;
   historyHtml:  string;
 }): string {
-  const { investorName, mouCustomId, keterangan, jumlah, buktiUrl, tanggal, historyHtml } = opts;
+  const { investorName, transaksiId, keterangan, jumlah, buktiUrl, tanggal, historyHtml } = opts;
   return `
 <!DOCTYPE html>
 <html lang="id">
@@ -404,8 +175,8 @@ function buildEmailHtml(opts: {
 
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">
         <tr style="background:#f9fafb;">
-          <td style="padding:10px 14px;color:#6b7280;width:40%;">No. PKS</td>
-          <td style="padding:10px 14px;font-weight:600;font-family:monospace;">${mouCustomId}</td>
+          <td style="padding:10px 14px;color:#6b7280;width:40%;">No. Transaksi</td>
+          <td style="padding:10px 14px;font-weight:600;font-family:monospace;">${transaksiId}</td>
         </tr>
         <tr>
           <td style="padding:10px 14px;color:#6b7280;border-top:1px solid #f3f4f6;">Jenis Bagi Hasil</td>
@@ -451,14 +222,14 @@ function buildEmailHtml(opts: {
 
 function buildWaMessage(opts: {
   investorName: string;
-  mouCustomId:  string;
+  transaksiId:  string;
   keterangan:   string;
   jumlah:       number;
   buktiUrl:     string;
   tanggal:      string;
   history:      HistoryRow[];
 }): string {
-  const { investorName, mouCustomId, keterangan, jumlah, buktiUrl, tanggal, history } = opts;
+  const { investorName, transaksiId, keterangan, jumlah, buktiUrl, tanggal, history } = opts;
   const lines = [
     `✅ *Konfirmasi Pembayaran Bagi Hasil*`,
     ``,
@@ -466,7 +237,7 @@ function buildWaMessage(opts: {
     ``,
     `Bagi hasil Anda telah berhasil dibayarkan:`,
     ``,
-    `📋 No. PKS   : ${mouCustomId}`,
+    `📋 No. TRX   : ${transaksiId}`,
     `📂 Jenis     : ${keterangan}`,
     `💰 Jumlah    : *${fmtRp(jumlah)}*`,
     `📅 Tgl Bayar : ${tanggal}`,
@@ -475,26 +246,20 @@ function buildWaMessage(opts: {
     lines.push(``, `📎 Bukti Transfer:`, buktiUrl);
   }
 
-  // History summary
   if (history.length > 0) {
-    lines.push(``, `─────────────────────────`, `📊 *Ringkasan Seluruh PKS*`, ``);
+    lines.push(``, `─────────────────────────`, `📊 *Ringkasan Partisipasi Transaksi*`, ``);
     for (const r of history) {
-      const lunasIcon = r.lunas ? "✅" : "⏳";
-      const totalBh   = r.bh.investor;
+      const lunasIcon = r.bagiHasilDone ? "✅" : "⏳";
       lines.push(
-        `${lunasIcon} *${r.mouCustomId}*`,
-        `   Investasi : ${fmtRp(r.investmentAmount)}`,
-        `   Bagi Hasil: ${totalBh > 0 ? fmtRp(totalBh) : "belum ada data"}`,
-        `   Status    : ${r.status}`,
+        `${lunasIcon} *${r.transaksiId}*`,
+        `   Tanggal  : ${fmtDate(r.tanggal)}`,
+        `   Investasi: ${fmtRp(r.nilaiInvestasi)}`,
+        `   Status   : ${r.status}`,
         ``,
       );
     }
-    const totalInvestment = history.reduce((s, r) => s + r.investmentAmount, 0);
-    const totalInvestor   = history.reduce((s, r) => s + r.bh.investor, 0);
-    lines.push(
-      `*Total Investasi : ${fmtRp(totalInvestment)}*`,
-      `*Total Bagi Hasil: ${fmtRp(totalInvestor)}*`,
-    );
+    const totalInvestment = history.reduce((s, r) => s + r.nilaiInvestasi, 0);
+    lines.push(`*Total Investasi: ${fmtRp(totalInvestment)}*`);
   }
 
   lines.push(``, `Terima kasih atas kepercayaan Anda. 🙏`, `_— Tim MinBun_`);
@@ -512,7 +277,7 @@ async function sendEmail(to: string, opts: Parameters<typeof buildEmailHtml>[0])
   await transporter.sendMail({
     from:    `"MinBun ERP" <${user}>`,
     to,
-    subject: `[MinBun] ✅ Konfirmasi Bagi Hasil ${opts.keterangan} — ${opts.mouCustomId}`,
+    subject: `[MinBun] ✅ Konfirmasi Bagi Hasil ${opts.keterangan} — ${opts.transaksiId}`,
     html:    buildEmailHtml(opts),
   });
   return "sent";
@@ -524,7 +289,6 @@ async function sendWhatsApp(phone: string, opts: Parameters<typeof buildWaMessag
   const token = process.env.FONNTE_TOKEN;
   if (!token || !phone) return "skipped";
 
-  // Normalkan nomor: 08xx → 628xx
   const normalized = phone.replace(/^0/, "62").replace(/\D/g, "");
   const res = await fetch("https://api.fonnte.com/send", {
     method: "POST",
@@ -549,7 +313,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Buat satu instance PocketBase yang digunakan untuk seluruh handler
   let pb: PocketBase;
   try {
     pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
@@ -567,15 +330,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Body tidak valid" }, { status: 400 });
   }
 
-  const { mouCustomId, keterangan, investorId, buktiUrl } = body;
-  const jumlah: number = typeof body.jumlah === "number" && body.jumlah >= 0
-    ? body.jumlah
-    : 0;
-  if (!mouCustomId || !keterangan || !investorId) {
+  const { transaksiId, keterangan, investorId, buktiUrl } = body;
+  const jumlah: number = typeof body.jumlah === "number" && body.jumlah >= 0 ? body.jumlah : 0;
+  if (!transaksiId || !keterangan || !investorId) {
     return NextResponse.json({ error: "Field wajib kurang" }, { status: 400 });
   }
 
-  // 3. Ambil data investor dari PocketBase
+  // 3. Ambil data investor
   let investorPhone = "";
   let investorEmail = "";
   let investorName  = "";
@@ -592,17 +353,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Investor "${investorId}" tidak ditemukan` }, { status: 404 });
   }
 
-  // 4. Ambil riwayat investasi untuk history table
-  const history = await buildHistory(pb, investorId);
+  // 4. Bangun riwayat transaksi investor
+  const history     = await buildHistory(pb, investorId);
   const historyHtml = buildHistoryTableHtml(history);
 
-  // Tanggal kalender WIB (UTC+7) — server berjalan di UTC
   const tanggal  = fmtDate(new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10));
-  const baseOpts = { investorName, mouCustomId, keterangan, jumlah, buktiUrl, tanggal };
+  const baseOpts = { investorName, transaksiId, keterangan, jumlah, buktiUrl, tanggal };
   const errors: string[] = [];
 
-  // 5 & 6. Kirim WA dan email ke investor secara paralel agar WA yang lambat
-  //         tidak menunda email (keduanya independen satu sama lain).
+  // 5 & 6. Kirim WA dan email ke investor secara paralel
   const [waStatus, emailStatus] = await Promise.all([
     sendWhatsApp(investorPhone, { ...baseOpts, history }).catch((e) => {
       errors.push(`WA: ${String(e)}`);
@@ -614,10 +373,10 @@ export async function POST(req: NextRequest) {
     }),
   ]);
 
-  // 7. Simpan log ke reminder_logs (silent — tidak gagalkan response)
+  // 7. Simpan log (mouCustomId diisi transaksiId untuk backward compat field)
   pb.collection("reminder_logs").create({
-    mouCustomId:  mouCustomId,
-    cycleNumber:  body.siklus ?? 1,
+    mouCustomId:  transaksiId,
+    cycleNumber:  0,
     sentAt:       new Date().toISOString(),
     investorName: investorName,
     emailStatus,

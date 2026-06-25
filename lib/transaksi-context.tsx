@@ -79,6 +79,13 @@ export interface Transaksi {
   hargaJual: number;
   status: TransaksiStatus;
   catatanAkhir: string;
+  // Pelacakan bagi hasil — digunakan oleh halaman Reminder
+  bagiHasilChecks?: Record<string, boolean>;
+  bagiHasilDone?: boolean;
+  buktiInvestor?: string;
+  buktiBroker?: string;
+  buktiTrader?: string;
+  buktiMinBun?: string;
 }
 
 /** Hitung semua nilai turunan dari sebuah Transaksi */
@@ -92,6 +99,23 @@ export function calcTransaksi(t: Transaksi) {
   return { qty, totalInvestasi, selisih, totalOngkir, income, profit };
 }
 
+// Mapping keterangan → nama field file bukti di PocketBase (koleksi transaksis)
+export const BUKTI_FIELD_TRX: Record<string, string> = {
+  Investor: "buktiInvestor",
+  Broker:   "buktiBroker",
+  Trader:   "buktiTrader",
+  MinBun:   "buktiMinBun",
+};
+
+const PB_BASE = process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
+
+function pbFileUrlTrx(pbRecordId: string, fieldValue: unknown): string {
+  const filename = Array.isArray(fieldValue)
+    ? (fieldValue[0] as string) || ""
+    : (fieldValue as string) || "";
+  return filename ? `${PB_BASE}/api/files/transaksis/${pbRecordId}/${filename}` : "";
+}
+
 interface TransaksiContextType {
   transaksis: Transaksi[];
   addTransaksi:    (t: Omit<Transaksi, "id">) => Promise<void>;
@@ -99,6 +123,8 @@ interface TransaksiContextType {
   deleteTransaksi: (id: string) => Promise<void>;
   /** Sinkronkan nama & broker investor yang ter-denormalisasi di entry transaksi */
   syncInvestorInfo: (investorId: string, investorName: string, investorBrokerName: string) => Promise<void>;
+  /** Upload bukti transfer untuk satu penerima bagi hasil */
+  uploadBuktiTransaksi: (id: string, keterangan: string, file: File) => Promise<string>;
 }
 
 const TransaksiContext = createContext<TransaksiContextType | undefined>(undefined);
@@ -118,8 +144,9 @@ function recordToTransaksi(
   pbIdMap: Map<string, string>,
   investorEntries: TransaksiInvestorEntry[] = [],
 ): Transaksi {
-  const customId = r.customId as string;
-  pbIdMap.set(customId, r.id as string);
+  const customId   = r.customId as string;
+  const pbRecordId = r.id as string;
+  pbIdMap.set(customId, pbRecordId);
   return {
     id:              customId,
     date:            r.date           as string,
@@ -131,6 +158,18 @@ function recordToTransaksi(
     hargaJual:    r.hargaJual   as number,
     status:       (normalizeStatus(r.status as string)),
     catatanAkhir: (r.catatanAkhir as string) || "",
+    bagiHasilDone: (r.bagiHasilDone as boolean) || false,
+    bagiHasilChecks: (() => {
+      const raw = r.bagiHasilChecks;
+      if (!raw) return {};
+      if (typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, boolean>;
+      try { return JSON.parse(raw as string) as Record<string, boolean>; }
+      catch { return {}; }
+    })(),
+    buktiInvestor: pbFileUrlTrx(pbRecordId, r.buktiInvestor),
+    buktiBroker:   pbFileUrlTrx(pbRecordId, r.buktiBroker),
+    buktiTrader:   pbFileUrlTrx(pbRecordId, r.buktiTrader),
+    buktiMinBun:   pbFileUrlTrx(pbRecordId, r.buktiMinBun),
   };
 }
 
@@ -318,13 +357,15 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
     const pbId = await resolvePbId(id);
     if (!pbId) return;
 
-    // Pisahkan investorEntries dari payload untuk transaksis collection
-    const { investorEntries, ...trxUpdates } = updates;
+    // Pisahkan investorEntries dan bagiHasilChecks dari payload utama
+    const { investorEntries, bagiHasilChecks, ...trxUpdates } = updates;
 
-    const record = await pb.collection("transaksis").update(pbId, {
-      ...trxUpdates,
-      updatedBy: currentUserId(),
-    });
+    const pbUpdates: Record<string, unknown> = { ...trxUpdates, updatedBy: currentUserId() };
+    if (bagiHasilChecks !== undefined) {
+      pbUpdates.bagiHasilChecks = JSON.stringify(bagiHasilChecks);
+    }
+
+    const record = await pb.collection("transaksis").update(pbId, pbUpdates);
 
     // Jika investorEntries ikut diupdate:
     // Catat ID entry lama SEBELUM membuat yang baru, lalu hapus berdasarkan ID —
@@ -397,8 +438,23 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const uploadBuktiTransaksi = async (id: string, keterangan: string, file: File): Promise<string> => {
+    const pbId = await resolvePbId(id);
+    if (!pbId) throw new Error(`Transaksi "${id}" tidak ditemukan.`);
+    const fieldName = BUKTI_FIELD_TRX[keterangan];
+    if (!fieldName) throw new Error(`Keterangan "${keterangan}" tidak dikenali.`);
+    const fd = new FormData();
+    fd.append(fieldName, file);
+    const record = await pb.collection("transaksis").update(pbId, fd);
+    const url = pbFileUrlTrx(pbId, record[fieldName]);
+    setTransaksis((prev) =>
+      prev.map((t) => t.id !== id ? t : { ...t, [fieldName]: url }),
+    );
+    return url;
+  };
+
   return (
-    <TransaksiContext.Provider value={{ transaksis, addTransaksi, updateTransaksi, deleteTransaksi, syncInvestorInfo }}>
+    <TransaksiContext.Provider value={{ transaksis, addTransaksi, updateTransaksi, deleteTransaksi, syncInvestorInfo, uploadBuktiTransaksi }}>
       {children}
     </TransaksiContext.Provider>
   );
