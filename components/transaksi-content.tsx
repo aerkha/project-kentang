@@ -719,11 +719,11 @@ export function TransaksiContent() {
   const [finalizeNote, setFinalizeNote]       = useState("");
   const [errorInfo, setErrorInfo]             = useState<PbErrorInfo | null>(null);
   const [form, setForm]                       = useState<TrxFormData>(initialForm());
-  const [isBagiHasilOpen, setIsBagiHasilOpen]   = useState(false);
-  const [bagiHasilTrx, setBagiHasilTrx]         = useState<Transaksi | null>(null);
-  const [bagiHasilFile, setBagiHasilFile]        = useState<File | null>(null);
-  const [bagiHasilPreview, setBagiHasilPreview]  = useState<string | null>(null);
-  const [isSubmittingBH, setIsSubmittingBH]      = useState(false);
+  const [isBagiHasilOpen, setIsBagiHasilOpen]     = useState(false);
+  const [bagiHasilTrx, setBagiHasilTrx]           = useState<Transaksi | null>(null);
+  const [bagiHasilFiles, setBagiHasilFiles]        = useState<Record<string, File>>({});
+  const [bagiHasilPreviews, setBagiHasilPreviews]  = useState<Record<string, string>>({});
+  const [isSubmittingBH, setIsSubmittingBH]        = useState(false);
 
   // Filter untuk investor: hanya tampilkan transaksi yang melibatkan investor tersebut
   const visibleTransaksis = useMemo(() => {
@@ -938,20 +938,25 @@ export function TransaksiContent() {
   // Bagi Hasil dialog handlers
   const openBagiHasil = (t: Transaksi) => {
     setBagiHasilTrx(t);
-    setBagiHasilFile(null);
-    setBagiHasilPreview(null);
+    setBagiHasilFiles({});
+    setBagiHasilPreviews({});
     setIsBagiHasilOpen(true);
   };
 
-  const handleBagiHasilFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] ?? null;
-    setBagiHasilFile(file);
-    if (file && file.type.startsWith("image/")) {
+  const handleBagiHasilFileChange = (keterangan: string, file: File | null) => {
+    if (!file) {
+      setBagiHasilFiles((prev) => { const n = { ...prev }; delete n[keterangan]; return n; });
+      setBagiHasilPreviews((prev) => { const n = { ...prev }; delete n[keterangan]; return n; });
+      return;
+    }
+    setBagiHasilFiles((prev) => ({ ...prev, [keterangan]: file }));
+    if (file.type.startsWith("image/")) {
       const reader = new FileReader();
-      reader.onload = (ev) => setBagiHasilPreview(ev.target?.result as string);
+      reader.onload = (ev) =>
+        setBagiHasilPreviews((prev) => ({ ...prev, [keterangan]: ev.target?.result as string }));
       reader.readAsDataURL(file);
     } else {
-      setBagiHasilPreview(null);
+      setBagiHasilPreviews((prev) => { const n = { ...prev }; delete n[keterangan]; return n; });
     }
   };
 
@@ -959,8 +964,8 @@ export function TransaksiContent() {
     if (!bagiHasilTrx) return;
     setIsSubmittingBH(true);
     try {
-      if (bagiHasilFile) {
-        await uploadBuktiTransaksi(bagiHasilTrx.id, "Investor", bagiHasilFile);
+      for (const [keterangan, file] of Object.entries(bagiHasilFiles)) {
+        await uploadBuktiTransaksi(bagiHasilTrx.id, keterangan, file);
       }
       if (action === "selesai") {
         const rows = calcBagiHasilRows(bagiHasilTrx, mous);
@@ -1355,7 +1360,7 @@ export function TransaksiContent() {
         open={isBagiHasilOpen}
         onOpenChange={(open) => {
           setIsBagiHasilOpen(open);
-          if (!open) { setBagiHasilTrx(null); setBagiHasilFile(null); setBagiHasilPreview(null); }
+          if (!open) { setBagiHasilTrx(null); setBagiHasilFiles({}); setBagiHasilPreviews({}); }
         }}
       >
         <DialogContent className="sm:max-w-[560px]">
@@ -1369,6 +1374,8 @@ export function TransaksiContent() {
             </DialogDescription>
           </DialogHeader>
 
+          <div className="overflow-y-auto max-h-[65vh] space-y-4 pr-1">
+
           {/* Bagi Hasil table */}
           {bagiHasilTrx && (() => {
             const rows = calcBagiHasilRows(bagiHasilTrx, mous);
@@ -1378,78 +1385,106 @@ export function TransaksiContent() {
               </p>
             );
             const total = rows.reduce((s, r) => s + r.jumlah, 0);
-            const colorsKet: Record<string, string> = {
+            const badgeKet: Record<string, string> = {
               Investor: "bg-orange-100 text-orange-700 border-orange-200",
               Broker:   "bg-blue-100   text-blue-700   border-blue-200",
               Trader:   "bg-purple-100 text-purple-700 border-purple-200",
               MinBun:   "bg-green-100  text-green-700  border-green-200",
             };
+            // keterangan unik yang perlu bukti (kecuali MinBun)
+            const uploadKets = (["Investor", "Broker", "Trader"] as const).filter(
+              (k) => rows.some((r) => r.keterangan === k),
+            );
             return (
-              <div className="rounded-lg border overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/30">
-                      <th className="py-2 px-3 text-left font-medium text-muted-foreground">Penerima</th>
-                      <th className="py-2 px-3 text-left font-medium text-muted-foreground">Jenis</th>
-                      <th className="py-2 px-3 text-right font-medium text-muted-foreground">Jumlah</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r, i) => (
-                      <tr key={i} className="border-b border-border/50">
-                        <td className="py-2 px-3">{r.nama}</td>
-                        <td className="py-2 px-3">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${colorsKet[r.keterangan]}`}>
-                            {r.keterangan}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 text-right font-semibold">{formatRp(r.jumlah)}</td>
+              <>
+                <div className="rounded-lg border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/30">
+                        <th className="py-2 px-3 text-left font-medium text-muted-foreground">Penerima</th>
+                        <th className="py-2 px-3 text-left font-medium text-muted-foreground">Jenis</th>
+                        <th className="py-2 px-3 text-right font-medium text-muted-foreground">Jumlah</th>
                       </tr>
-                    ))}
-                    <tr className="bg-muted/20">
-                      <td colSpan={2} className="py-2 px-3 text-xs text-muted-foreground font-medium">Total Bagi Hasil</td>
-                      <td className="py-2 px-3 text-right font-bold">{formatRp(total)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {rows.map((r, i) => (
+                        <tr key={i} className="border-b border-border/50">
+                          <td className="py-2 px-3">{r.nama}</td>
+                          <td className="py-2 px-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${badgeKet[r.keterangan]}`}>
+                              {r.keterangan}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-right font-semibold">{formatRp(r.jumlah)}</td>
+                        </tr>
+                      ))}
+                      <tr className="bg-muted/20">
+                        <td colSpan={2} className="py-2 px-3 text-xs text-muted-foreground font-medium">Total Bagi Hasil</td>
+                        <td className="py-2 px-3 text-right font-bold">{formatRp(total)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Bukti upload per keterangan (kecuali MinBun) */}
+                {uploadKets.length > 0 && (
+                  <div className="space-y-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1">
+                      Bukti Transfer (opsional)
+                    </p>
+                    {uploadKets.map((ket) => {
+                      const file    = bagiHasilFiles[ket];
+                      const preview = bagiHasilPreviews[ket];
+                      const names   = rows.filter((r) => r.keterangan === ket).map((r) => r.nama).join(", ");
+                      return (
+                        <div key={ket} className="space-y-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${badgeKet[ket]}`}>
+                              {ket}
+                            </span>
+                            <span className="text-xs text-muted-foreground truncate">{names}</span>
+                          </div>
+                          <label className={`flex items-center gap-3 w-full border-2 border-dashed rounded-lg cursor-pointer transition-colors px-4 py-3 ${
+                            file
+                              ? "border-green-400 bg-green-50 dark:bg-green-950/20"
+                              : "border-border hover:border-muted-foreground/40 hover:bg-muted/30"
+                          }`}>
+                            <input
+                              type="file"
+                              accept="image/*,.pdf"
+                              className="hidden"
+                              onChange={(e) => handleBagiHasilFileChange(ket, e.target.files?.[0] ?? null)}
+                            />
+                            {file ? (
+                              <>
+                                <FileCheck className="h-5 w-5 text-green-500 shrink-0" />
+                                <div className="min-w-0">
+                                  <p className="text-xs font-medium text-green-700 dark:text-green-400 truncate">{file.name}</p>
+                                  <p className="text-[10px] text-muted-foreground">{(file.size / 1024).toFixed(0)} KB · Klik untuk ganti</p>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="h-5 w-5 text-muted-foreground shrink-0" />
+                                <span className="text-xs text-muted-foreground">Klik untuk upload bukti — JPG, PNG, atau PDF</span>
+                              </>
+                            )}
+                          </label>
+                          {preview && (
+                            <div className="rounded-lg overflow-hidden border">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={preview} alt={`Preview ${ket}`} className="w-full max-h-32 object-contain bg-muted" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             );
           })()}
 
-          {/* Bukti upload */}
-          <div className="space-y-2">
-            <Label className="text-xs">Bukti Transfer (opsional)</Label>
-            <label className={`flex flex-col items-center justify-center w-full border-2 border-dashed rounded-lg cursor-pointer transition-colors p-4 gap-2 ${
-              bagiHasilFile
-                ? "border-green-400 bg-green-50 dark:bg-green-950/20"
-                : "border-border hover:border-primary/50 hover:bg-muted/40"
-            }`}>
-              <input
-                type="file"
-                accept="image/*,.pdf"
-                className="hidden"
-                onChange={handleBagiHasilFileChange}
-              />
-              {bagiHasilFile ? (
-                <div className="flex flex-col items-center gap-1 text-center">
-                  <FileCheck className="h-7 w-7 text-green-500" />
-                  <span className="text-sm font-medium text-green-700 dark:text-green-400">{bagiHasilFile.name}</span>
-                  <span className="text-xs text-muted-foreground">{(bagiHasilFile.size / 1024).toFixed(0)} KB · Klik untuk ganti</span>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-1 text-center">
-                  <Upload className="h-7 w-7 text-muted-foreground" />
-                  <span className="text-sm">Klik untuk pilih bukti transfer</span>
-                  <span className="text-xs text-muted-foreground">JPG, PNG, atau PDF</span>
-                </div>
-              )}
-            </label>
-            {bagiHasilPreview && (
-              <div className="rounded-lg overflow-hidden border">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={bagiHasilPreview} alt="Preview bukti" className="w-full max-h-40 object-contain bg-muted" />
-              </div>
-            )}
           </div>
 
           <DialogFooter className="gap-2 flex-wrap sm:flex-nowrap">
