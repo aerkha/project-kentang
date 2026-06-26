@@ -157,7 +157,7 @@ export function PengeluaranProvider({ children }: { children: ReactNode }) {
 
   const updatePengeluaran = async (id: string, updates: Partial<Pengeluaran>) => {
     const pbId = await resolvePbId(id);
-    if (!pbId) return;
+    if (!pbId) throw new Error(`Entri "${id}" tidak ditemukan.`);
     const record = await pb.collection("pengeluarans").update(pbId, {
       ...updates,
       kategori:  updates.kategori ?? undefined,
@@ -172,7 +172,7 @@ export function PengeluaranProvider({ children }: { children: ReactNode }) {
 
   const deletePengeluaran = async (id: string) => {
     const pbId = await resolvePbId(id);
-    if (!pbId) return;
+    if (!pbId) throw new Error(`Entri "${id}" tidak ditemukan.`);
     await pb.collection("pengeluarans").delete(pbId);
     map.delete(id);
     setPengeluarans((prev) => prev.filter((p) => p.id !== id));

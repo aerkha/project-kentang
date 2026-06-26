@@ -6,18 +6,13 @@
 
 import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
+import { todayWibStr } from "@/lib/utils";
 
 function pbEsc(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-// ── Zona waktu aplikasi: WIB (UTC+7) ─────────────────────────────────────────
 
-const WIB_OFFSET_MS = 7 * 3_600_000;
-
-function todayWibStr(): string {
-  return new Date(Date.now() + WIB_OFFSET_MS).toISOString().slice(0, 10);
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,7 +66,7 @@ async function findPendingTransaksis(
   pb: PocketBase,
 ): Promise<PendingTransaksi[]> {
   const records = await pb.collection("transaksis").getFullList<TransaksiRecord>({
-    filter: `(status = "selesai" || status = "bermasalah") && bagiHasilDone = false`,
+    filter: `(status = "selesai" || status = "bermasalah") && (bagiHasilDone = false)`,
     sort:   "date",
   });
 
@@ -283,7 +278,7 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
         allPending.map((p) =>
           pb.collection("reminder_logs")
             .getList(1, 1, {
-              filter: `mouCustomId = "${pbEsc(p.trx.customId)}" && (triggeredBy = "cron" || triggeredBy = "manual")`,
+              filter: `(mouCustomId = "${pbEsc(p.trx.customId)}") && (triggeredBy = "cron" || triggeredBy = "manual")`,
             })
             .then((r) => r.totalItems > 0)
             .catch(() => false),

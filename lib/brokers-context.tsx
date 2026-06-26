@@ -125,7 +125,7 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
 
   const updateBroker = async (id: string, updates: Partial<Broker>) => {
     const pbId = await resolvePbId(id);
-    if (!pbId) return;
+    if (!pbId) throw new Error(`Broker "${id}" tidak ditemukan.`);
     const record = await pb.collection("brokers").update(pbId, { ...updates, updatedBy: currentUserId() });
     setBrokers((prev) =>
       prev.map((b) => (b.id === id ? recordToBroker(record, map) : b))
@@ -134,7 +134,7 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
 
   const deleteBroker = async (id: string) => {
     const pbId = await resolvePbId(id);
-    if (!pbId) return;
+    if (!pbId) throw new Error(`Broker "${id}" tidak ditemukan.`);
     await pb.collection("brokers").delete(pbId);
     map.delete(id);
     setBrokers((prev) => prev.filter((b) => b.id !== id));

@@ -319,7 +319,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
 
   const updateMou = async (id: string, updates: Partial<MoU>) => {
     const pbId = await resolvePbId(id);
-    if (!pbId) return;
+    if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan.`);
 
     const {
       esignPihakPertama1,
@@ -368,7 +368,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
 
   const deleteMou = async (id: string) => {
     const pbId       = await resolvePbId(id);
-    if (!pbId) return;
+    if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan.`);
     const mouToDelete = mousRef.current.find((m) => m.id === id);
     await pb.collection("mous").delete(pbId);
     map.delete(id);

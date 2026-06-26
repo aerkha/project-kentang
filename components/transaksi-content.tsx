@@ -782,7 +782,7 @@ export function TransaksiContent() {
           pctTrader:          parseFloat(e.pctTrader)  || 0,
           pctMinBun:          parseFloat(e.pctMinBun)  || 0,
           pctBrokerI:         parseFloat(e.pctBrokerI) || 0,
-          pctBrokerII:        0,
+          pctBrokerII:        parseFloat(e.pctBrokerII) || 0,
         };
       }),
     ongkirPerKg:  parseFloat(f.ongkirPerKg) || 0,

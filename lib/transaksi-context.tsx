@@ -355,7 +355,7 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
 
   const updateTransaksi = async (id: string, updates: Partial<Transaksi>) => {
     const pbId = await resolvePbId(id);
-    if (!pbId) return;
+    if (!pbId) throw new Error(`Transaksi "${id}" tidak ditemukan.`);
 
     // Pisahkan investorEntries dan bagiHasilChecks dari payload utama
     const { investorEntries, bagiHasilChecks, ...trxUpdates } = updates;
@@ -393,7 +393,7 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
 
   const deleteTransaksi = async (id: string) => {
     const pbId = await resolvePbId(id);
-    if (!pbId) return;
+    if (!pbId) throw new Error(`Transaksi "${id}" tidak ditemukan.`);
 
     // Hapus junction records dulu, baru transaksi
     await deleteInvestorEntriesByIds(await listInvestorEntryIds(pbId));
