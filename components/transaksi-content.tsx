@@ -13,7 +13,6 @@ import { usePermissions } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -146,7 +145,7 @@ function statusVariant(status: TransaksiStatus): string {
   switch (status) {
     case "berjalan":   return "bg-blue-100   text-blue-800   dark:bg-blue-900/30   dark:text-blue-300";
     case "perbarui":   return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300";
-    case "selesai":    return "bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-300";
+    case "Akhiri":    return "bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-300";
     case "bermasalah": return "bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-300";
   }
 }
@@ -717,7 +716,7 @@ export function TransaksiContent() {
   const [isSaving, setIsSaving]               = useState(false);
   const [isFinalizing, setIsFinalizing]       = useState(false);
   const [selected, setSelected]               = useState<Transaksi | null>(null);
-  const [finalizeStatus, setFinalizeStatus]   = useState<TransaksiStatus>("selesai");
+  const [finalizeStatus, setFinalizeStatus]   = useState<TransaksiStatus>("Akhiri");
   const [finalizeNote, setFinalizeNote]       = useState("");
   const [errorInfo, setErrorInfo]             = useState<PbErrorInfo | null>(null);
   const [form, setForm]                       = useState<TrxFormData>(initialForm());
@@ -782,7 +781,7 @@ export function TransaksiContent() {
           pctTrader:          parseFloat(e.pctTrader)  || 0,
           pctMinBun:          parseFloat(e.pctMinBun)  || 0,
           pctBrokerI:         parseFloat(e.pctBrokerI) || 0,
-          pctBrokerII:        parseFloat(e.pctBrokerII) || 0,
+          pctBrokerII:        0,
         };
       }),
     ongkirPerKg:  parseFloat(f.ongkirPerKg) || 0,
@@ -793,7 +792,7 @@ export function TransaksiContent() {
 
   // ── Sinkronisasi status terminate PKS dari transaksi ──
   // PKS investor di-terminate saat investor tak lagi punya transaksi aktif
-  // (berjalan/bermasalah) — mis. transaksi selesai atau investor dikeluarkan dari
+  // (berjalan/bermasalah) — mis. transaksi Akhiri atau investor dikeluarkan dari
   // entries — dan di-reaktivasi saat aktif kembali (renewal / masuk transaksi
   // baru). Hanya menyentuh investor yang terlibat di mutasi ini, sehingga draft
   // PKS baru yang belum pernah dipakai transaksi tetap non-terminated (masih bisa
@@ -914,7 +913,7 @@ export function TransaksiContent() {
   const openFinalize = (t: Transaksi) => {
     setSelected(t);
     const eff = effectiveStatus(t);
-    setFinalizeStatus(eff === "berjalan" || eff === "perbarui" ? "selesai" : eff);
+    setFinalizeStatus(eff === "berjalan" || eff === "perbarui" ? "Akhiri" : eff);
     setFinalizeNote(t.catatanAkhir || "");
     setIsFinalizeOpen(true);
   };
@@ -972,19 +971,19 @@ export function TransaksiContent() {
     }
   };
 
-  const handleBagiHasil = async (action: "perbarui" | "selesai") => {
+  const handleBagiHasil = async (action: "perbarui" | "Akhiri") => {
     if (!bagiHasilTrx) return;
     setIsSubmittingBH(true);
     try {
       for (const [keterangan, file] of Object.entries(bagiHasilFiles)) {
         await uploadBuktiTransaksi(bagiHasilTrx.id, keterangan, file);
       }
-      if (action === "selesai") {
+      if (action === "Akhiri") {
         const rows = calcBagiHasilRows(bagiHasilTrx, mous);
         const allChecks: Record<string, boolean> = {};
         rows.forEach((r) => { allChecks[r.checkKey] = true; });
         await updateTransaksi(bagiHasilTrx.id, { bagiHasilChecks: allChecks, bagiHasilDone: true });
-        toast.success(`Bagi hasil TRX ${bagiHasilTrx.id} ditandai selesai`);
+        toast.success(`Bagi hasil TRX ${bagiHasilTrx.id} ditandai Akhiri`);
       } else {
         const today = todayWibStr();
         await updateTransaksi(bagiHasilTrx.id, {
@@ -1226,7 +1225,7 @@ export function TransaksiContent() {
                               <ClipboardCheck className="h-3.5 w-3.5 text-blue-500" />
                             </Button>
                             )}
-                            {canEdit && (effectiveStatus(t) === "selesai" || effectiveStatus(t) === "bermasalah") && (
+                            {canEdit && (effectiveStatus(t) === "Akhiri" || effectiveStatus(t) === "bermasalah") && (
                             <Button
                               variant="ghost" size="icon" className="h-7 w-7"
                               title={t.bagiHasilDone ? "Bagi hasil sudah lunas" : "Bagi Hasil"}
@@ -1520,11 +1519,11 @@ export function TransaksiContent() {
               {isSubmittingBH ? "Menyimpan…" : "Perbarui"}
             </Button>
             <Button
-              onClick={() => void handleBagiHasil("selesai")}
+              onClick={() => void handleBagiHasil("Akhiri")}
               disabled={isSubmittingBH}
             >
               <ClipboardCheck className="h-3.5 w-3.5 mr-1.5" />
-              {isSubmittingBH ? "Menyimpan…" : "Selesai"}
+              {isSubmittingBH ? "Menyimpan…" : "Akhiri"}
             </Button>
           </DialogFooter>
         </DialogContent>
