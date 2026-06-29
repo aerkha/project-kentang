@@ -969,18 +969,25 @@ export function TransaksiContent() {
   };
 
   // Proses Submit Dialog 1: Tindak Lanjuti
+  // Proses Submit Dialog 1: Tindak Lanjuti
   const handleBagiHasil = async (action: "perbarui" | "Akhiri") => {
     if (!bagiHasilTrx) return;
     setIsSubmittingBH(true);
     try {
+      // Pindahkan kalkulasi rows ke atas agar bisa digunakan untuk mencari 'keterangan' asli
+      const rows = calcBagiHasilRows(bagiHasilTrx, mous);
+
       // 1. Upload semua bukti bagi hasil terlebih dahulu
       for (const [checkKey, file] of Object.entries(bagiHasilFiles)) {
-        await uploadBuktiTransaksi(bagiHasilTrx.id, checkKey, file);
+        // Cari keterangan aslinya ("Investor", "Broker", dll) berdasarkan checkKey
+        const row = rows.find((r) => r.checkKey === checkKey);
+        if (row) {
+          await uploadBuktiTransaksi(bagiHasilTrx.id, row.keterangan, file);
+        }
       }
 
       if (action === "Akhiri") {
         // Tandai bagi hasil selesai, bersiap untuk pengembalian modal
-        const rows = calcBagiHasilRows(bagiHasilTrx, mous);
         const allChecks: Record<string, boolean> = {};
         rows.forEach((r) => { allChecks[r.checkKey] = true; });
         await updateTransaksi(bagiHasilTrx.id, { bagiHasilChecks: allChecks, bagiHasilDone: true });
