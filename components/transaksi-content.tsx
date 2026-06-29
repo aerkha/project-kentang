@@ -2,6 +2,7 @@
 
 import { useState, useMemo, Fragment } from "react";
 import { toast } from "sonner";
+import pb from "@/lib/pocketbase"; // Tambahkan ini di deretan import atas
 import { ErrorDialog } from "@/components/ui/error-dialog";
 import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
 import { useTransaksi, calcTransaksi, effectiveStatus, isInvestorActive, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
@@ -212,7 +213,8 @@ type BagiHasilRow = {
   keterangan: "Investor" | "Broker" | "Trader" | "MinBun";
   nama:       string;
   jumlah:     number;
-  checkKey:   string; // Format unik agar file uplaod tidak saling timpa
+  checkKey:   string;
+  investorId?: string;
 };
 
 function calcBagiHasilRows(t: Transaksi, mous: MoU[]): BagiHasilRow[] {
@@ -249,7 +251,7 @@ function calcBagiHasilRows(t: Transaksi, mous: MoU[]): BagiHasilRow[] {
 
     const invAmt = profit * pkPct;
     if (invAmt > 0)
-      rows.push({ keterangan: "Investor", nama: entry.investorName, jumlah: invAmt, checkKey: `BagiHasil_${entry.investorId}_Investor` });
+      rows.push({ keterangan: "Investor", nama: entry.investorName, jumlah: invAmt, checkKey: `BagiHasil_${entry.investorId}_Investor`, investorId: entry.investorId });
     
     traderTotal += profit * pT / 100;
     minbunTotal += profit * pM / 100;
@@ -978,11 +980,32 @@ export function TransaksiContent() {
       const rows = calcBagiHasilRows(bagiHasilTrx, mous);
 
       // 1. Upload semua bukti bagi hasil terlebih dahulu
+      const uploadedUrls: Record<string, string> = {};
       for (const [checkKey, file] of Object.entries(bagiHasilFiles)) {
-        // Cari keterangan aslinya ("Investor", "Broker", dll) berdasarkan checkKey
         const row = rows.find((r) => r.checkKey === checkKey);
         if (row) {
-          await uploadBuktiTransaksi(bagiHasilTrx.id, row.keterangan, file);
+          const url = await uploadBuktiTransaksi(bagiHasilTrx.id, row.keterangan, file);
+          uploadedUrls[checkKey] = url;
+        }
+      }
+
+      // 2. 🚀 PANGGIL API UNTUK MENGIRIM WA KE INVESTOR
+      for (const row of rows) {
+        if (row.keterangan === "Investor" && row.investorId) {
+          await fetch("/api/notify-investor", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${pb.authStore.token}`
+            },
+            body: JSON.stringify({
+              transaksiId: bagiHasilTrx.id,
+              keterangan: "Bagi Hasil",
+              investorId: row.investorId,
+              jumlah: row.jumlah,
+              buktiUrl: uploadedUrls[row.checkKey] || ""
+            })
+          }).catch(err => console.error("Gagal panggil API WA:", err));
         }
       }
 

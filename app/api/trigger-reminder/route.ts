@@ -33,7 +33,8 @@ export async function POST(req: NextRequest) {
     if (user.record?.role !== "admin") {
       return NextResponse.json({ error: "Forbidden — hanya admin" }, { status: 403 });
     }
-  } catch {
+  } catch (err) {
+    console.log("ERROR ASLI POCKETBASE:", err);
     return NextResponse.json({ error: "Token tidak valid atau sudah expired" }, { status: 401 });
   }
 
