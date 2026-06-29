@@ -145,8 +145,9 @@ function statusVariant(status: TransaksiStatus): string {
   switch (status) {
     case "berjalan":   return "bg-blue-100   text-blue-800   dark:bg-blue-900/30   dark:text-blue-300";
     case "perbarui":   return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300";
-    case "Akhiri":    return "bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-300";
+    case "selesai":     return "bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-300";
     case "bermasalah": return "bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-300";
+    default:           return "bg-muted text-muted-foreground";
   }
 }
 
@@ -162,6 +163,46 @@ function sisaHari(t: { date: string; description: string }): number {
   const days    = parsePeriodeDays(t.description);
   const elapsed = (Date.now() - new Date(t.date).getTime()) / 86_400_000;
   return Math.ceil(days - elapsed);
+}
+
+// ─────────────────────────────────────────────
+// BUG FIX: Helper penentuan Display Status (Deadline Override)
+// ─────────────────────────────────────────────
+function getDisplayStatus(t: Transaksi): TransaksiStatus {
+  const base = effectiveStatus(t);
+  // Jika transaksi masih berjalan tapi masa periodenya sudah lewat (< 0), 
+  // frontend akan otomatis menanggapnya sebagai "perbarui" (selesai masa periode).
+  if (base === "berjalan" && sisaHari(t) < 0) {
+    return "perbarui";
+  }
+  return base;
+}
+
+// ─────────────────────────────────────────────
+// Helper Teks untuk Menghindari Nested Ternary
+// ─────────────────────────────────────────────
+function getSisaHariText(s: number) {
+  if (s > 0) return `Sisa ${s} hari`;
+  if (s === 0) return "Hari terakhir";
+  return `Lewat ${-s} hari`;
+}
+
+function getSisaHariColor(s: number) {
+  if (s < 0) return "text-red-500";
+  if (s <= 3) return "text-orange-500";
+  return "text-muted-foreground/70";
+}
+
+function getSelisihStatusText(s: number) {
+  if (s === 0) return "✓";
+  if (s > 0) return `-${formatShort(s)}`;
+  return `+${formatShort(Math.abs(s))}`;
+}
+
+function getSelisihStatusColor(s: number) {
+  if (s === 0) return "text-green-600";
+  if (s > 0) return "text-red-500";
+  return "text-orange-500";
 }
 
 // ─────────────────────────────────────────────
@@ -191,21 +232,33 @@ function calcBagiHasilRows(t: Transaksi, mous: MoU[]): BagiHasilRow[] {
     const pkPct    = ((latest?.bagiHasilPK) ?? 35) / 100;
     const ratio    = entry.nilaiInvestasi / c.totalInvestasi;
     const profit   = c.profit * ratio;
+    
     const allZero  = entry.pctTrader === 0 && entry.pctMinBun === 0 && entry.pctBrokerI === 0 && entry.pctBrokerII === 0;
     const hasBroker = !!entry.investorBrokerName;
-    const pT   = allZero ? 10                  : entry.pctTrader;
-    const pM   = allZero ? (hasBroker ? 0 : 5) : entry.pctMinBun;
-    const pBI  = allZero ? (hasBroker ? 5 : 0) : entry.pctBrokerI;
-    const pBII = allZero ? 0                   : entry.pctBrokerII;
+    
+    // Perbaikan nested ternary untuk SonarQube
+    let pT = entry.pctTrader;
+    let pM = entry.pctMinBun;
+    let pBI = entry.pctBrokerI;
+    let pBII = entry.pctBrokerII;
+
+    if (allZero) {
+      pT = 10;
+      pM = hasBroker ? 0 : 5;
+      pBI = hasBroker ? 5 : 0;
+      pBII = 0;
+    }
 
     const invAmt = profit * pkPct;
     if (invAmt > 0)
       rows.push({ keterangan: "Investor", nama: entry.investorName, jumlah: invAmt, checkKey: `${entry.investorId}_Investor` });
     traderTotal += profit * pT / 100;
     minbunTotal += profit * pM / 100;
+    
     const brokerAmt = profit * (pBI + pBII) / 100;
-    if (brokerAmt > 0 && hasBroker)
+    if (brokerAmt > 0 && hasBroker) {
       brokerMap.set(entry.investorBrokerName, (brokerMap.get(entry.investorBrokerName) ?? 0) + brokerAmt);
+    }
   }
 
   for (const [name, amt] of brokerMap)
@@ -238,17 +291,14 @@ interface TrxFormProps {
   submitLabel: string;
   previewId: string;
   investors: Investor[];
-  brokers: Broker[];
-  /** Semua PKS aktif (non-terminated) */
   activeMous: MoU[];
-  /** Modal yang sudah terikat di transaksi aktif lain per investor (exclude transaksi yg sedang diedit) */
   committedModal: Map<string, number>;
   isSaving?: boolean;
 }
 
 function TrxFormFields({
   formData, setFormData, onSubmit, submitLabel, previewId,
-  investors, brokers: _brokers, activeMous, committedModal,
+  investors, activeMous, committedModal,
   isSaving = false,
 }: TrxFormProps) {
   // ── Jalur state ──────────────────────────────────────────────────────────
@@ -289,7 +339,6 @@ function TrxFormFields({
 
   const toggleJalur = (jalur: InvestorJalur) => {
     if (openJalurs.has(jalur)) {
-      // Tutup jalur: hapus semua PKS entries di jalur ini
       const mouIds = new Set(
         activeMous
           .filter((m) => { const inv = investors.find((x) => x.id === m.investorId); return inv && getJalur(inv) === jalur; })
@@ -301,7 +350,6 @@ function TrxFormFields({
       }));
       setOpenJalurs((prev) => { const n = new Set(prev); n.delete(jalur); return n; });
     } else {
-      // Buka jalur: tambah semua PKS di jalur ini yang belum ter-checked
       const toAdd = pksByJalur(jalur)
         .filter((m) => !isPksChecked(m))
         .map((m) => {
@@ -367,31 +415,32 @@ function TrxFormFields({
   const set = (k: keyof Omit<TrxFormData, "investorEntries">, v: string) =>
     setFormData({ ...formData, [k]: v });
 
-  // PKS entries yang nilainya melebihi batas — keyed by mouId
+  // PKS entries yang nilainya melebihi batas
   const overLimitEntries = useMemo(() => {
     const ids = new Set<string>();
-    // Hitung total per investor dari semua PKS yang ter-checked
     const totalByInvestor = new Map<string, number>();
+    
     formData.investorEntries.forEach((e) => {
       if (!e.mouId || !e.nilaiInvestasi) return;
       const nilai = parseFloat(e.nilaiInvestasi) || 0;
       totalByInvestor.set(e.investorId, (totalByInvestor.get(e.investorId) ?? 0) + nilai);
     });
+    
     formData.investorEntries.forEach((e) => {
       if (!e.mouId || !e.nilaiInvestasi) return;
       const mou = activeMous.find((m) => m.id === e.mouId);
       if (!mou) return;
       const nilai = parseFloat(e.nilaiInvestasi) || 0;
-      // Per-PKS cap
+      
       if (nilai > mou.investmentAmount) { ids.add(e.mouId); return; }
-      // Per-investor total cap
+      
       const inv = investors.find((x) => x.id === e.investorId);
       if (!inv) return;
+      
       const sisa = Math.max(0, inv.investmentAmount - (committedModal.get(inv.id) ?? 0));
       if ((totalByInvestor.get(e.investorId) ?? 0) > sisa) ids.add(e.mouId);
     });
     return ids;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.investorEntries, activeMous, investors, committedModal]);
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -413,10 +462,19 @@ function TrxFormFields({
   const income      = hargaJual * qty;
   const profit      = income - (modal + totalOngkir);
 
-  const selisihColor =
-    selisih === 0 ? "text-green-700" :
-    selisih < 0   ? "text-orange-600" :
-                    "text-red-600";
+  // Helper function untuk membersihkan Nested Ternary
+  const getSelisihFormText = () => {
+    if (modal <= 0) return "—";
+    if (selisih === 0) return "✓ Terpenuhi";
+    if (selisih > 0) return `Kurang ${formatRp(selisih)}`;
+    return `Lebih ${formatRp(Math.abs(selisih))}`;
+  };
+
+  const getSelisihFormColor = () => {
+    if (selisih === 0) return "text-green-700";
+    if (selisih < 0) return "text-orange-600";
+    return "text-red-600";
+  };
 
   // Ringkasan broker dari investor yang dipilih (deduplikasi per investor)
   const brokerSummary = useMemo(() => {
@@ -580,7 +638,7 @@ function TrxFormFields({
             ))}
           </div>
 
-          {/* PKS list per jalur — setiap PKS adalah satu baris checkbox mandiri */}
+          {/* PKS list per jalur */}
           {(["MB", "TM", "D"] as InvestorJalur[]).map((jalur) => {
             if (!openJalurs.has(jalur)) return null;
             const jalurPks = pksByJalur(jalur);
@@ -648,12 +706,8 @@ function TrxFormFields({
             <Preview label="Total Nilai Investasi" value={totalInv > 0 ? formatRp(totalInv) : "—"} />
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Selisih Kebutuhan Modal</Label>
-              <div className={`px-3 py-2 rounded-md text-sm font-semibold bg-muted ${selisihColor}`}>
-                {modal > 0
-                  ? selisih === 0 ? "✓ Terpenuhi"
-                  : selisih > 0  ? `Kurang ${formatRp(selisih)}`
-                  :                `Lebih ${formatRp(Math.abs(selisih))}`
-                  : "—"}
+              <div className={`px-3 py-2 rounded-md text-sm font-semibold bg-muted ${getSelisihFormColor()}`}>
+                {getSelisihFormText()}
               </div>
             </div>
           </div>
@@ -699,9 +753,10 @@ function TrxFormFields({
 export function TransaksiContent() {
   const { transaksis, addTransaksi, updateTransaksi, deleteTransaksi, uploadBuktiTransaksi } = useTransaksi();
   const { investors }  = useInvestors();
-  const { brokers }    = useBrokers();
+  // Tidak perlu const { brokers } jika tidak digunakan dalam view ini
   const { mous, updateMou, deleteMou } = useMou();
   const { user, isInvestor } = useAuth();
+  
   const isAdmin   = user?.role === "admin";
   const perm      = usePermissions();
   const canCreate = isAdmin || perm.create;
@@ -716,7 +771,7 @@ export function TransaksiContent() {
   const [isSaving, setIsSaving]               = useState(false);
   const [isFinalizing, setIsFinalizing]       = useState(false);
   const [selected, setSelected]               = useState<Transaksi | null>(null);
-  const [finalizeStatus, setFinalizeStatus]   = useState<TransaksiStatus>("Akhiri");
+  const [finalizeStatus, setFinalizeStatus]   = useState<TransaksiStatus>("selesai");
   const [finalizeNote, setFinalizeNote]       = useState("");
   const [errorInfo, setErrorInfo]             = useState<PbErrorInfo | null>(null);
   const [form, setForm]                       = useState<TrxFormData>(initialForm());
@@ -727,7 +782,7 @@ export function TransaksiContent() {
   const [expandedBuktiKeys, setExpandedBuktiKeys]      = useState<Set<string>>(new Set());
   const [isSubmittingBH, setIsSubmittingBH]            = useState(false);
 
-  // Filter untuk investor: hanya tampilkan transaksi yang melibatkan investor tersebut
+  // Filter untuk investor
   const visibleTransaksis = useMemo(() => {
     if (!isInvestor || !user?.investorId) return transaksis;
     return transaksis.filter((t) =>
@@ -790,13 +845,6 @@ export function TransaksiContent() {
     catatanAkhir: existing?.catatanAkhir ?? "",
   });
 
-  // ── Sinkronisasi status terminate PKS dari transaksi ──
-  // PKS investor di-terminate saat investor tak lagi punya transaksi aktif
-  // (berjalan/bermasalah) — mis. transaksi Akhiri atau investor dikeluarkan dari
-  // entries — dan di-reaktivasi saat aktif kembali (renewal / masuk transaksi
-  // baru). Hanya menyentuh investor yang terlibat di mutasi ini, sehingga draft
-  // PKS baru yang belum pernah dipakai transaksi tetap non-terminated (masih bisa
-  // dipilih di form). nextTransaksis dibangun lokal karena state context async.
   const reconcilePksTermination = async (
     affectedInvestorIds: string[],
     nextTransaksis: Transaksi[],
@@ -816,7 +864,6 @@ export function TransaksiContent() {
     }
   };
 
-  // ── Submit handlers ──
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -861,7 +908,6 @@ export function TransaksiContent() {
 
   const openEdit = (t: Transaksi) => {
     setSelected(t);
-    // Assign mouId ke setiap entry: pilih PKS investor yang belum dipakai entry lain
     const assignedMouIds = new Set<string>();
     setForm({
       date:        t.date,
@@ -912,8 +958,9 @@ export function TransaksiContent() {
 
   const openFinalize = (t: Transaksi) => {
     setSelected(t);
-    const eff = effectiveStatus(t);
-    setFinalizeStatus(eff === "berjalan" || eff === "perbarui" ? "Akhiri" : eff);
+    // Menggunakan getDisplayStatus agar state otomatis disesuaikan
+    const eff = getDisplayStatus(t);
+    setFinalizeStatus(eff === "berjalan" || eff === "perbarui" ? "selesai" : eff);
     setFinalizeNote(t.catatanAkhir || "");
     setIsFinalizeOpen(true);
   };
@@ -937,7 +984,6 @@ export function TransaksiContent() {
     }
   };
 
-  // Bagi Hasil dialog handlers
   const openBagiHasil = (t: Transaksi) => {
     setBagiHasilTrx(t);
     setBagiHasilFiles({});
@@ -1009,9 +1055,6 @@ export function TransaksiContent() {
     }
   };
 
-  // Modal yang sudah terikat di transaksi aktif lain per investor.
-  // Saat mengedit, kecualikan transaksi yang sedang diedit agar investor-nya
-  // tetap bisa diubah (sisaModal dihitung dari transaksi lain saja).
   const editingTransaksi = isEditOpen ? selected : null;
   const committedModal = useMemo(() => {
     const map = new Map<string, number>();
@@ -1028,15 +1071,11 @@ export function TransaksiContent() {
     return map;
   }, [transaksis, editingTransaksi]);
 
-  // Semua PKS aktif (non-terminated) — diteruskan ke form sebagai daftar item checkbox
   const activeMous = useMemo(
     () => mous.filter((m) => !m.isTerminated),
     [mous],
   );
 
-  // PKS yang akan ikut dihapus saat transaksi dihapus:
-  // - Hanya investor dalam transaksi terpilih yang tidak punya transaksi aktif lain
-  // - Hanya PKS yang belum terminated DAN belum complete (!isTerminated && !isComplete)
   const pksToBulkDelete = useMemo(() => {
     if (!selected) return [];
     const remainingActiveInvestors = new Set(
@@ -1054,7 +1093,6 @@ export function TransaksiContent() {
 
   const sharedFormProps = {
     investors,
-    brokers,
     activeMous,
     committedModal,
     isSaving,
@@ -1173,6 +1211,9 @@ export function TransaksiContent() {
                 <tbody>
                   {sorted.map((t) => {
                     const c = calcTransaksi(t);
+                    const baseStatus = effectiveStatus(t);
+                    const displayStatus = getDisplayStatus(t); // Menggunakan utilitas yang sudah mengkalkulasi tenggat waktu
+
                     const brokers = [...new Set(
                       t.investorEntries
                         .map((e) => e.investorBrokerName)
@@ -1184,17 +1225,17 @@ export function TransaksiContent() {
                         <td className="py-3 px-4 font-mono text-xs font-medium">{t.id}</td>
                         <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">{formatDate(t.date)}</td>
                         <td className="py-3 px-4 text-center">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${statusVariant(effectiveStatus(t))}`}>
-                            {TRANSAKSI_STATUS_LABEL[effectiveStatus(t)]}
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${statusVariant(displayStatus)}`}>
+                            {TRANSAKSI_STATUS_LABEL[displayStatus] || displayStatus}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-muted-foreground max-w-[140px]">
                           <div className="truncate">{t.description || "—"}</div>
-                          {effectiveStatus(t) === "berjalan" && (() => {
+                          {baseStatus === "berjalan" && (() => {
                             const s = sisaHari(t);
                             return (
-                              <div className={`text-[10px] ${s < 0 ? "text-red-500" : s <= 3 ? "text-orange-500" : "text-muted-foreground/70"}`}>
-                                {s > 0 ? `Sisa ${s} hari` : s === 0 ? "Hari terakhir" : `Lewat ${-s} hari`}
+                              <div className={`text-[10px] ${getSisaHariColor(s)}`}>
+                                {getSisaHariText(s)}
                               </div>
                             );
                           })()}
@@ -1209,8 +1250,8 @@ export function TransaksiContent() {
                         </td>
                         <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">{brokerLabel}</td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <span className={`text-xs font-medium ${c.selisih === 0 ? "text-green-600" : c.selisih > 0 ? "text-red-500" : "text-orange-500"}`}>
-                            {c.selisih === 0 ? "✓" : c.selisih > 0 ? `-${formatShort(c.selisih)}` : `+${formatShort(Math.abs(c.selisih))}`}
+                          <span className={`text-xs font-medium ${getSelisihStatusColor(c.selisih)}`}>
+                            {getSelisihStatusText(c.selisih)}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right font-medium whitespace-nowrap">{formatRp(c.income)}</td>
@@ -1225,7 +1266,7 @@ export function TransaksiContent() {
                               <ClipboardCheck className="h-3.5 w-3.5 text-blue-500" />
                             </Button>
                             )}
-                            {canEdit && (effectiveStatus(t) === "Akhiri" || effectiveStatus(t) === "bermasalah") && (
+                            {canEdit && (displayStatus === "selesai" || displayStatus === "bermasalah") && (
                             <Button
                               variant="ghost" size="icon" className="h-7 w-7"
                               title={t.bagiHasilDone ? "Bagi hasil sudah lunas" : "Bagi Hasil"}
@@ -1413,10 +1454,15 @@ export function TransaksiContent() {
                   </thead>
                   <tbody>
                     {rows.map((r) => {
-                      const canUpload  = r.keterangan !== "MinBun";
-                      const isExpanded = expandedBuktiKeys.has(r.checkKey);
-                      const file       = canUpload ? bagiHasilFiles[r.keterangan] : undefined;
-                      const preview    = canUpload ? bagiHasilPreviews[r.keterangan] : undefined;
+                      const canUpload   = r.keterangan !== "MinBun";
+                      const isExpanded  = expandedBuktiKeys.has(r.checkKey);
+                      const file        = canUpload ? bagiHasilFiles[r.keterangan] : undefined;
+                      const preview     = canUpload ? bagiHasilPreviews[r.keterangan] : undefined;
+                      
+                      const chevronIcon = isExpanded 
+                        ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> 
+                        : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />;
+
                       return (
                         <Fragment key={r.checkKey}>
                           {/* Baris penerima — klik untuk buka/tutup upload */}
@@ -1428,14 +1474,11 @@ export function TransaksiContent() {
                           >
                             <td className="py-2.5 px-3">
                               <div className="flex items-center gap-1.5">
-                                {canUpload
-                                  ? (isExpanded
-                                      ? <ChevronUp   className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                      : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />)
-                                  : <span className="w-3.5 shrink-0" />
-                                }
+                                {canUpload ? chevronIcon : <span className="w-3.5 shrink-0" />}
+                                
                                 <span className={canUpload ? "font-medium" : ""}>{r.nama}</span>
-                                {file && !isExpanded && (
+                                
+                                {Boolean(file) && !isExpanded && (
                                   <FileCheck className="h-3.5 w-3.5 text-green-500 shrink-0" />
                                 )}
                               </div>
@@ -1512,14 +1555,14 @@ export function TransaksiContent() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => void handleBagiHasil("perbarui")}
+              onClick={() => { handleBagiHasil("perbarui").catch(console.error); }}
               disabled={isSubmittingBH}
             >
               <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
               {isSubmittingBH ? "Menyimpan…" : "Perbarui"}
             </Button>
             <Button
-              onClick={() => void handleBagiHasil("Akhiri")}
+              onClick={() => { handleBagiHasil("Akhiri").catch(console.error); }}
               disabled={isSubmittingBH}
             >
               <ClipboardCheck className="h-3.5 w-3.5 mr-1.5" />
