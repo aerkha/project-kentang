@@ -1025,12 +1025,14 @@ export function TransaksiContent() {
   };
 
   // Proses Submit Dialog 2: Pengembalian Modal
+  // Proses Submit Dialog 2: Pengembalian Modal
   const handlePengembalianAkhiri = async () => {
     if (!pengembalianTrx) return;
     setIsSubmittingPengembalian(true);
     try {
       for (const [checkKey, file] of Object.entries(pengembalianFiles)) {
-        await uploadBuktiTransaksi(pengembalianTrx.id, checkKey, file);
+        // Karena ini pengembalian modal ke investor, keterangannya kita kunci ke "Investor"
+        await uploadBuktiTransaksi(pengembalianTrx.id, "Investor", file);
       }
       
       // Akhiri transaksi sepenuhnya
@@ -1038,7 +1040,7 @@ export function TransaksiContent() {
       await reconcilePksTermination(
         pengembalianTrx.investorEntries.map((e) => e.investorId),
         transaksis.map((x) =>
-          x.id === pengembalianTrx.id ? { ...x, status: "Akhiri" as TransaksiStatus } : x,
+          x.id === pengembalianTrx.id ? { ...x, status: "selesai" } : x,
         ),
       );
 
