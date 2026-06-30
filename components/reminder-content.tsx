@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { todayWibStr } from "@/lib/utils";
-import { useTransaksi, calcTransaksi, type Transaksi } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, effectiveStatus, type Transaksi } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { usePengeluaran } from "@/lib/cashflow-context";
@@ -52,7 +52,7 @@ import {
   FileCheck,
 } from "lucide-react";
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers Umum ─────────────────────────────────────────────────────────────
 
 const MONTHS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
 
@@ -68,6 +68,39 @@ function formatCurrency(n: number) {
     style: "currency", currency: "IDR",
     minimumFractionDigits: 0, maximumFractionDigits: 0,
   }).format(n);
+}
+
+// ── Helpers Hitungan Mundur Hari (Countdown) ─────────────────────────────────
+
+function parsePeriodeDays(desc: string): number {
+  const m = /\d+/.exec(desc || "");
+  const n = m ? Number.parseInt(m[0], 10) : 30;
+  return n > 0 ? n : 30;
+}
+
+function sisaHari(t: { date: string; description: string }): number {
+  if (!t.date) return 0;
+  const days = parsePeriodeDays(t.description);
+  const elapsed = (Date.now() - new Date(t.date).getTime()) / 86_400_000;
+  return Math.ceil(days - elapsed);
+}
+
+function getDisplayStatus(t: Transaksi): string {
+  const base = effectiveStatus(t);
+  if (base === "berjalan" && sisaHari(t) < 0) return "selesai";
+  return base;
+}
+
+function getSisaHariText(s: number) {
+  if (s > 0) return `${s} hari lagi`;
+  if (s === 0) return "Hari ini";
+  return `Lewat ${-s} hari`;
+}
+
+function getSisaHariColor(s: number) {
+  if (s < 0) return "text-red-600 font-semibold";
+  if (s === 0) return "text-orange-600 font-semibold";
+  return "text-muted-foreground";
 }
 
 // ── Tipe baris tabel ─────────────────────────────────────────────────────────
@@ -144,7 +177,8 @@ function buildTransaksiRows(
 ): PaymentRow[] {
   const rows: PaymentRow[] = [];
   const calc = calcTransaksi(trx);
-  if (calc.totalInvestasi === 0) return rows;
+  // Tambahan guard agar tidak menghasilkan row dengan angka negatif jika profit belum ada
+  if (calc.totalInvestasi === 0 || calc.profit <= 0) return rows;
 
   let traderTotal = 0;
   let minbunTotal = 0;
@@ -229,6 +263,8 @@ type EntitySummaryItem = {
   jumlah: number;
   checkKey: string;
   isDone: boolean;
+  sisa: number;
+  statusTampil: string;
 };
 
 type ProcessedEntity = {
@@ -252,8 +288,7 @@ function ChannelBadge({ status, icon }: Readonly<{ status: string; icon: React.R
   );
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
-// Extracted helpers to reduce cognitive complexity in component
+// ── Component Extracted Helpers ───────────────────────────────────────────────────────────────
 
 type ProcessInternalEntityParams = {
   entity: ProcessedEntity;
@@ -408,6 +443,7 @@ function EntityRow({
   const isLoading = toggling === ent.id;
   const isInternal = isBulkEntityInternal(ent, internalInvestorIds);
   const tooltipText = getBulkActionTooltipText(showDone, isInternal);
+  const hasDue = ent.filteredItems.some(i => i.sisa <= 0); // Penanda transaksi sudah jatuh tempo
 
   return (
     <tr key={ent.id} className="border-b border-border/50 hover:bg-muted/40 transition-colors">
@@ -427,11 +463,18 @@ function EntityRow({
         <div className="font-mono text-xs text-muted-foreground mt-0.5">{ent.accountNumber}</div>
       </td>
       <td className="py-3 px-3">
-        <div className="flex flex-wrap gap-1.5 max-w-[240px]">
+        <div className="flex flex-col gap-1.5 max-w-[280px]">
           {ent.filteredItems.map(i => (
-            <Badge key={i.trx.id} variant="secondary" className="text-[10px] font-mono font-normal">
-              {i.trx.id}
-            </Badge>
+            <div key={i.trx.id} className="flex items-center gap-2">
+              <Badge variant="secondary" className="text-[10px] font-mono font-normal shrink-0">
+                {i.trx.id}
+              </Badge>
+              {!showDone && (
+                <span className={`text-[10px] ${getSisaHariColor(i.sisa)} whitespace-nowrap`}>
+                  • {getSisaHariText(i.sisa)}
+                </span>
+              )}
+            </div>
           ))}
         </div>
       </td>
@@ -454,7 +497,7 @@ function EntityRow({
               >
                 {showDone
                   ? <CheckCircle2 className="h-5 w-5 text-green-500" />
-                  : <Circle className="h-5 w-5 text-muted-foreground" />
+                  : <Circle className={`h-5 w-5 ${hasDue ? "text-orange-500" : "text-muted-foreground"}`} />
                 }
               </Button>
             </TooltipTrigger>
@@ -466,6 +509,34 @@ function EntityRow({
       </td>
     </tr>
   );
+}
+
+function buildReminderSuccessMessage(data: any) {
+  const parts = [`${data.sent} reminder terkirim`];
+  if (data.adminEmailStatus === "sent") parts.push("✉️ Email admin OK");
+  if (data.waStatus === "sent") parts.push("💬 WA OK");
+  return parts.join(" · ");
+}
+
+function handleFileChangeEvent(
+  e: React.ChangeEvent<HTMLInputElement>,
+  setUploadFile: React.Dispatch<React.SetStateAction<File | null>>,
+  setUploadPreview: React.Dispatch<React.SetStateAction<string>>,
+) {
+  const file = e.target.files?.[0];
+  if (file) {
+    setUploadFile(file);
+    if (file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (ev) => setUploadPreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setUploadPreview("");
+    }
+  } else {
+    setUploadFile(null);
+    setUploadPreview("");
+  }
 }
 
 export function ReminderContent() {
@@ -507,12 +578,12 @@ export function ReminderContent() {
     [investors],
   );
 
-  // 1. Ringkasan (Summary Metrics)
+  // 1. Ringkasan (Summary Metrics) - Menampilkan semua (berjalan & selesai)
   const summary = useMemo(() => {
     let investor = 0, traderAmt = 0, minbunAmt = 0, broker = 0;
     let totalTasks = 0, doneTasks = 0;
 
-    transaksis.filter((t) => t.status === "selesai" || t.status === "bermasalah").forEach((trx) => {
+    transaksis.forEach((trx) => {
       const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
       rows.forEach((r) => {
         totalTasks++;
@@ -534,12 +605,15 @@ export function ReminderContent() {
     return { investor, trader: traderAmt, minbun: minbunAmt, broker, totalTasks, doneTasks };
   }, [transaksis, mous, investors, brokers, minbun, trader, doneKeys]);
 
-  // 2. Data Entity (Bulk Data)
+  // 2. Data Entity (Bulk Data) - Menampilkan semua (berjalan & selesai)
   const displayEntities = useMemo(() => {
     const map = new Map<string, ProcessedEntity & { items: EntitySummaryItem[] }>();
 
-    transaksis.filter((t) => t.status === "selesai" || t.status === "bermasalah").forEach((trx) => {
+    transaksis.forEach((trx) => {
       const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+      const sisa = sisaHari(trx);
+      const statusTampil = getDisplayStatus(trx);
+
       rows.forEach((r) => {
         const key = `${r.keterangan}_${r.investorId || r.nama}`;
         if (!map.has(key)) {
@@ -549,7 +623,7 @@ export function ReminderContent() {
           });
         }
         const isDone = !!trx.bagiHasilChecks?.[r.checkKey] || doneKeys.has(`${trx.id}__${r.checkKey}`);
-        map.get(key)!.items.push({ trx, jumlah: r.jumlah, checkKey: r.checkKey, isDone });
+        map.get(key)!.items.push({ trx, jumlah: r.jumlah, checkKey: r.checkKey, isDone, sisa, statusTampil });
       });
     });
 
@@ -628,20 +702,7 @@ export function ReminderContent() {
 
   // ── File Handler ──
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setUploadFile(file);
-      if (file.type.startsWith("image/")) {
-        const reader = new FileReader();
-        reader.onload = (ev) => setUploadPreview(ev.target?.result as string);
-        reader.readAsDataURL(file);
-      } else {
-        setUploadPreview("");
-      }
-    } else {
-      setUploadFile(null);
-      setUploadPreview("");
-    }
+    handleFileChangeEvent(e, setUploadFile, setUploadPreview);
   };
 
   // ── Fungsi Simpan Massal (Eksternal + Upload Bukti + WA) ──
@@ -691,13 +752,6 @@ export function ReminderContent() {
     setIsSavingTR(true);
     try { await updateTrader(formTrader); toast.success("Rekening Trader berhasil disimpan"); }
     catch { toast.error("Gagal menyimpan rekening Trader"); } finally { setIsSavingTR(false); }
-  };
-
-  const buildReminderSuccessMessage = (data: any) => {
-    const parts = [`${data.sent} reminder terkirim`];
-    if (data.adminEmailStatus === "sent") parts.push("✉️ Email admin OK");
-    if (data.waStatus === "sent") parts.push("💬 WA OK");
-    return parts.join(" · ");
   };
 
   const handleSendReminder = async () => {
@@ -871,7 +925,12 @@ export function ReminderContent() {
                 <ul className="space-y-1.5 mb-3 max-h-[140px] overflow-y-auto pr-2">
                   {uploadTarget.filteredItems.map(i => (
                     <li key={i.trx.id} className="flex justify-between items-center text-xs border-b border-border/50 pb-1.5">
-                      <span className="font-mono">{i.trx.id}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono">{i.trx.id}</span>
+                        <span className={`text-[10px] ${getSisaHariColor(i.sisa)}`}>
+                          ({getSisaHariText(i.sisa)})
+                        </span>
+                      </div>
                       <span>{formatCurrency(i.jumlah)}</span>
                     </li>
                   ))}
@@ -939,14 +998,32 @@ export function ReminderContent() {
           </DialogHeader>
 
           {internalTarget && (
-            <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">{internalTarget.keterangan === "MinBun" ? "Penerima" : "Investor"}</span>
-                <span className="font-medium">{internalTarget.nama}</span>
-              </div>
-              <div className="border-t pt-2 flex justify-between font-semibold">
-                <span>Total Dicatat</span>
-                <span className="text-green-600">{formatCurrency(internalTarget.totalAmount)}</span>
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">{internalTarget.keterangan === "MinBun" ? "Penerima" : "Investor"}</span>
+                  <span className="font-medium">{internalTarget.nama}</span>
+                </div>
+                
+                <div className="pt-2 border-t mt-2">
+                  <p className="text-xs text-muted-foreground mb-1.5 font-medium">Rincian Transaksi:</p>
+                  <ul className="space-y-1.5 max-h-[140px] overflow-y-auto pr-2">
+                    {internalTarget.filteredItems.map(i => (
+                      <li key={i.trx.id} className="flex justify-between items-center text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono">{i.trx.id}</span>
+                          <span className={`text-[10px] ${getSisaHariColor(i.sisa)}`}>({getSisaHariText(i.sisa)})</span>
+                        </div>
+                        <span>{formatCurrency(i.jumlah)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="border-t pt-2 flex justify-between font-semibold mt-2">
+                  <span>Total Dicatat</span>
+                  <span className="text-green-600">{formatCurrency(internalTarget.totalAmount)}</span>
+                </div>
               </div>
             </div>
           )}
