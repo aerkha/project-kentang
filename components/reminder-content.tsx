@@ -83,7 +83,7 @@ function diffDays(startStr: string, endStr: string): number {
 }
 
 function parsePeriodeDays(desc: string): number {
-  const m = /\d+/.exec(desc ?? "");
+  const m = /\d+/.exec(desc || "");
   const n = m ? Number.parseInt(m[0], 10) : 30;
   return n > 0 ? n : 30;
 }
@@ -99,11 +99,11 @@ function sisaHari(t: { date: string; description: string }): number {
   return diffDays(todayWibStr(), endStr);
 }
 
-// Jatuh Tempo PKS (bisa jadi dari form manual, bisa hasil rumus otomatis)
+// Jatuh Tempo PKS (MURNI MATEMATIS MENGABAIKAN INPUT MANUAL AGAR SINKRON DENGAN TRANSAKSI)
 function endDatePks(mou: MoU) {
-  if (mou.endDate) return mou.endDate.slice(0, 10);
   const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + (mou.contractPeriod * (mou.siklus ?? 1)))).toISOString().slice(0, 10);
+  const totalDays = (mou.contractPeriod || 30) * (mou.siklus || 1);
+  return new Date(Date.UTC(y, m - 1, d + totalDays)).toISOString().slice(0, 10);
 }
 
 function sisaHariPks(mou: MoU): number {
@@ -203,7 +203,6 @@ function buildTransaksiRows(
 ): PaymentRow[] {
   const rows: PaymentRow[] = [];
   const calc = calcTransaksi(trx);
-  // Guard agar tidak menghasilkan row dengan angka negatif jika profit belum ada
   if (calc.totalInvestasi === 0 || calc.profit <= 0) return rows;
 
   let traderTotal = 0;
@@ -285,7 +284,7 @@ function buildTransaksiRows(
 // ── Tipe & Helper Pengelompokan (Bulk Entity) ────────────────────────────────
 
 type EntitySummaryItem = {
-  sourceId: string; // ID transaksi ATAU ID PKS
+  sourceId: string; 
   type: "Bagi Hasil" | "Pengembalian Modal";
   trx?: Transaksi;
   mou?: MoU;
@@ -297,7 +296,7 @@ type EntitySummaryItem = {
 };
 
 type ProcessedEntity = {
-  id: string; // keterangan + nama (unik)
+  id: string; 
   nama: string;
   keterangan: PaymentRow["keterangan"];
   bankName: string;
@@ -333,7 +332,57 @@ type ProcessInternalEntityParams = {
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 };
 
-async function processBagiHasilItem({
+async function processInternalEntity({
+  entity,
+  mous,
+  investors,
+  brokers,
+  minbun,
+  trader,
+  cashflowTagRecordedFn,
+  addPengeluaranFn,
+  updateTransaksiFn,
+  updateMouFn,
+  setDoneKeysFn,
+}: ProcessInternalEntityParams) {
+  const today = todayWibStr();
+  const isMinBun = entity.keterangan === "MinBun";
+
+  for (const item of entity.filteredItems) {
+    if (item.type === "Bagi Hasil" && item.trx) {
+      await processInternalProfitItem({
+        item,
+        entity,
+        today,
+        isMinBun,
+        mous,
+        investors,
+        brokers,
+        minbun,
+        trader,
+        cashflowTagRecordedFn,
+        addPengeluaranFn,
+        updateTransaksiFn,
+        setDoneKeysFn,
+      });
+      continue;
+    }
+
+    if (item.type === "Pengembalian Modal" && item.mou) {
+      await processInternalReturnItem({
+        item,
+        entity,
+        today,
+        cashflowTagRecordedFn,
+        addPengeluaranFn,
+        updateMouFn,
+        setDoneKeysFn,
+      });
+    }
+  }
+}
+
+async function processInternalProfitItem({
   item,
   entity,
   today,
@@ -362,8 +411,8 @@ async function processBagiHasilItem({
   updateTransaksiFn: (id: string, data: any) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 }) {
-  if (!item.trx) return;
   const trx = item.trx;
+  if (item.type !== "Bagi Hasil" || !trx) return;
 
   const tag = isMinBun
     ? `[Reminder] TRX ${trx.id} · MinBun`
@@ -388,7 +437,7 @@ async function processBagiHasilItem({
   setDoneKeysFn((prev) => new Set(prev).add(`${trx.id}__${item.checkKey}`));
 }
 
-async function processPengembalianModalItem({
+async function processInternalReturnItem({
   item,
   entity,
   today,
@@ -405,7 +454,7 @@ async function processPengembalianModalItem({
   updateMouFn: (id: string, data: any) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 }) {
-  if (!item.mou) return;
+  if (item.type !== "Pengembalian Modal" || !item.mou) return;
 
   const tag = `[Internal-Return:${entity.investorId}:${item.mou.id}]`;
   if (!cashflowTagRecordedFn(tag)) {
@@ -418,58 +467,9 @@ async function processPengembalianModalItem({
       catatan: tag,
     });
   }
+
   await updateMouFn(item.mou.id, { isTerminated: true });
   setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
-}
-
-async function processInternalEntity({
-  entity,
-  mous,
-  investors,
-  brokers,
-  minbun,
-  trader,
-  cashflowTagRecordedFn,
-  addPengeluaranFn,
-  updateTransaksiFn,
-  updateMouFn,
-  setDoneKeysFn,
-}: ProcessInternalEntityParams) {
-  const today = todayWibStr();
-  const isMinBun = entity.keterangan === "MinBun";
-
-  for (const item of entity.filteredItems) {
-    if (item.type === "Bagi Hasil" && item.trx) {
-      await processBagiHasilItem({
-        item,
-        entity,
-        today,
-        isMinBun,
-        mous,
-        investors,
-        brokers,
-        minbun,
-        trader,
-        cashflowTagRecordedFn,
-        addPengeluaranFn,
-        updateTransaksiFn,
-        setDoneKeysFn,
-      });
-      continue;
-    }
-
-    if (item.type === "Pengembalian Modal" && item.mou) {
-      await processPengembalianModalItem({
-        item,
-        entity,
-        today,
-        cashflowTagRecordedFn,
-        addPengeluaranFn,
-        updateMouFn,
-        setDoneKeysFn,
-      });
-    }
-  }
 }
 
 type ProcessUploadEntityParams = {
@@ -543,8 +543,10 @@ async function processUploadEntity({
   setDoneKeysFn,
 }: ProcessUploadEntityParams) {
   for (const item of entity.filteredItems) {
-    if (item.type === "Bagi Hasil" && item.trx) {
+    if (item.type === "Bagi Hasil") {
       const trx = item.trx;
+      if (!trx) continue;
+
       const buktiUrl = await uploadBuktiIfNeeded(item, entity, uploadFile, uploadBuktiTransaksiFn, uploadBuktiPengembalianFn);
 
       const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
@@ -594,7 +596,7 @@ function EntityRow({
   const isLoading = toggling === ent.id;
   const isInternal = isBulkEntityInternal(ent, internalInvestorIds);
   const tooltipText = getBulkActionTooltipText(showDone, isInternal);
-  const hasDue = ent.filteredItems.some(i => i.sisa <= 0); // Penanda transaksi sudah jatuh tempo
+  const hasDue = ent.filteredItems.some(i => i.sisa <= 0); 
 
   return (
     <tr key={ent.id} className="border-b border-border/50 hover:bg-muted/40 transition-colors">
@@ -666,7 +668,6 @@ export function ReminderContent() {
   const mouContext = useMou();
   const { mous, updateMou } = mouContext;
   
-  // Safe-cast fungsi tambahan dari mou-context
   const uploadBuktiPengembalian = (mouContext as any).uploadBuktiPengembalian;
 
   const { transaksis, updateTransaksi, uploadBuktiTransaksi } = useTransaksi();
@@ -776,7 +777,6 @@ export function ReminderContent() {
       const sisa = sisaHariPks(mou);
       const isDone = mou.isTerminated || doneKeys.has(`MOU__${mou.id}`);
 
-      // Filter: Hanya tampilkan jika jatuh tempo (sisa <= 0) ATAU sudah berstatus selesai/terminated
       if (!isDone && sisa > 0) return; 
 
       const inv = investors.find(i => i.id === mou.investorId);
@@ -833,13 +833,15 @@ export function ReminderContent() {
     setToggling(entity.id);
     try {
       for (const item of entity.filteredItems) {
-        if (item.type === "Bagi Hasil") {
+        if (item.type === "Bagi Hasil" && item.trx) {
           const trx = item.trx;
-          if (trx) {
-            const checks = { ...trx.bagiHasilChecks, [item.checkKey]: false };
-            await updateTransaksi(trx.id, { bagiHasilChecks: checks, bagiHasilDone: false });
-            setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trx.id}__${item.checkKey}`); return s; });
-          }
+          const checks = { ...trx.bagiHasilChecks, [item.checkKey]: false };
+          await updateTransaksi(trx.id, { bagiHasilChecks: checks, bagiHasilDone: false });
+          setDoneKeys((prev) => {
+            const s = new Set(prev);
+            s.delete(`${trx.id}__${item.checkKey}`);
+            return s;
+          });
         } else if (item.type === "Pengembalian Modal" && item.mou) {
           await updateMou(item.mou.id, { isTerminated: false });
           setDoneKeys((prev) => { const s = new Set(prev); s.delete(item.checkKey); return s; });
@@ -918,7 +920,7 @@ export function ReminderContent() {
         minbun,
         trader,
         uploadBuktiTransaksiFn: uploadBuktiTransaksi,
-        uploadBuktiPengembalianFn: uploadBuktiPengembalian, // Akan dilewatkan jika belum dideklarasikan di context
+        uploadBuktiPengembalianFn: uploadBuktiPengembalian, 
         updateTransaksiFn: updateTransaksi,
         updateMouFn: updateMou,
         setDoneKeysFn: setDoneKeys,
