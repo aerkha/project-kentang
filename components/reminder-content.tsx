@@ -787,7 +787,7 @@ export function ReminderContent() {
       <Card>
         <CardHeader className="pb-0">
           <div className="flex items-center justify-between gap-4 flex-wrap">
-            <CardTitle className="text-base">Pembayaran Massal (Bulk Transfer)</CardTitle>
+            <CardTitle className="text-base">Tugas Bagi Hasil Harian</CardTitle>
 
             <div className="flex items-center rounded-lg border border-border bg-muted/40 p-0.5 text-sm">
               <button
