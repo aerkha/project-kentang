@@ -9,10 +9,11 @@ import nodemailer from "nodemailer";
 import { todayWibStr } from "@/lib/utils";
 
 function pbEsc(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const backslash = String.fromCodePoint(92);
+  return value
+    .replaceAll(backslash, backslash + backslash)
+    .replaceAll(String.raw`"`, String.raw`\"`);
 }
-
-
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,9 +48,17 @@ const MONTHS_ID = [
   "Juli","Agustus","September","Oktober","November","Desember",
 ];
 
+// Anti-crash jika s kosong atau tidak berformat YYYY-MM-DD
 function fmtDate(s: string) {
-  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
-  return `${d} ${MONTHS_ID[m - 1]} ${y}`;
+  if (!s) return "—";
+  const parts = s.slice(0, 10).split("-");
+  if (parts.length === 3) {
+    const [y, m, d] = parts.map(Number);
+    if (m >= 1 && m <= 12) {
+      return `${d} ${MONTHS_ID[m - 1]} ${y}`;
+    }
+  }
+  return s; 
 }
 
 function fmtRp(n: number) {
@@ -100,9 +109,11 @@ async function findPendingTransaksis(
 // ─── Email HTML: ringkasan untuk admin ─────────────────────────────────────────
 
 function buildAdminEmailHtml(pendings: PendingTransaksi[], date: string): string {
-  const rows = pendings.map((p) => `
+  const rows = pendings.map((p) => {
+    const displayId = p.trx.customId || p.trx.id; // Fallback jika customId kosong
+    return `
     <tr style="border-bottom:1px solid #e5e7eb;">
-      <td style="padding:10px 12px;font-family:monospace;font-weight:700;color:#111827;">${p.trx.customId}</td>
+      <td style="padding:10px 12px;font-family:monospace;font-weight:700;color:#111827;">${displayId}</td>
       <td style="padding:10px 12px;color:#6b7280;white-space:nowrap;">${fmtDate(p.trx.date)}</td>
       <td style="padding:10px 12px;">${p.investorNames.join(", ") || "—"}</td>
       <td style="padding:10px 12px;text-align:right;font-weight:600;">${p.totalInvestasi > 0 ? fmtRp(p.totalInvestasi) : "—"}</td>
@@ -110,7 +121,7 @@ function buildAdminEmailHtml(pendings: PendingTransaksi[], date: string): string
         ${p.trx.status === "bermasalah" ? "Bermasalah" : "Selesai"}
       </td>
     </tr>
-  `).join("");
+  `}).join("");
 
   return `
 <!DOCTYPE html>
@@ -155,9 +166,13 @@ function buildAdminEmailHtml(pendings: PendingTransaksi[], date: string): string
 // ─── Email ────────────────────────────────────────────────────────────────────
 
 function makeTransporter() {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  if (!user || !pass) return null;
+  const user = process.env.GMAIL_USER?.trim();
+  const rawPass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !rawPass) return null;
+  
+  // Bugfix: Menghapus spasi yang sering ikut tercopy dari dashboard Google
+  const pass = rawPass.replace(/\s+/g, ""); 
+  
   return { user, transporter: nodemailer.createTransport({ service: "gmail", auth: { user, pass } }) };
 }
 
@@ -189,8 +204,10 @@ async function sendWhatsApp(pendings: PendingTransaksi[], date: string): Promise
     `${pendings.length} transaksi menunggu pembayaran bagi hasil:`,
     ``,
     ...pendings.map((p, i) => {
+      const displayId = p.trx.customId || p.trx.id;
       const investors = p.investorNames.join(", ") || "—";
-      return `${i + 1}. *${p.trx.customId}* — ${fmtDate(p.trx.date)}\n   Investor: ${investors}${p.totalInvestasi > 0 ? `\n   Modal: ${fmtRp(p.totalInvestasi)}` : ""}`;
+      const modalLine = p.totalInvestasi > 0 ? "\n   Modal: " + fmtRp(p.totalInvestasi) : "";
+      return `${i + 1}. *${displayId}* — ${fmtDate(p.trx.date)}\n   Investor: ${investors}${modalLine}`;
     }),
     ``,
     `_Silakan proses pelunasan bagi hasil melalui halaman Reminder._`,
@@ -229,8 +246,8 @@ export async function runRemindersTest(): Promise<ReminderResult> {
     investorNames:  ["Investor Test"],
     totalInvestasi: 50_000_000,
   };
-  const adminEmail = await sendAdminEmail([dummy], `${todayStr} (TEST)`).catch(() => "failed" as ChannelStatus);
-  const waStatus   = await sendWhatsApp([dummy], `${todayStr} (TEST)`).catch(() => "failed" as ChannelStatus);
+  const adminEmail = await sendAdminEmail([dummy], `${todayStr} (TEST)`).catch(() => "failed");
+  const waStatus   = await sendWhatsApp([dummy], `${todayStr} (TEST)`).catch(() => "failed");
   return { status: 200, body: { mode: "test", adminEmail, waStatus } };
 }
 
@@ -275,14 +292,15 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
       toSend.push(...allPending);
     } else {
       const sentFlags = await Promise.all(
-        allPending.map((p) =>
-          pb.collection("reminder_logs")
+        allPending.map((p) => {
+          const checkId = p.trx.customId || p.trx.id;
+          return pb.collection("reminder_logs")
             .getList(1, 1, {
-              filter: `(mouCustomId = "${pbEsc(p.trx.customId)}") && (triggeredBy = "cron" || triggeredBy = "manual")`,
+              filter: `(mouCustomId = "${pbEsc(checkId)}") && (triggeredBy = "cron" || triggeredBy = "manual")`,
             })
             .then((r) => r.totalItems > 0)
-            .catch(() => false),
-        ),
+            .catch(() => false);
+        }),
       );
       allPending.forEach((p, i) => {
         if (!sentFlags[i]) toSend.push(p);
@@ -299,20 +317,21 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
     // Email ringkasan ke admin (sekali untuk semua transaksi)
     const adminEmailStatus = await sendAdminEmail(toSend, todayStr).catch((e) => {
       errors.push(`Email admin: ${String(e)}`);
-      return "failed" as ChannelStatus;
+      return "failed";
     });
 
     // WA ke admin (sekali untuk semua transaksi)
     const waStatus = await sendWhatsApp(toSend, todayStr).catch((e) => {
       errors.push(`WA: ${String(e)}`);
-      return "failed" as ChannelStatus;
+      return "failed";
     });
 
     // Simpan log per transaksi
     await Promise.all(
-      toSend.map((p) =>
-        pb.collection("reminder_logs").create({
-          mouCustomId:  p.trx.customId,   // field lama dipakai untuk transaksiId
+      toSend.map((p) => {
+        const insertId = p.trx.customId || p.trx.id;
+        return pb.collection("reminder_logs").create({
+          mouCustomId:  insertId, 
           cycleNumber:  0,
           sentAt:       new Date().toISOString(),
           investorName: p.investorNames.join(", ") || "",
@@ -320,8 +339,8 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
           waStatus,
           errorMessage: errors.join(" | "),
           triggeredBy,
-        }).catch(() => {}),
-      ),
+        }).catch(() => {});
+      }),
     );
 
     return {
@@ -331,7 +350,7 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
         adminEmailStatus,
         waStatus,
         errors:           errors.length ? errors : undefined,
-        transaksis:       toSend.map((p) => ({ id: p.trx.customId, date: p.trx.date, status: p.trx.status })),
+        transaksis:       toSend.map((p) => ({ id: p.trx.customId || p.trx.id, date: p.trx.date, status: p.trx.status })),
       },
     };
 

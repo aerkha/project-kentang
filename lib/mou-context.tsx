@@ -1,10 +1,10 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
 import pb from "./pocketbase";
 import { todayWibStr } from "./utils";
 
-const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
+const currentUserId = () => pb.authStore.record?.id ?? "";
 
 export interface MoU {
   id: string;             // MOU-YYYYMM-NNN (customId, e.g. MOU-202505-001)
@@ -76,11 +76,12 @@ function base64ToFile(dataUrl: string, fieldName: string): File {
   if (commaIdx === -1) throw new Error("base64ToFile: input bukan data URL yang valid");
   const header = dataUrl.slice(0, commaIdx);
   const b64    = dataUrl.slice(commaIdx + 1);
-  const mime   = header.match(/:(.*?);/)?.[1] ?? "image/png";
+  const mimeMatch = /:(.*?);/.exec(header);
+  const mime      = mimeMatch ? mimeMatch[1] : "image/png";
   const ext    = mime.split("/")[1] ?? "png";
   const bytes  = atob(b64);
   const arr    = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.codePointAt(i) ?? 0;
   return new File([arr], `${fieldName}.${ext}`, { type: mime });
 }
 
@@ -203,8 +204,8 @@ async function generateCustomId(date: string): Promise<string> {
     const max = res.reduce((m, r) => {
       const cid = r.customId as string;
       if (!cid.startsWith(prefix)) return m;
-      const n = parseInt(cid.slice(prefix.length)) || 0;
-      return n > m ? n : m;
+      const n = Number.parseInt(cid.slice(prefix.length)) || 0;
+      return Math.max(m, n);
     }, 0);
     return `${prefix}${String(max + 1).padStart(3, "0")}`;
   } catch {
@@ -212,7 +213,7 @@ async function generateCustomId(date: string): Promise<string> {
   }
 }
 
-export function MouProvider({ children }: { children: ReactNode }) {
+export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [mous, setMous] = useState<MoU[]>([]);
   const mousRef = useRef<MoU[]>([]);
   mousRef.current = mous;
@@ -243,7 +244,7 @@ export function MouProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const addMou = async (mou: Omit<MoU, "id">) => {
+  const addMou = useCallback(async (mou: Omit<MoU, "id">) => {
     const pp1 = mou.bagiHasilPP1 ?? 50;
     const pp2 = mou.bagiHasilPP2 ?? 15;
     const pp3 = mou.bagiHasilPP3 ?? 0;
@@ -315,9 +316,9 @@ export function MouProvider({ children }: { children: ReactNode }) {
     const newMou = recordToMou(record, map);
     mousRef.current = [...mousRef.current, newMou];
     setMous(mousRef.current);
-  };
+  }, [map]);
 
-  const updateMou = async (id: string, updates: Partial<MoU>) => {
+  const updateMou = useCallback(async (id: string, updates: Partial<MoU>) => {
     const pbId = await resolvePbId(id);
     if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan.`);
 
@@ -364,19 +365,18 @@ export function MouProvider({ children }: { children: ReactNode }) {
     const updatedMou = recordToMou(record, map);
     mousRef.current = mousRef.current.map((m) => (m.id === id ? updatedMou : m));
     setMous(mousRef.current);
-  };
+  }, [map]);
 
-  const deleteMou = async (id: string) => {
+  const deleteMou = useCallback(async (id: string) => {
     const pbId       = await resolvePbId(id);
     if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan.`);
-    const mouToDelete = mousRef.current.find((m) => m.id === id);
     await pb.collection("mous").delete(pbId);
     map.delete(id);
     mousRef.current = mousRef.current.filter((m) => m.id !== id);
     setMous(mousRef.current);
-  };
+  }, [map]);
 
-  const uploadBuktiTransfer = async (id: string, keterangan: string, file: File): Promise<string> => {
+  const uploadBuktiTransfer = useCallback(async (id: string, keterangan: string, file: File): Promise<string> => {
     const pbId     = await resolvePbId(id);
     if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan.`);
     const fieldName = BUKTI_FIELD[keterangan];
@@ -387,9 +387,9 @@ export function MouProvider({ children }: { children: ReactNode }) {
     const updatedMou = recordToMou(record, map);
     setMous((prev) => prev.map((m) => (m.id === id ? updatedMou : m)));
     return (updatedMou[fieldName as keyof MoU] as string) ?? "";
-  };
+  }, [map]);
 
-  const uploadSignedDoc = async (id: string, file: File) => {
+  const uploadSignedDoc = useCallback(async (id: string, file: File) => {
     const pbId = await resolvePbId(id);
     if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan di server — coba refresh halaman.`);
     const fd = new FormData();
@@ -399,17 +399,40 @@ export function MouProvider({ children }: { children: ReactNode }) {
     const updatedMou = recordToMou(record, map);
     mousRef.current  = mousRef.current.map((m) => (m.id === id ? updatedMou : m));
     setMous(mousRef.current);
-  };
+  }, [map]);
+
+  const value = useMemo(
+    () => ({ mous, addMou, updateMou, deleteMou, uploadSignedDoc, uploadBuktiTransfer }),
+    [mous, addMou, updateMou, deleteMou, uploadSignedDoc, uploadBuktiTransfer],
+  );
 
   return (
-    <MouContext.Provider value={{ mous, addMou, updateMou, deleteMou, uploadSignedDoc, uploadBuktiTransfer }}>
+    <MouContext.Provider value={value}>
       {children}
     </MouContext.Provider>
   );
 }
 
 export function useMou() {
+  const uploadBuktiPengembalian = async (mouId: string, file: File): Promise<string> => {
+    try {
+      const formData = new FormData();
+      formData.append("buktiPengembalianModal", file);
+
+      const record = await pb.collection("mous").update(mouId, formData);
+      
+      // Kembalikan URL gambar agar bisa dikirim via WA
+      return pbFileUrl(record.id, record.buktiPengembalianModal);
+    } catch (error) {
+      console.error("Gagal upload bukti pengembalian modal:", error);
+      throw error;
+    }
+  };
   const ctx = useContext(MouContext);
   if (!ctx) throw new Error("useMou must be used within a MouProvider");
-  return ctx;
+  return {
+    ...ctx,
+    uploadBuktiPengembalian,
+  };
+  
 }

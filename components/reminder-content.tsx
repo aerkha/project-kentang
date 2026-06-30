@@ -38,6 +38,7 @@ import {
   TrendingUp,
   Wallet,
   Briefcase,
+  Banknote,
   Settings2,
   Save,
   ChevronDown,
@@ -73,7 +74,7 @@ function formatCurrency(n: number) {
 // ── Helpers Hitungan Mundur Hari (Countdown) ─────────────────────────────────
 
 function parsePeriodeDays(desc: string): number {
-  const m = /\d+/.exec(desc || "");
+  const m = /\d+/.exec(desc ?? "");
   const n = m ? Number.parseInt(m[0], 10) : 30;
   return n > 0 ? n : 30;
 }
@@ -103,15 +104,34 @@ function getSisaHariColor(s: number) {
   return "text-muted-foreground";
 }
 
+// Helpers khusus hitungan mundur PKS
+function addDays(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+function endDatePks(mou: MoU) {
+  return mou.endDate || addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
+}
+
+function sisaHariPks(mou: MoU): number {
+  if (!mou.date) return 0;
+  const endStr = endDatePks(mou);
+  const [y, m, d] = endStr.slice(0, 10).split("-").map(Number);
+  const endMs = Date.UTC(y, m - 1, d);
+  const nowMs = Date.now();
+  return Math.ceil((endMs - nowMs) / 86_400_000);
+}
+
 // ── Tipe baris tabel ─────────────────────────────────────────────────────────
 
 type PaymentRow = {
   nama:          string;
-  keterangan:    "Investor" | "Broker" | "Trader" | "MinBun";
+  keterangan:    "Investor" | "Broker" | "Trader" | "MinBun" | "Pengembalian Modal";
   bankName:      string;
   accountNumber: string;
   jumlah:        number;
-  checkKey:      string; // kunci untuk bagiHasilChecks: mis. "INV-0001_Investor", "Trader"
+  checkKey:      string; // kunci untuk bagiHasilChecks
   investorId?:   string; // untuk baris Investor saja
 };
 
@@ -177,7 +197,7 @@ function buildTransaksiRows(
 ): PaymentRow[] {
   const rows: PaymentRow[] = [];
   const calc = calcTransaksi(trx);
-  // Tambahan guard agar tidak menghasilkan row dengan angka negatif jika profit belum ada
+  // Guard agar tidak menghasilkan row dengan angka negatif jika profit belum ada
   if (calc.totalInvestasi === 0 || calc.profit <= 0) return rows;
 
   let traderTotal = 0;
@@ -259,7 +279,10 @@ function buildTransaksiRows(
 // ── Tipe & Helper Pengelompokan (Bulk Entity) ────────────────────────────────
 
 type EntitySummaryItem = {
-  trx: Transaksi;
+  sourceId: string; // ID transaksi ATAU ID PKS
+  type: "Bagi Hasil" | "Pengembalian Modal";
+  trx?: Transaksi;
+  mou?: MoU;
   jumlah: number;
   checkKey: string;
   isDone: boolean;
@@ -300,6 +323,7 @@ type ProcessInternalEntityParams = {
   cashflowTagRecordedFn: (tag: string) => boolean;
   addPengeluaranFn: (p: any) => Promise<void>;
   updateTransaksiFn: (id: string, data: any) => Promise<void>;
+  updateMouFn: (id: string, data: any) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 };
 
@@ -313,20 +337,24 @@ async function processInternalEntity({
   cashflowTagRecordedFn,
   addPengeluaranFn,
   updateTransaksiFn,
+  updateMouFn,
   setDoneKeysFn,
 }: ProcessInternalEntityParams) {
   const today = todayWibStr();
   const isMinBun = entity.keterangan === "MinBun";
 
-  for (const item of entity.filteredItems) {
+  async function handleBagiHasil(item: ProcessedEntity['filteredItems'][number]) {
+    const trx = item.trx;
+    if (!trx) return;
+
     const tag = isMinBun
-      ? `[Reminder] TRX ${item.trx.id} · MinBun`
-      : `[Internal-Profit:${entity.investorId}:${item.trx.id}]`;
+      ? `[Reminder] TRX ${trx.id} · MinBun`
+      : `[Internal-Profit:${entity.investorId}:${trx.id}]`;
 
     if (!cashflowTagRecordedFn(tag)) {
       await addPengeluaranFn({
         date: today,
-        deskripsi: isMinBun ? `Bagi Hasil MinBun — TRX ${item.trx.id}` : `Profit Internal — ${entity.nama} — TRX ${item.trx.id}`,
+        deskripsi: isMinBun ? `Bagi Hasil MinBun — TRX ${trx.id}` : `Profit Internal — ${entity.nama} — TRX ${trx.id}`,
         debet: item.jumlah,
         kredit: 0,
         kategori: isMinBun ? "Fee MinBun" : "BagHas Modal MinBun",
@@ -334,12 +362,40 @@ async function processInternalEntity({
       });
     }
 
-    const checks = { ...item.trx.bagiHasilChecks, [item.checkKey]: true };
-    const allRows = buildTransaksiRows(item.trx, mous, investors, brokers, minbun, trader);
+    const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
+    const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
     const allDone = allRows.every((r) => checks[r.checkKey]);
 
-    await updateTransaksiFn(item.trx.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
-    setDoneKeysFn((prev) => new Set(prev).add(`${item.trx.id}__${item.checkKey}`));
+    await updateTransaksiFn(trx.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+    setDoneKeysFn((prev) => new Set(prev).add(`${trx.id}__${item.checkKey}`));
+  }
+
+  async function handlePengembalianModal(item: ProcessedEntity['filteredItems'][number]) {
+    if (!item.mou) return;
+
+    const tag = `[Internal-Return:${entity.investorId}:${item.mou.id}]`;
+
+    if (!cashflowTagRecordedFn(tag)) {
+      await addPengeluaranFn({
+        date: today,
+        deskripsi: `Pengembalian Modal Internal — ${entity.nama} — PKS ${item.mou.id}`,
+        debet: item.jumlah,
+        kredit: 0,
+        kategori: "Pengembalian Modal",
+        catatan: tag,
+      });
+    }
+
+    await updateMouFn(item.mou.id, { isTerminated: true });
+    setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
+  }
+
+  for (const item of entity.filteredItems) {
+    if (item.type === "Bagi Hasil") {
+      await handleBagiHasil(item);
+    } else if (item.type === "Pengembalian Modal") {
+      await handlePengembalianModal(item);
+    }
   }
 }
 
@@ -352,7 +408,9 @@ type ProcessUploadEntityParams = {
   minbun: AccountInfo;
   trader: AccountInfo;
   uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>;
+  uploadBuktiPengembalianFn?: (mouId: string, file: File) => Promise<string>;
   updateTransaksiFn: (id: string, data: any) => Promise<void>;
+  updateMouFn: (id: string, data: any) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 };
 
@@ -361,9 +419,16 @@ async function uploadBuktiIfNeeded(
   entity: ProcessedEntity,
   uploadFile: File | null,
   uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>,
+  uploadBuktiPengembalianFn?: (mouId: string, file: File) => Promise<string>
 ) {
   if (!uploadFile) return "";
-  return uploadBuktiTransaksiFn(item.trx.id, entity.keterangan, uploadFile);
+  if (item.type === "Pengembalian Modal" && item.mou && uploadBuktiPengembalianFn) {
+    return uploadBuktiPengembalianFn(item.mou.id, uploadFile);
+  }
+  if (item.trx) {
+    return uploadBuktiTransaksiFn(item.trx.id, entity.keterangan, uploadFile);
+  }
+  return "";
 }
 
 async function notifyInvestorIfNeeded(
@@ -371,7 +436,8 @@ async function notifyInvestorIfNeeded(
   entity: ProcessedEntity,
   buktiUrl: string,
 ) {
-  if (entity.keterangan !== "Investor" || !entity.investorId) return;
+  if (entity.keterangan !== "Investor" && entity.keterangan !== "Pengembalian Modal") return;
+  if (!entity.investorId) return;
 
   await fetch("/api/notify-investor", {
     method: "POST",
@@ -380,8 +446,8 @@ async function notifyInvestorIfNeeded(
       "Authorization": `Bearer ${pb.authStore.token}`,
     },
     body: JSON.stringify({
-      transaksiId: item.trx.id,
-      keterangan: "Bagi Hasil",
+      transaksiId: item.sourceId,
+      keterangan: item.type,
       investorId: entity.investorId,
       jumlah: item.jumlah,
       buktiUrl,
@@ -398,20 +464,33 @@ async function processUploadEntity({
   minbun,
   trader,
   uploadBuktiTransaksiFn,
+  uploadBuktiPengembalianFn,
   updateTransaksiFn,
+  updateMouFn,
   setDoneKeysFn,
 }: ProcessUploadEntityParams) {
   for (const item of entity.filteredItems) {
-    const buktiUrl = await uploadBuktiIfNeeded(item, entity, uploadFile, uploadBuktiTransaksiFn);
+    if (item.type === "Bagi Hasil" && item.trx) {
+      const trx = item.trx;
+      const trxId = trx.id;
+      const buktiUrl = await uploadBuktiIfNeeded(item, entity, uploadFile, uploadBuktiTransaksiFn, uploadBuktiPengembalianFn);
 
-    const checks = { ...item.trx.bagiHasilChecks, [item.checkKey]: true };
-    const allRows = buildTransaksiRows(item.trx, mous, investors, brokers, minbun, trader);
-    const allDone = allRows.every((r) => checks[r.checkKey]);
+      const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
+      const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+      const allDone = allRows.every((r) => checks[r.checkKey]);
 
-    await updateTransaksiFn(item.trx.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
-    setDoneKeysFn((prev) => new Set(prev).add(`${item.trx.id}__${item.checkKey}`));
+      await updateTransaksiFn(trxId, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+      setDoneKeysFn((prev) => new Set(prev).add(`${trxId}__${item.checkKey}`));
 
-    await notifyInvestorIfNeeded(item, entity, buktiUrl);
+      await notifyInvestorIfNeeded(item, entity, buktiUrl);
+    }
+    else if (item.type === "Pengembalian Modal" && item.mou) {
+      const buktiUrl = await uploadBuktiIfNeeded(item, entity, uploadFile, uploadBuktiTransaksiFn, uploadBuktiPengembalianFn);
+      await updateMouFn(item.mou.id, { isTerminated: true });
+      setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
+
+      await notifyInvestorIfNeeded(item, entity, buktiUrl);
+    }
   }
 }
 
@@ -465,9 +544,9 @@ function EntityRow({
       <td className="py-3 px-3">
         <div className="flex flex-col gap-1.5 max-w-[280px]">
           {ent.filteredItems.map(i => (
-            <div key={i.trx.id} className="flex items-center gap-2">
+            <div key={i.sourceId} className="flex items-center gap-2">
               <Badge variant="secondary" className="text-[10px] font-mono font-normal shrink-0">
-                {i.trx.id}
+                {i.sourceId}
               </Badge>
               {!showDone && (
                 <span className={`text-[10px] ${getSisaHariColor(i.sisa)} whitespace-nowrap`}>
@@ -511,36 +590,14 @@ function EntityRow({
   );
 }
 
-function buildReminderSuccessMessage(data: any) {
-  const parts = [`${data.sent} reminder terkirim`];
-  if (data.adminEmailStatus === "sent") parts.push("✉️ Email admin OK");
-  if (data.waStatus === "sent") parts.push("💬 WA OK");
-  return parts.join(" · ");
-}
-
-function handleFileChangeEvent(
-  e: React.ChangeEvent<HTMLInputElement>,
-  setUploadFile: React.Dispatch<React.SetStateAction<File | null>>,
-  setUploadPreview: React.Dispatch<React.SetStateAction<string>>,
-) {
-  const file = e.target.files?.[0];
-  if (file) {
-    setUploadFile(file);
-    if (file.type.startsWith("image/")) {
-      const reader = new FileReader();
-      reader.onload = (ev) => setUploadPreview(ev.target?.result as string);
-      reader.readAsDataURL(file);
-    } else {
-      setUploadPreview("");
-    }
-  } else {
-    setUploadFile(null);
-    setUploadPreview("");
-  }
-}
-
 export function ReminderContent() {
-  const { mous }                                      = useMou();
+  const mouContext = useMou();
+  const { mous, updateMou } = mouContext;
+  
+  // Menggunakan safe-cast untuk menghindari error merah di VS Code 
+  // jika file mou-context.tsx belum sempurna ditambahkan fungsi uploadBuktiPengembalian.
+  const uploadBuktiPengembalian = (mouContext as any).uploadBuktiPengembalian;
+
   const { transaksis, updateTransaksi, uploadBuktiTransaksi } = useTransaksi();
   const { investors }                                 = useInvestors();
   const { brokers }                                   = useBrokers();
@@ -580,9 +637,10 @@ export function ReminderContent() {
 
   // 1. Ringkasan (Summary Metrics) - Menampilkan semua (berjalan & selesai)
   const summary = useMemo(() => {
-    let investor = 0, traderAmt = 0, minbunAmt = 0, broker = 0;
+    let investor = 0, traderAmt = 0, minbunAmt = 0, broker = 0, modalToReturn = 0;
     let totalTasks = 0, doneTasks = 0;
 
+    // A. Metrik Transaksi
     transaksis.forEach((trx) => {
       const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
       rows.forEach((r) => {
@@ -602,13 +660,25 @@ export function ReminderContent() {
       });
     });
 
-    return { investor, trader: traderAmt, minbun: minbunAmt, broker, totalTasks, doneTasks };
+    // B. Metrik Pengembalian Modal (PKS)
+    mous.forEach((mou) => {
+      const isDone = mou.isTerminated || doneKeys.has(`MOU__${mou.id}`);
+      const sisa = sisaHariPks(mou);
+      if (isDone || sisa <= 0) {
+        totalTasks++;
+        if (isDone) doneTasks++;
+        else modalToReturn += mou.investmentAmount;
+      }
+    });
+
+    return { investor, trader: traderAmt, minbun: minbunAmt, broker, modalToReturn, totalTasks, doneTasks };
   }, [transaksis, mous, investors, brokers, minbun, trader, doneKeys]);
 
   // 2. Data Entity (Bulk Data) - Menampilkan semua (berjalan & selesai)
   const displayEntities = useMemo(() => {
     const map = new Map<string, ProcessedEntity & { items: EntitySummaryItem[] }>();
 
+    // A. Proses dari Transaksi (Bagi Hasil)
     transaksis.forEach((trx) => {
       const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
       const sisa = sisaHari(trx);
@@ -623,7 +693,42 @@ export function ReminderContent() {
           });
         }
         const isDone = !!trx.bagiHasilChecks?.[r.checkKey] || doneKeys.has(`${trx.id}__${r.checkKey}`);
-        map.get(key)!.items.push({ trx, jumlah: r.jumlah, checkKey: r.checkKey, isDone, sisa, statusTampil });
+        map.get(key)!.items.push({ 
+          sourceId: trx.id, type: "Bagi Hasil", trx, 
+          jumlah: r.jumlah, checkKey: r.checkKey, isDone, sisa, statusTampil 
+        });
+      });
+    });
+
+    // B. Proses dari PKS (Pengembalian Modal)
+    mous.forEach((mou) => {
+      const sisa = sisaHariPks(mou);
+      const isDone = mou.isTerminated || doneKeys.has(`MOU__${mou.id}`);
+
+      // Filter: Hanya tampilkan jika jatuh tempo (sisa <= 0) ATAU sudah berstatus selesai/terminated
+      if (!isDone && sisa > 0) return; 
+
+      const inv = investors.find(i => i.id === mou.investorId);
+      const key = `Pengembalian Modal_${mou.investorId || mou.investorName}`;
+      
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key, nama: mou.investorName, keterangan: "Pengembalian Modal",
+          bankName: inv?.bankName || "—",
+          accountNumber: inv?.accountNumber || "—",
+          investorId: mou.investorId, items: [], filteredItems: [], totalAmount: 0
+        });
+      }
+
+      map.get(key)!.items.push({
+        sourceId: mou.id,
+        type: "Pengembalian Modal",
+        mou: mou,
+        jumlah: mou.investmentAmount,
+        checkKey: `MOU__${mou.id}`,
+        isDone,
+        sisa,
+        statusTampil: isDone ? "selesai" : "jatuh tempo",
       });
     });
 
@@ -657,9 +762,15 @@ export function ReminderContent() {
     setToggling(entity.id);
     try {
       for (const item of entity.filteredItems) {
-        const checks = { ...item.trx.bagiHasilChecks, [item.checkKey]: false };
-        await updateTransaksi(item.trx.id, { bagiHasilChecks: checks, bagiHasilDone: false });
-        setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${item.trx.id}__${item.checkKey}`); return s; });
+        if (item.type === "Bagi Hasil" && item.trx) {
+          const trx = item.trx;
+          const checks = { ...trx.bagiHasilChecks, [item.checkKey]: false };
+          await updateTransaksi(trx.id, { bagiHasilChecks: checks, bagiHasilDone: false });
+          setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trx.id}__${item.checkKey}`); return s; });
+        } else if (item.type === "Pengembalian Modal" && item.mou) {
+          await updateMou(item.mou.id, { isTerminated: false });
+          setDoneKeys((prev) => { const s = new Set(prev); s.delete(item.checkKey); return s; });
+        }
       }
       toast.info(`Status pembayaran untuk ${entity.nama} dibatalkan.`);
     } catch {
@@ -687,6 +798,7 @@ export function ReminderContent() {
         cashflowTagRecordedFn: cashflowTagRecorded,
         addPengeluaranFn: addPengeluaran,
         updateTransaksiFn: updateTransaksi,
+        updateMouFn: updateMou,
         setDoneKeysFn: setDoneKeys,
       });
 
@@ -702,7 +814,20 @@ export function ReminderContent() {
 
   // ── File Handler ──
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    handleFileChangeEvent(e, setUploadFile, setUploadPreview);
+    const file = e.target.files?.[0];
+    if (file) {
+      setUploadFile(file);
+      if (file.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onload = (ev) => setUploadPreview(ev.target?.result as string);
+        reader.readAsDataURL(file);
+      } else {
+        setUploadPreview("");
+      }
+    } else {
+      setUploadFile(null);
+      setUploadPreview("");
+    }
   };
 
   // ── Fungsi Simpan Massal (Eksternal + Upload Bukti + WA) ──
@@ -720,7 +845,9 @@ export function ReminderContent() {
         minbun,
         trader,
         uploadBuktiTransaksiFn: uploadBuktiTransaksi,
+        uploadBuktiPengembalianFn: uploadBuktiPengembalian, // Akan dilewatkan jika belum dideklarasikan di context
         updateTransaksiFn: updateTransaksi,
+        updateMouFn: updateMou,
         setDoneKeysFn: setDoneKeys,
       });
 
@@ -741,6 +868,7 @@ export function ReminderContent() {
     Broker:   "bg-blue-100 text-blue-700 border-blue-200",
     Trader:   "bg-purple-100 text-purple-700 border-purple-200",
     MinBun:   "bg-green-100 text-green-700 border-green-200",
+    "Pengembalian Modal": "bg-rose-100 text-rose-700 border-rose-200",
   };
 
   const handleSaveMinbun = async () => {
@@ -752,6 +880,13 @@ export function ReminderContent() {
     setIsSavingTR(true);
     try { await updateTrader(formTrader); toast.success("Rekening Trader berhasil disimpan"); }
     catch { toast.error("Gagal menyimpan rekening Trader"); } finally { setIsSavingTR(false); }
+  };
+
+  const buildReminderSuccessMessage = (data: any) => {
+    const parts = [`${data.sent} reminder terkirim`];
+    if (data.adminEmailStatus === "sent") parts.push("✉️ Email admin OK");
+    if (data.waStatus === "sent") parts.push("💬 WA OK");
+    return parts.join(" · ");
   };
 
   const handleSendReminder = async () => {
@@ -794,7 +929,7 @@ export function ReminderContent() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Bagi Hasil Investor</CardTitle>
@@ -803,6 +938,16 @@ export function ReminderContent() {
           <CardContent>
             <div className="text-2xl font-bold text-orange-500">{formatShort(summary.investor)}</div>
             <p className="text-xs text-muted-foreground">{formatCurrency(summary.investor)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Pengembalian Modal</CardTitle>
+            <Banknote className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-rose-600">{formatShort(summary.modalToReturn)}</div>
+            <p className="text-xs text-muted-foreground">{formatCurrency(summary.modalToReturn)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -924,9 +1069,9 @@ export function ReminderContent() {
                 <p className="font-semibold text-muted-foreground mb-2">Rincian Tagihan:</p>
                 <ul className="space-y-1.5 mb-3 max-h-[140px] overflow-y-auto pr-2">
                   {uploadTarget.filteredItems.map(i => (
-                    <li key={i.trx.id} className="flex justify-between items-center text-xs border-b border-border/50 pb-1.5">
+                    <li key={i.sourceId} className="flex justify-between items-center text-xs border-b border-border/50 pb-1.5">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono">{i.trx.id}</span>
+                        <span className="font-mono">{i.sourceId}</span>
                         <span className={`text-[10px] ${getSisaHariColor(i.sisa)}`}>
                           ({getSisaHariText(i.sisa)})
                         </span>
@@ -1009,9 +1154,9 @@ export function ReminderContent() {
                   <p className="text-xs text-muted-foreground mb-1.5 font-medium">Rincian Transaksi:</p>
                   <ul className="space-y-1.5 max-h-[140px] overflow-y-auto pr-2">
                     {internalTarget.filteredItems.map(i => (
-                      <li key={i.trx.id} className="flex justify-between items-center text-xs">
+                      <li key={i.sourceId} className="flex justify-between items-center text-xs">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono">{i.trx.id}</span>
+                          <span className="font-mono">{i.sourceId}</span>
                           <span className={`text-[10px] ${getSisaHariColor(i.sisa)}`}>({getSisaHariText(i.sisa)})</span>
                         </div>
                         <span>{formatCurrency(i.jumlah)}</span>
