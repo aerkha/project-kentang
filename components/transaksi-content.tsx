@@ -1,13 +1,11 @@
 "use client";
 
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
-import pb from "@/lib/pocketbase"; // Tambahkan ini di deretan import atas
 import { ErrorDialog } from "@/components/ui/error-dialog";
 import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
 import { useTransaksi, calcTransaksi, effectiveStatus, isInvestorActive, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
-import { useBrokers, type Broker } from "@/lib/brokers-context";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
@@ -43,14 +41,7 @@ import {
   Truck,
   Receipt,
   ClipboardCheck,
-  RefreshCw,
-  Coins,
-  Upload,
-  FileCheck,
-  ChevronDown,
-  ChevronUp,
 } from "lucide-react";
-import { todayWibStr } from "@/lib/utils";
 
 // ─────────────────────────────────────────────
 // Types
@@ -154,8 +145,8 @@ function statusVariant(status: TransaksiStatus): string {
 
 // Ambil jumlah hari periode dari teks "Periode" (mis. "30 hari"), default 30.
 function parsePeriodeDays(desc: string): number {
-  const m = desc?.match(/\d+/);
-  const n = m ? parseInt(m[0], 10) : 30;
+  const m = /\d+/.exec(desc || "");
+  const n = m ? Number.parseInt(m[0], 10) : 30;
   return n > 0 ? n : 30;
 }
 
@@ -205,72 +196,8 @@ function getSelisihStatusColor(s: number) {
   return "text-orange-500";
 }
 
-// ─────────────────────────────────────────────
-// Bagi Hasil calculator (for dialog display)
-// ─────────────────────────────────────────────
-
-type BagiHasilRow = {
-  keterangan: "Investor" | "Broker" | "Trader" | "MinBun";
-  nama:       string;
-  jumlah:     number;
-  checkKey:   string;
-  investorId?: string;
-};
-
-function calcBagiHasilRows(t: Transaksi, mous: MoU[]): BagiHasilRow[] {
-  const rows: BagiHasilRow[] = [];
-  const c = calcTransaksi(t);
-  if (c.totalInvestasi === 0 || c.profit <= 0) return rows;
-
-  let traderTotal = 0, minbunTotal = 0;
-  const brokerMap = new Map<string, number>();
-
-  for (const entry of t.investorEntries) {
-    if (entry.nilaiInvestasi <= 0) continue;
-    const latest = mous
-      .filter((m) => m.investorId === entry.investorId)
-      .sort((a, b) => b.date.localeCompare(a.date))[0];
-    const pkPct    = ((latest?.bagiHasilPK) ?? 35) / 100;
-    const ratio    = entry.nilaiInvestasi / c.totalInvestasi;
-    const profit   = c.profit * ratio;
-    
-    const allZero  = entry.pctTrader === 0 && entry.pctMinBun === 0 && entry.pctBrokerI === 0 && entry.pctBrokerII === 0;
-    const hasBroker = !!entry.investorBrokerName;
-    
-    let pT = entry.pctTrader;
-    let pM = entry.pctMinBun;
-    let pBI = entry.pctBrokerI;
-    let pBII = entry.pctBrokerII;
-
-    if (allZero) {
-      pT = 10;
-      pM = hasBroker ? 0 : 5;
-      pBI = hasBroker ? 5 : 0;
-      pBII = 0;
-    }
-
-    const invAmt = profit * pkPct;
-    if (invAmt > 0)
-      rows.push({ keterangan: "Investor", nama: entry.investorName, jumlah: invAmt, checkKey: `BagiHasil_${entry.investorId}_Investor`, investorId: entry.investorId });
-    
-    traderTotal += profit * pT / 100;
-    minbunTotal += profit * pM / 100;
-    
-    const brokerAmt = profit * (pBI + pBII) / 100;
-    if (brokerAmt > 0 && hasBroker) {
-      brokerMap.set(entry.investorBrokerName, (brokerMap.get(entry.investorBrokerName) ?? 0) + brokerAmt);
-    }
-  }
-
-  for (const [name, amt] of brokerMap)
-    rows.push({ keterangan: "Broker", nama: name, jumlah: amt, checkKey: `BagiHasil_${name}_Broker` });
-  if (traderTotal > 0) rows.push({ keterangan: "Trader", nama: "Trader", jumlah: traderTotal, checkKey: "BagiHasil_Trader" });
-  if (minbunTotal > 0) rows.push({ keterangan: "MinBun", nama: "MinBun", jumlah: minbunTotal, checkKey: "BagiHasil_MinBun" });
-  return rows;
-}
-
 // Read-only preview box
-function Preview({ label, value, color }: { label: string; value: string; color?: string }) {
+function Preview({ label, value, color }: Readonly<{ label: string; value: string; color?: string }>) {
   return (
     <div className="space-y-1.5">
       <Label className="text-xs text-muted-foreground">{label}</Label>
@@ -286,15 +213,15 @@ function Preview({ label, value, color }: { label: string; value: string; color?
 // ─────────────────────────────────────────────
 
 interface TrxFormProps {
-  formData: TrxFormData;
-  setFormData: React.Dispatch<React.SetStateAction<TrxFormData>>;
-  onSubmit: (e: React.FormEvent) => void;
-  submitLabel: string;
-  previewId: string;
-  investors: Investor[];
-  activeMous: MoU[];
-  committedModal: Map<string, number>;
-  isSaving?: boolean;
+  readonly formData: TrxFormData;
+  readonly setFormData: Dispatch<SetStateAction<TrxFormData>>;
+  readonly onSubmit: (e: React.SubmitEvent<HTMLFormElement>) => void;
+  readonly submitLabel: string;
+  readonly previewId: string;
+  readonly investors: Investor[];
+  readonly activeMous: MoU[];
+  readonly committedModal: Map<string, number>;
+  readonly isSaving?: boolean;
 }
 
 function TrxFormFields({
@@ -354,7 +281,7 @@ function TrxFormFields({
           const pct = investorPct(inv?.brokerName ?? "");
           const alreadyEntered = formData.investorEntries
             .filter((e) => e.investorId === m.investorId)
-            .reduce((s, e) => s + (parseFloat(e.nilaiInvestasi) || 0), 0);
+            .reduce((s, e) => s + (Number.parseFloat(e.nilaiInvestasi) || 0), 0);
           const remaining = Math.max(0, (inv ? sisaModal(inv) : 0) - alreadyEntered);
           return {
             mouId: m.id,
@@ -384,7 +311,7 @@ function TrxFormFields({
       const pct = investorPct(inv?.brokerName ?? "");
       const alreadyEntered = prev.investorEntries
         .filter((e) => e.investorId === mou.investorId)
-        .reduce((s, e) => s + (parseFloat(e.nilaiInvestasi) || 0), 0);
+        .reduce((s, e) => s + (Number.parseFloat(e.nilaiInvestasi) || 0), 0);
       const remaining = Math.max(0, (inv ? sisaModal(inv) : 0) - alreadyEntered);
       return {
         ...prev,
@@ -418,7 +345,7 @@ function TrxFormFields({
     
     formData.investorEntries.forEach((e) => {
       if (!e.mouId || !e.nilaiInvestasi) return;
-      const nilai = parseFloat(e.nilaiInvestasi) || 0;
+      const nilai = Number.parseFloat(e.nilaiInvestasi) || 0;
       totalByInvestor.set(e.investorId, (totalByInvestor.get(e.investorId) ?? 0) + nilai);
     });
     
@@ -426,7 +353,7 @@ function TrxFormFields({
       if (!e.mouId || !e.nilaiInvestasi) return;
       const mou = activeMous.find((m) => m.id === e.mouId);
       if (!mou) return;
-      const nilai = parseFloat(e.nilaiInvestasi) || 0;
+      const nilai = Number.parseFloat(e.nilaiInvestasi) || 0;
       
       if (nilai > mou.investmentAmount) { ids.add(e.mouId); return; }
       
@@ -439,7 +366,7 @@ function TrxFormFields({
     return ids;
   }, [formData.investorEntries, activeMous, investors, committedModal]);
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = (e: React.SubmitEvent<HTMLFormElement>) => {
     if (overLimitEntries.size > 0) {
       e.preventDefault();
       return;
@@ -447,14 +374,14 @@ function TrxFormFields({
     onSubmit(e);
   };
 
-  const hpp         = parseFloat(formData.hpp) || 0;
-  const modal       = parseFloat(formData.kebutuhanModal) || 0;
+  const hpp         = Number.parseFloat(formData.hpp) || 0;
+  const modal       = Number.parseFloat(formData.kebutuhanModal) || 0;
   const qty         = hpp > 0 ? modal / hpp : 0;
-  const totalInv    = formData.investorEntries.reduce((s, e) => s + (parseFloat(e.nilaiInvestasi) || 0), 0);
+  const totalInv    = formData.investorEntries.reduce((s, e) => s + (Number.parseFloat(e.nilaiInvestasi) || 0), 0);
   const selisih     = modal - totalInv;
-  const ongkirPerKg = parseFloat(formData.ongkirPerKg) || 0;
+  const ongkirPerKg = Number.parseFloat(formData.ongkirPerKg) || 0;
   const totalOngkir = ongkirPerKg * qty;
-  const hargaJual   = parseFloat(formData.hargaJual) || 0;
+  const hargaJual   = Number.parseFloat(formData.hargaJual) || 0;
   const income      = hargaJual * qty;
   const profit      = income - (modal + totalOngkir);
 
@@ -671,7 +598,7 @@ function TrxFormFields({
 // ─────────────────────────────────────────────
 
 export function TransaksiContent() {
-  const { transaksis, addTransaksi, updateTransaksi, deleteTransaksi, uploadBuktiTransaksi } = useTransaksi();
+  const { transaksis, addTransaksi, updateTransaksi, deleteTransaksi } = useTransaksi();
   const { investors }  = useInvestors();
   const { mous, updateMou, deleteMou } = useMou();
   const { user, isInvestor } = useAuth();
@@ -695,22 +622,6 @@ export function TransaksiContent() {
   const [errorInfo, setErrorInfo]             = useState<PbErrorInfo | null>(null);
   const [form, setForm]                       = useState<TrxFormData>(initialForm());
   
-  // States: Dialog Tindak Lanjuti (Bagi Hasil)
-  const [isBagiHasilOpen, setIsBagiHasilOpen]     = useState(false);
-  const [bagiHasilTrx, setBagiHasilTrx]           = useState<Transaksi | null>(null);
-  const [bagiHasilFiles, setBagiHasilFiles]            = useState<Record<string, File>>({});
-  const [bagiHasilPreviews, setBagiHasilPreviews]      = useState<Record<string, string>>({});
-  const [expandedBuktiKeys, setExpandedBuktiKeys]      = useState<Set<string>>(new Set());
-  const [isSubmittingBH, setIsSubmittingBH]            = useState(false);
-
-  // States: Dialog Pengembalian Modal
-  const [isPengembalianOpen, setIsPengembalianOpen] = useState(false);
-  const [pengembalianTrx, setPengembalianTrx]       = useState<Transaksi | null>(null);
-  const [pengembalianFiles, setPengembalianFiles]       = useState<Record<string, File>>({});
-  const [pengembalianPreviews, setPengembalianPreviews] = useState<Record<string, string>>({});
-  const [expandedPengembalianKeys, setExpandedPengembalianKeys] = useState<Set<string>>(new Set());
-  const [isSubmittingPengembalian, setIsSubmittingPengembalian] = useState(false);
-
   const visibleTransaksis = useMemo(() => {
     if (!isInvestor || !user?.investorId) return transaksis;
     return transaksis.filter((t) =>
@@ -736,8 +647,8 @@ export function TransaksiContent() {
 
   const nextId = () => {
     const max = transaksis.reduce((m, x) => {
-      const n = parseInt(x.id.replace("TRX-", "")) || 0;
-      return n > m ? n : m;
+      const n = Number.parseInt(x.id.replace("TRX-", "")) || 0;
+      return Math.max(m, n);
     }, 0);
     return `TRX-${String(max + 1).padStart(4, "0")}`;
   };
@@ -745,8 +656,8 @@ export function TransaksiContent() {
   const formToData = (f: TrxFormData, existing?: Transaksi | null): Omit<Transaksi, "id"> => ({
     date:           f.date,
     description:    f.description,
-    hpp:            parseFloat(f.hpp) || 0,
-    kebutuhanModal: parseFloat(f.kebutuhanModal) || 0,
+    hpp:            Number.parseFloat(f.hpp) || 0,
+    kebutuhanModal: Number.parseFloat(f.kebutuhanModal) || 0,
     investorEntries: f.investorEntries
       .filter((e) => e.investorId && e.nilaiInvestasi)
       .map((e) => {
@@ -756,15 +667,15 @@ export function TransaksiContent() {
           investorId:         e.investorId,
           investorName:       inv?.name ?? e.investorId,
           investorBrokerName: inv?.brokerName ?? "",
-          nilaiInvestasi:     parseFloat(e.nilaiInvestasi) || 0,
-          pctTrader:          parseFloat(e.pctTrader)  || 0,
-          pctMinBun:          parseFloat(e.pctMinBun)  || 0,
-          pctBrokerI:         parseFloat(e.pctBrokerI) || 0,
+          nilaiInvestasi:     Number.parseFloat(e.nilaiInvestasi) || 0,
+          pctTrader:          Number.parseFloat(e.pctTrader)  || 0,
+          pctMinBun:          Number.parseFloat(e.pctMinBun)  || 0,
+          pctBrokerI:         Number.parseFloat(e.pctBrokerI) || 0,
           pctBrokerII:        0,
         };
       }),
-    ongkirPerKg:  parseFloat(f.ongkirPerKg) || 0,
-    hargaJual:    parseFloat(f.hargaJual) || 0,
+    ongkirPerKg:  Number.parseFloat(f.ongkirPerKg) || 0,
+    hargaJual:    Number.parseFloat(f.hargaJual) || 0,
     status:       existing?.status ?? "berjalan",
     catatanAkhir: existing?.catatanAkhir ?? "",
   });
@@ -785,7 +696,7 @@ export function TransaksiContent() {
     }
   };
 
-  const handleAdd = async (e: React.FormEvent) => {
+  const handleAdd = async (e: React.SubmitEvent) => {
     e.preventDefault();
     setIsSaving(true);
     try {
@@ -805,7 +716,7 @@ export function TransaksiContent() {
     }
   };
 
-  const handleEdit = async (e: React.FormEvent) => {
+  const handleEdit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selected) return;
     setIsSaving(true);
@@ -837,10 +748,10 @@ export function TransaksiContent() {
       kebutuhanModal: t.kebutuhanModal.toString(),
       investorEntries: t.investorEntries.length > 0
         ? t.investorEntries.map((e) => {
-            const available = mous.filter(
+            const available = mous.find(
               (m) => m.investorId === e.investorId && !m.isTerminated && !assignedMouIds.has(m.id),
             );
-            const mouId = e.mouId || (available[0]?.id ?? "");
+            const mouId = e.mouId || (available?.id ?? "");
             if (mouId) assignedMouIds.add(mouId);
             return {
               mouId,
@@ -904,184 +815,11 @@ export function TransaksiContent() {
     }
   };
 
-  // Handler Buka Dialog 1 (Bagi Hasil / Tindak Lanjuti)
-  const openBagiHasil = (t: Transaksi) => {
-    setBagiHasilTrx(t);
-    setBagiHasilFiles({});
-    setBagiHasilPreviews({});
-    setExpandedBuktiKeys(new Set());
-    setIsBagiHasilOpen(true);
-  };
-
-  // Handler Buka Dialog 2 (Pengembalian Modal)
-  const openPengembalianModal = (t: Transaksi) => {
-    setPengembalianTrx(t);
-    setPengembalianFiles({});
-    setPengembalianPreviews({});
-    setExpandedPengembalianKeys(new Set());
-    setIsPengembalianOpen(true);
-  };
-
-  const toggleBuktiExpand = (checkKey: string) => {
-    setExpandedBuktiKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(checkKey)) next.delete(checkKey); else next.add(checkKey);
-      return next;
-    });
-  };
-
-  const togglePengembalianExpand = (checkKey: string) => {
-    setExpandedPengembalianKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(checkKey)) next.delete(checkKey); else next.add(checkKey);
-      return next;
-    });
-  };
-
-  const handleBagiHasilFileChange = (checkKey: string, file: File | null) => {
-    if (!file) {
-      setBagiHasilFiles((prev) => { const n = { ...prev }; delete n[checkKey]; return n; });
-      setBagiHasilPreviews((prev) => { const n = { ...prev }; delete n[checkKey]; return n; });
-      return;
-    }
-    setBagiHasilFiles((prev) => ({ ...prev, [checkKey]: file }));
-    if (file.type.startsWith("image/")) {
-      const reader = new FileReader();
-      reader.onload = (ev) => setBagiHasilPreviews((prev) => ({ ...prev, [checkKey]: ev.target?.result as string }));
-      reader.readAsDataURL(file);
-    } else {
-      setBagiHasilPreviews((prev) => { const n = { ...prev }; delete n[checkKey]; return n; });
-    }
-  };
-
-  const handlePengembalianFileChange = (checkKey: string, file: File | null) => {
-    if (!file) {
-      setPengembalianFiles((prev) => { const n = { ...prev }; delete n[checkKey]; return n; });
-      setPengembalianPreviews((prev) => { const n = { ...prev }; delete n[checkKey]; return n; });
-      return;
-    }
-    setPengembalianFiles((prev) => ({ ...prev, [checkKey]: file }));
-    if (file.type.startsWith("image/")) {
-      const reader = new FileReader();
-      reader.onload = (ev) => setPengembalianPreviews((prev) => ({ ...prev, [checkKey]: ev.target?.result as string }));
-      reader.readAsDataURL(file);
-    } else {
-      setPengembalianPreviews((prev) => { const n = { ...prev }; delete n[checkKey]; return n; });
-    }
-  };
-
-  // Proses Submit Dialog 1: Tindak Lanjuti
-  // Proses Submit Dialog 1: Tindak Lanjuti
-  const handleBagiHasil = async (action: "perbarui" | "Akhiri") => {
-    if (!bagiHasilTrx) return;
-    setIsSubmittingBH(true);
-    try {
-      // Pindahkan kalkulasi rows ke atas agar bisa digunakan untuk mencari 'keterangan' asli
-      const rows = calcBagiHasilRows(bagiHasilTrx, mous);
-
-      // 1. Upload semua bukti bagi hasil terlebih dahulu
-      const uploadedUrls: Record<string, string> = {};
-      for (const [checkKey, file] of Object.entries(bagiHasilFiles)) {
-        const row = rows.find((r) => r.checkKey === checkKey);
-        if (row) {
-          const url = await uploadBuktiTransaksi(bagiHasilTrx.id, row.keterangan, file);
-          uploadedUrls[checkKey] = url;
-        }
-      }
-
-      // 2. 🚀 PANGGIL API UNTUK MENGIRIM WA KE INVESTOR
-      for (const row of rows) {
-        if (row.keterangan === "Investor" && row.investorId) {
-          await fetch("/api/notify-investor", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${pb.authStore.token}`
-            },
-            body: JSON.stringify({
-              transaksiId: bagiHasilTrx.id,
-              keterangan: "Bagi Hasil",
-              investorId: row.investorId,
-              jumlah: row.jumlah,
-              buktiUrl: uploadedUrls[row.checkKey] || ""
-            })
-          }).catch(err => console.error("Gagal panggil API WA:", err));
-        }
-      }
-
-      if (action === "Akhiri") {
-        // Tandai bagi hasil selesai, bersiap untuk pengembalian modal
-        const allChecks: Record<string, boolean> = {};
-        rows.forEach((r) => { allChecks[r.checkKey] = true; });
-        await updateTransaksi(bagiHasilTrx.id, { bagiHasilChecks: allChecks, bagiHasilDone: true });
-        
-        const txToForward = bagiHasilTrx; // simpan referensi sebelum di-null
-        setIsBagiHasilOpen(false);
-        setBagiHasilTrx(null);
-        
-        // Membuka dialog 2: Pengembalian Modal
-        openPengembalianModal(txToForward);
-      } else {
-        // Perpanjang (Perbarui) transaksi 30 hari ke depan
-        const today = todayWibStr();
-        await updateTransaksi(bagiHasilTrx.id, {
-          status: "berjalan",
-          date: today,
-          bagiHasilDone: false,
-          bagiHasilChecks: {},
-        });
-        await reconcilePksTermination(
-          bagiHasilTrx.investorEntries.map((e) => e.investorId),
-          transaksis.map((x) =>
-            x.id === bagiHasilTrx.id ? { ...x, status: "berjalan" as TransaksiStatus, date: today } : x,
-          ),
-        );
-        toast.success(`TRX ${bagiHasilTrx.id} diperbarui — periode baru dimulai`);
-        setIsBagiHasilOpen(false);
-        setBagiHasilTrx(null);
-      }
-    } catch (err) {
-      setErrorInfo(formatPbError(err, "Gagal memproses tindak lanjut"));
-    } finally {
-      setIsSubmittingBH(false);
-    }
-  };
-
-  // Proses Submit Dialog 2: Pengembalian Modal
-  // Proses Submit Dialog 2: Pengembalian Modal
-  const handlePengembalianAkhiri = async () => {
-    if (!pengembalianTrx) return;
-    setIsSubmittingPengembalian(true);
-    try {
-      for (const [checkKey, file] of Object.entries(pengembalianFiles)) {
-        // Karena ini pengembalian modal ke investor, keterangannya kita kunci ke "Investor"
-        await uploadBuktiTransaksi(pengembalianTrx.id, "Investor", file);
-      }
-      
-      // Akhiri transaksi sepenuhnya
-      await updateTransaksi(pengembalianTrx.id, { status: "selesai" });
-      await reconcilePksTermination(
-        pengembalianTrx.investorEntries.map((e) => e.investorId),
-        transaksis.map((x) =>
-          x.id === pengembalianTrx.id ? { ...x, status: "selesai" } : x,
-        ),
-      );
-
-      toast.success(`Transaksi ${pengembalianTrx.id} resmi diakhiri`);
-      setIsPengembalianOpen(false);
-      setPengembalianTrx(null);
-    } catch (err) {
-      setErrorInfo(formatPbError(err, "Gagal menyimpan pengembalian modal"));
-    } finally {
-      setIsSubmittingPengembalian(false);
-    }
-  };
-
   const editingTransaksi = isEditOpen ? selected : null;
   const committedModal = useMemo(() => {
     const map = new Map<string, number>();
     for (const t of transaksis) {
-      if (editingTransaksi && t.id === editingTransaksi.id) continue;
+      if (editingTransaksi?.id === t.id) continue;
       const eff = effectiveStatus(t);
       if (eff !== "berjalan" && eff !== "bermasalah") continue;
       for (const e of t.investorEntries) {
@@ -1280,22 +1018,13 @@ export function TransaksiContent() {
                               <ClipboardCheck className="h-3.5 w-3.5 text-blue-500" />
                             </Button>
                             )}
-                            {canEdit && (displayStatus === "selesai" || displayStatus === "bermasalah") && (
-                            <Button
-                              variant="ghost" size="icon" className="h-7 w-7"
-                              title="Tindak Lanjuti"
-                              onClick={() => t.bagiHasilDone ? openPengembalianModal(t) : openBagiHasil(t)}
-                            >
-                              <Coins className="h-3.5 w-3.5 text-green-600" />
-                            </Button>
-                            )}
                             {canEdit && (
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(t)}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit Transaksi" onClick={() => openEdit(t)}>
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
                             )}
                             {canDelete && (
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openDelete(t)}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Hapus Transaksi" onClick={() => openDelete(t)}>
                               <Trash2 className="h-3.5 w-3.5 text-destructive" />
                             </Button>
                             )}
@@ -1415,297 +1144,6 @@ export function TransaksiContent() {
             <Button variant="outline" onClick={() => setIsDeleteOpen(false)} disabled={isDeleting}>Batal</Button>
             <Button variant="destructive" onClick={confirmDelete} disabled={isDeleting}>
               {isDeleting ? "Menghapus…" : "Hapus"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Dialog 1: Tindak Lanjuti (Bagi Hasil) ── */}
-      <Dialog
-        open={isBagiHasilOpen}
-        onOpenChange={(open) => {
-          setIsBagiHasilOpen(open);
-          if (!open) { setBagiHasilTrx(null); setBagiHasilFiles({}); setBagiHasilPreviews({}); setExpandedBuktiKeys(new Set()); }
-        }}
-      >
-        <DialogContent className="sm:max-w-[560px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Coins className="h-4 w-4 text-green-600" />
-              Tindak Lanjuti — {bagiHasilTrx?.id}
-            </DialogTitle>
-            <DialogDescription>
-              Tahap 1: Rincian Bagi Hasil · Upload bukti transfer profit ke para pihak
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="overflow-y-auto max-h-[65vh] pr-1">
-
-          {bagiHasilTrx && (() => {
-            const rows = calcBagiHasilRows(bagiHasilTrx, mous);
-            if (rows.length === 0) return (
-              <p className="text-sm text-muted-foreground py-4 text-center">
-                Tidak ada profit untuk dibagi hasil.
-              </p>
-            );
-            const total = rows.reduce((s, r) => s + r.jumlah, 0);
-            const badgeKet: Record<string, string> = {
-              Investor: "bg-orange-100 text-orange-700 border-orange-200",
-              Broker:   "bg-blue-100   text-blue-700   border-blue-200",
-              Trader:   "bg-purple-100 text-purple-700 border-purple-200",
-              MinBun:   "bg-green-100  text-green-700  border-green-200",
-            };
-            return (
-              <div className="rounded-lg border overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/30">
-                      <th className="py-2 px-3 text-left font-medium text-muted-foreground">Penerima</th>
-                      <th className="py-2 px-3 text-left font-medium text-muted-foreground">Jenis</th>
-                      <th className="py-2 px-3 text-right font-medium text-muted-foreground">Jumlah</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r) => {
-                      const canUpload   = r.keterangan !== "MinBun";
-                      const isExpanded  = expandedBuktiKeys.has(r.checkKey);
-                      const file        = canUpload ? bagiHasilFiles[r.checkKey] : undefined;
-                      const preview     = canUpload ? bagiHasilPreviews[r.checkKey] : undefined;
-                      
-                      const chevronIcon = isExpanded 
-                        ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> 
-                        : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />;
-
-                      return (
-                        <Fragment key={r.checkKey}>
-                          <tr
-                            className={`border-b border-border/50 transition-colors ${
-                              canUpload ? "cursor-pointer hover:bg-muted/30 select-none" : ""
-                            }`}
-                            onClick={canUpload ? () => toggleBuktiExpand(r.checkKey) : undefined}
-                          >
-                            <td className="py-2.5 px-3">
-                              <div className="flex items-center gap-1.5">
-                                {canUpload ? chevronIcon : <span className="w-3.5 shrink-0" />}
-                                <span className={canUpload ? "font-medium" : ""}>{r.nama}</span>
-                                {Boolean(file) && !isExpanded && (
-                                  <FileCheck className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                                )}
-                              </div>
-                            </td>
-                            <td className="py-2.5 px-3">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${badgeKet[r.keterangan]}`}>
-                                {r.keterangan}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-semibold">{formatRp(r.jumlah)}</td>
-                          </tr>
-
-                          {canUpload && isExpanded && (
-                            <tr className="border-b border-border/50 bg-muted/10">
-                              <td colSpan={3} className="px-4 py-3 space-y-2">
-                                <label className={`flex items-center gap-3 w-full border-2 border-dashed rounded-lg cursor-pointer transition-colors px-4 py-3 ${
-                                  file
-                                    ? "border-green-400 bg-green-50 dark:bg-green-950/20"
-                                    : "border-border hover:border-muted-foreground/40 hover:bg-muted/30"
-                                }`}>
-                                  <input
-                                    type="file"
-                                    accept="image/*,.pdf"
-                                    className="hidden"
-                                    onClick={(e) => e.stopPropagation()}
-                                    onChange={(e) => {
-                                      e.stopPropagation();
-                                      handleBagiHasilFileChange(r.checkKey, e.target.files?.[0] ?? null);
-                                    }}
-                                  />
-                                  {file ? (
-                                    <>
-                                      <FileCheck className="h-5 w-5 text-green-500 shrink-0" />
-                                      <div className="min-w-0">
-                                        <p className="text-xs font-medium text-green-700 dark:text-green-400 truncate">{file.name}</p>
-                                        <p className="text-[10px] text-muted-foreground">{(file.size / 1024).toFixed(0)} KB · Klik ganti</p>
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Upload className="h-5 w-5 text-muted-foreground shrink-0" />
-                                      <span className="text-xs text-muted-foreground">Klik untuk upload bukti profit</span>
-                                    </>
-                                  )}
-                                </label>
-                                {preview && (
-                                  <div className="rounded-lg overflow-hidden border">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={preview} alt={`Preview ${r.keterangan}`} className="w-full max-h-32 object-contain bg-muted" />
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                    <tr className="bg-muted/20">
-                      <td colSpan={2} className="py-2 px-3 text-xs text-muted-foreground font-medium">Total Bagi Hasil</td>
-                      <td className="py-2 px-3 text-right font-bold">{formatRp(total)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            );
-          })()}
-
-          </div>
-
-          <DialogFooter className="gap-2 flex-wrap sm:flex-nowrap">
-            <Button variant="outline" onClick={() => setIsBagiHasilOpen(false)} disabled={isSubmittingBH}>
-              Batal
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => { handleBagiHasil("perbarui").catch(console.error); }}
-              disabled={isSubmittingBH}
-            >
-              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-              {isSubmittingBH ? "Menyimpan…" : "Perbarui"}
-            </Button>
-            <Button
-              onClick={() => { handleBagiHasil("Akhiri").catch(console.error); }}
-              disabled={isSubmittingBH}
-            >
-              <ClipboardCheck className="h-3.5 w-3.5 mr-1.5" />
-              {isSubmittingBH ? "Memproses…" : "Akhiri"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Dialog 2: Akhiri (Pengembalian Modal) ── */}
-      <Dialog
-        open={isPengembalianOpen}
-        onOpenChange={(open) => {
-          setIsPengembalianOpen(open);
-          if (!open) { setPengembalianTrx(null); setPengembalianFiles({}); setPengembalianPreviews({}); setExpandedPengembalianKeys(new Set()); }
-        }}
-      >
-        <DialogContent className="sm:max-w-[560px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ClipboardCheck className="h-4 w-4 text-green-600" />
-              Pengembalian Modal — {pengembalianTrx?.id}
-            </DialogTitle>
-            <DialogDescription>
-              Tahap 2: Upload bukti transfer pengembalian modal kepada para Investor.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="overflow-y-auto max-h-[65vh] pr-1">
-            {pengembalianTrx && (() => {
-              const rows = pengembalianTrx.investorEntries.filter(e => e.nilaiInvestasi > 0);
-              if (rows.length === 0) return (
-                <p className="text-sm text-muted-foreground py-4 text-center">
-                  Tidak ada modal yang harus dikembalikan.
-                </p>
-              );
-
-              return (
-                <div className="rounded-lg border overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-muted/30">
-                        <th className="py-2 px-3 text-left font-medium text-muted-foreground">Investor</th>
-                        <th className="py-2 px-3 text-right font-medium text-muted-foreground">Modal Investasi</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((r) => {
-                        const checkKey = `Modal_${r.investorId}`;
-                        const isExpanded = expandedPengembalianKeys.has(checkKey);
-                        const file = pengembalianFiles[checkKey];
-                        const preview = pengembalianPreviews[checkKey];
-                        
-                        const chevronIcon = isExpanded 
-                          ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> 
-                          : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />;
-
-                        return (
-                          <Fragment key={checkKey}>
-                            <tr
-                              className="border-b border-border/50 transition-colors cursor-pointer hover:bg-muted/30 select-none"
-                              onClick={() => togglePengembalianExpand(checkKey)}
-                            >
-                              <td className="py-2.5 px-3">
-                                <div className="flex items-center gap-1.5">
-                                  {chevronIcon}
-                                  <span className="font-medium">{r.investorName}</span>
-                                  {Boolean(file) && !isExpanded && (
-                                    <FileCheck className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                                  )}
-                                </div>
-                              </td>
-                              <td className="py-2.5 px-3 text-right font-semibold">{formatRp(r.nilaiInvestasi)}</td>
-                            </tr>
-                            
-                            {isExpanded && (
-                              <tr className="border-b border-border/50 bg-muted/10">
-                                <td colSpan={2} className="px-4 py-3 space-y-2">
-                                  <label className={`flex items-center gap-3 w-full border-2 border-dashed rounded-lg cursor-pointer transition-colors px-4 py-3 ${
-                                    file ? "border-green-400 bg-green-50 dark:bg-green-950/20" : "border-border hover:border-muted-foreground/40 hover:bg-muted/30"
-                                  }`}>
-                                    <input
-                                      type="file"
-                                      accept="image/*,.pdf"
-                                      className="hidden"
-                                      onClick={(e) => e.stopPropagation()}
-                                      onChange={(e) => {
-                                        e.stopPropagation();
-                                        handlePengembalianFileChange(checkKey, e.target.files?.[0] ?? null);
-                                      }}
-                                    />
-                                    {file ? (
-                                      <>
-                                        <FileCheck className="h-5 w-5 text-green-500 shrink-0" />
-                                        <div className="min-w-0">
-                                          <p className="text-xs font-medium text-green-700 dark:text-green-400 truncate">{file.name}</p>
-                                          <p className="text-[10px] text-muted-foreground">{(file.size / 1024).toFixed(0)} KB · Klik ganti</p>
-                                        </div>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Upload className="h-5 w-5 text-muted-foreground shrink-0" />
-                                        <span className="text-xs text-muted-foreground">Klik untuk upload bukti pengembalian modal</span>
-                                      </>
-                                    )}
-                                  </label>
-                                  {preview && (
-                                    <div className="rounded-lg overflow-hidden border">
-                                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                                      <img src={preview} alt="Preview" className="w-full max-h-32 object-contain bg-muted" />
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              );
-            })()}
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setIsPengembalianOpen(false)} disabled={isSubmittingPengembalian}>
-              Batal
-            </Button>
-            <Button
-              onClick={handlePengembalianAkhiri}
-              disabled={isSubmittingPengembalian}
-            >
-              {isSubmittingPengembalian ? "Menyimpan…" : "Selesaikan Transaksi"}
             </Button>
           </DialogFooter>
         </DialogContent>

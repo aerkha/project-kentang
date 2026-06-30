@@ -48,17 +48,13 @@ import {
   MessageCircle,
   Clock,
   ShieldCheck,
+  Upload,
+  FileCheck,
 } from "lucide-react";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const MONTHS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
-
-function formatDate(s: string) {
-  if (!s) return "-";
-  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
-  return `${d} ${MONTHS[m - 1]} ${y}`;
-}
 
 function formatShort(n: number) {
   if (Math.abs(n) >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}M`;
@@ -86,19 +82,56 @@ type PaymentRow = {
   investorId?:   string; // untuk baris Investor saja
 };
 
-// ── Build payment rows per transaksi ─────────────────────────────────────────
-
 type AccountInfo = { nama: string; bankName: string; accountNumber: string };
 
-/**
- * Cari pkPct (%) bagi hasil investor dari PKS terbaru investor tersebut.
- * Default 35 jika belum ada PKS.
- */
 function getInvestorPkPct(investorId: string, mous: MoU[]): number {
   const latest = mous
     .filter((m) => m.investorId === investorId)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
   return latest?.bagiHasilPK ?? 35;
+}
+
+// Build payment rows per transaksi
+function resolveDistributionPercentages(entry: {
+  pctTrader: number;
+  pctMinBun: number;
+  pctBrokerI: number;
+  pctBrokerII: number;
+  investorBrokerName?: string | null;
+}) {
+  const allZero = entry.pctTrader === 0 && entry.pctMinBun === 0 && entry.pctBrokerI === 0 && entry.pctBrokerII === 0;
+  const hasBroker = !!entry.investorBrokerName;
+  const pT = allZero ? 10 : entry.pctTrader;
+  let pM = entry.pctMinBun;
+  if (allZero) {
+    pM = hasBroker ? 0 : 5;
+  }
+  let pBI = entry.pctBrokerI;
+  if (allZero) {
+    pBI = hasBroker ? 5 : 0;
+  }
+  const pBII = allZero ? 0 : entry.pctBrokerII;
+
+  return { pT, pM, pBI, pBII };
+}
+
+function addBrokerAmount(
+  brokerMap: Map<string, { nama: string; bankName: string; accountNumber: string; jumlah: number }>,
+  brokerKey: string,
+  brokerData: Broker | undefined,
+  brokerAmt: number,
+) {
+  const existing = brokerMap.get(brokerKey);
+  if (existing) {
+    existing.jumlah += brokerAmt;
+  } else {
+    brokerMap.set(brokerKey, {
+      nama: brokerKey,
+      bankName: brokerData?.bankName || "—",
+      accountNumber: brokerData?.accountNumber || "—",
+      jumlah: brokerAmt,
+    });
+  }
 }
 
 function buildTransaksiRows(
@@ -115,7 +148,6 @@ function buildTransaksiRows(
 
   let traderTotal = 0;
   let minbunTotal = 0;
-  // Agregasi per broker (berdasarkan nama broker)
   const brokerMap = new Map<string, { nama: string; bankName: string; accountNumber: string; jumlah: number }>();
 
   for (const entry of trx.investorEntries) {
@@ -124,20 +156,13 @@ function buildTransaksiRows(
     const pkPct   = getInvestorPkPct(entry.investorId, mous) / 100;
     const ratio   = entry.nilaiInvestasi / calc.totalInvestasi;
     const profit  = calc.profit * ratio;
-
-    const allZero   = entry.pctTrader === 0 && entry.pctMinBun === 0 && entry.pctBrokerI === 0 && entry.pctBrokerII === 0;
-    const hasBroker = !!entry.investorBrokerName;
-    const pT   = allZero ? 10                   : entry.pctTrader;
-    const pM   = allZero ? (hasBroker ? 0 : 5)  : entry.pctMinBun;
-    const pBI  = allZero ? (hasBroker ? 5 : 0)  : entry.pctBrokerI;
-    const pBII = allZero ? 0                    : entry.pctBrokerII;
+    const { pT, pM, pBI, pBII } = resolveDistributionPercentages(entry);
 
     const investorAmt = profit * pkPct;
     traderTotal      += profit * pT            / 100;
     minbunTotal      += profit * pM            / 100;
     const brokerAmt   = profit * (pBI + pBII)  / 100;
 
-    // Baris Investor
     if (investorAmt > 0) {
       const inv = investors.find((i) => i.id === entry.investorId);
       rows.push({
@@ -151,25 +176,16 @@ function buildTransaksiRows(
       });
     }
 
-    // Baris Broker — agregasi per nama broker
-    if (brokerAmt > 0 && hasBroker) {
-      const brokerKey  = entry.investorBrokerName;
-      const brokerData = brokers.find((b) => b.name === entry.investorBrokerName);
-      const existing   = brokerMap.get(brokerKey);
-      if (existing) {
-        existing.jumlah += brokerAmt;
-      } else {
-        brokerMap.set(brokerKey, {
-          nama:          entry.investorBrokerName,
-          bankName:      brokerData?.bankName      || "—",
-          accountNumber: brokerData?.accountNumber || "—",
-          jumlah:        brokerAmt,
-        });
-      }
+    if (brokerAmt > 0 && entry.investorBrokerName) {
+      addBrokerAmount(
+        brokerMap,
+        entry.investorBrokerName,
+        brokers.find((b) => b.name === entry.investorBrokerName),
+        brokerAmt,
+      );
     }
   }
 
-  // Tambahkan baris Broker
   for (const [brokerKey, data] of brokerMap) {
     rows.push({
       nama:          data.nama,
@@ -181,7 +197,6 @@ function buildTransaksiRows(
     });
   }
 
-  // Baris Trader
   if (traderTotal > 0) {
     rows.push({
       nama:          traderAcc.nama || "Trader",
@@ -193,7 +208,6 @@ function buildTransaksiRows(
     });
   }
 
-  // Baris MinBun
   if (minbunTotal > 0) {
     rows.push({
       nama:          minbunAcc.nama || "MinBun",
@@ -208,283 +222,456 @@ function buildTransaksiRows(
   return rows;
 }
 
-// ── ChannelBadge ─────────────────────────────────────────────────────────────
+// ── Tipe & Helper Pengelompokan (Bulk Entity) ────────────────────────────────
 
-function ChannelBadge({ status, icon }: { status: string; icon: React.ReactNode }) {
-  const map: Record<string, string> = {
-    sent:    "bg-green-100 text-green-700",
-    failed:  "bg-red-100 text-red-700",
-    skipped: "bg-muted text-muted-foreground",
-  };
-  const label: Record<string, string> = {
-    sent: "Terkirim", failed: "Gagal", skipped: "Belum diset",
-  };
+type EntitySummaryItem = {
+  trx: Transaksi;
+  jumlah: number;
+  checkKey: string;
+  isDone: boolean;
+};
+
+type ProcessedEntity = {
+  id: string; // keterangan + nama (unik)
+  nama: string;
+  keterangan: PaymentRow["keterangan"];
+  bankName: string;
+  accountNumber: string;
+  investorId?: string;
+  filteredItems: EntitySummaryItem[];
+  totalAmount: number;
+};
+
+function ChannelBadge({ status, icon }: Readonly<{ status: string; icon: React.ReactNode }>) {
+  const map: Record<string, string> = { sent: "bg-green-100 text-green-700", failed: "bg-red-100 text-red-700", skipped: "bg-muted text-muted-foreground" };
+  const label: Record<string, string> = { sent: "Terkirim", failed: "Gagal", skipped: "Belum diset" };
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${map[status] ?? map.skipped}`}>
-      {icon}
-      {label[status] ?? status}
+      {icon}{label[status] ?? status}
     </span>
   );
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
+// Extracted helpers to reduce cognitive complexity in component
+
+type ProcessInternalEntityParams = {
+  entity: ProcessedEntity;
+  mous: MoU[];
+  investors: Investor[];
+  brokers: Broker[];
+  minbun: AccountInfo;
+  trader: AccountInfo;
+  cashflowTagRecordedFn: (tag: string) => boolean;
+  addPengeluaranFn: (p: any) => Promise<void>;
+  updateTransaksiFn: (id: string, data: any) => Promise<void>;
+  setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
+};
+
+async function processInternalEntity({
+  entity,
+  mous,
+  investors,
+  brokers,
+  minbun,
+  trader,
+  cashflowTagRecordedFn,
+  addPengeluaranFn,
+  updateTransaksiFn,
+  setDoneKeysFn,
+}: ProcessInternalEntityParams) {
+  const today = todayWibStr();
+  const isMinBun = entity.keterangan === "MinBun";
+
+  for (const item of entity.filteredItems) {
+    const tag = isMinBun
+      ? `[Reminder] TRX ${item.trx.id} · MinBun`
+      : `[Internal-Profit:${entity.investorId}:${item.trx.id}]`;
+
+    if (!cashflowTagRecordedFn(tag)) {
+      await addPengeluaranFn({
+        date: today,
+        deskripsi: isMinBun ? `Bagi Hasil MinBun — TRX ${item.trx.id}` : `Profit Internal — ${entity.nama} — TRX ${item.trx.id}`,
+        debet: item.jumlah,
+        kredit: 0,
+        kategori: isMinBun ? "Fee MinBun" : "BagHas Modal MinBun",
+        catatan: tag,
+      });
+    }
+
+    const checks = { ...item.trx.bagiHasilChecks, [item.checkKey]: true };
+    const allRows = buildTransaksiRows(item.trx, mous, investors, brokers, minbun, trader);
+    const allDone = allRows.every((r) => checks[r.checkKey]);
+
+    await updateTransaksiFn(item.trx.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+    setDoneKeysFn((prev) => new Set(prev).add(`${item.trx.id}__${item.checkKey}`));
+  }
+}
+
+type ProcessUploadEntityParams = {
+  entity: ProcessedEntity;
+  uploadFile: File | null;
+  mous: MoU[];
+  investors: Investor[];
+  brokers: Broker[];
+  minbun: AccountInfo;
+  trader: AccountInfo;
+  uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>;
+  updateTransaksiFn: (id: string, data: any) => Promise<void>;
+  setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
+};
+
+async function uploadBuktiIfNeeded(
+  item: EntitySummaryItem,
+  entity: ProcessedEntity,
+  uploadFile: File | null,
+  uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>,
+) {
+  if (!uploadFile) return "";
+  return uploadBuktiTransaksiFn(item.trx.id, entity.keterangan, uploadFile);
+}
+
+async function notifyInvestorIfNeeded(
+  item: EntitySummaryItem,
+  entity: ProcessedEntity,
+  buktiUrl: string,
+) {
+  if (entity.keterangan !== "Investor" || !entity.investorId) return;
+
+  await fetch("/api/notify-investor", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${pb.authStore.token}`,
+    },
+    body: JSON.stringify({
+      transaksiId: item.trx.id,
+      keterangan: "Bagi Hasil",
+      investorId: entity.investorId,
+      jumlah: item.jumlah,
+      buktiUrl,
+    }),
+  }).catch((err) => console.error("Gagal panggil API WA:", err));
+}
+
+async function processUploadEntity({
+  entity,
+  uploadFile,
+  mous,
+  investors,
+  brokers,
+  minbun,
+  trader,
+  uploadBuktiTransaksiFn,
+  updateTransaksiFn,
+  setDoneKeysFn,
+}: ProcessUploadEntityParams) {
+  for (const item of entity.filteredItems) {
+    const buktiUrl = await uploadBuktiIfNeeded(item, entity, uploadFile, uploadBuktiTransaksiFn);
+
+    const checks = { ...item.trx.bagiHasilChecks, [item.checkKey]: true };
+    const allRows = buildTransaksiRows(item.trx, mous, investors, brokers, minbun, trader);
+    const allDone = allRows.every((r) => checks[r.checkKey]);
+
+    await updateTransaksiFn(item.trx.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+    setDoneKeysFn((prev) => new Set(prev).add(`${item.trx.id}__${item.checkKey}`));
+
+    await notifyInvestorIfNeeded(item, entity, buktiUrl);
+  }
+}
+
+function isBulkEntityInternal(entity: ProcessedEntity, internalInvestorIds: Set<string>) {
+  return entity.keterangan === "MinBun" || (entity.keterangan === "Investor" && !!entity.investorId && internalInvestorIds.has(entity.investorId));
+}
+
+function getBulkActionTooltipText(showDone: boolean, isInternal: boolean) {
+  if (showDone) return "Batalkan pelunasan";
+  if (isInternal) return "Catat ke Arus Kas (Tanpa Bukti)";
+  return "Upload Bukti & Tandai Selesai";
+}
+
+function EntityRow({
+  ent,
+  toggling,
+  internalInvestorIds,
+  showDone,
+  handleActionClick,
+  keteranganColor,
+}: Readonly<{
+  ent: ProcessedEntity;
+  toggling: string | null;
+  internalInvestorIds: Set<string>;
+  showDone: boolean;
+  handleActionClick: (e: ProcessedEntity) => void;
+  keteranganColor: Record<PaymentRow["keterangan"], string>;
+}>) {
+  const isLoading = toggling === ent.id;
+  const isInternal = isBulkEntityInternal(ent, internalInvestorIds);
+  const tooltipText = getBulkActionTooltipText(showDone, isInternal);
+
+  return (
+    <tr key={ent.id} className="border-b border-border/50 hover:bg-muted/40 transition-colors">
+      <td className="py-3 px-3 font-medium whitespace-nowrap">{ent.nama}</td>
+      <td className="py-3 px-3 whitespace-nowrap">
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${keteranganColor[ent.keterangan]}`}>
+          {ent.keterangan}
+        </span>
+        {isInternal && (
+          <span className="inline-flex ml-1.5 items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
+            <ShieldCheck className="h-2.5 w-2.5" />Internal
+          </span>
+        )}
+      </td>
+      <td className="py-3 px-3 whitespace-nowrap">
+        <div className="text-muted-foreground">{ent.bankName}</div>
+        <div className="font-mono text-xs text-muted-foreground mt-0.5">{ent.accountNumber}</div>
+      </td>
+      <td className="py-3 px-3">
+        <div className="flex flex-wrap gap-1.5 max-w-[240px]">
+          {ent.filteredItems.map(i => (
+            <Badge key={i.trx.id} variant="secondary" className="text-[10px] font-mono font-normal">
+              {i.trx.id}
+            </Badge>
+          ))}
+        </div>
+      </td>
+      <td className="py-3 px-3 text-right whitespace-nowrap font-bold text-base">
+        <div className={showDone ? "text-green-600" : ""}>{formatCurrency(ent.totalAmount)}</div>
+        <div className="text-[10px] font-normal text-muted-foreground mt-0.5">
+          {ent.filteredItems.length} tagihan digabung
+        </div>
+      </td>
+      <td className="py-3 px-3 text-center">
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                disabled={isLoading}
+                onClick={() => handleActionClick(ent)}
+              >
+                {showDone
+                  ? <CheckCircle2 className="h-5 w-5 text-green-500" />
+                  : <Circle className="h-5 w-5 text-muted-foreground" />
+                }
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs">
+              {tooltipText}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </td>
+    </tr>
+  );
+}
 
 export function ReminderContent() {
   const { mous }                                      = useMou();
-  const { transaksis, updateTransaksi } = useTransaksi();
+  const { transaksis, updateTransaksi, uploadBuktiTransaksi } = useTransaksi();
   const { investors }                                 = useInvestors();
   const { brokers }                                   = useBrokers();
   const { pengeluarans, addPengeluaran }              = usePengeluaran();
   const { minbun, trader, updateMinbun, updateTrader } = useSettings();
   const { logs, isLoading: logsLoading, refresh: refreshLogs } = useReminderLogs();
+
   const [isSendingReminder,   setIsSendingReminder]   = useState(false);
   const [toggling, setToggling]          = useState<string | null>(null);
   const [showDone, setShowDone]          = useState(false);
-  // Optimistic update: tandai selesai seketika tanpa menunggu context re-render
   const [doneKeys, setDoneKeys]          = useState<Set<string>>(new Set());
 
-  // Set investor ID yang bertanda Internal (MinBun sendiri — full cashflow)
-  const internalInvestorIds = useMemo(
-    () => new Set(investors.filter((inv) => inv.isInternal).map((inv) => inv.id)),
-    [investors],
-  );
-
-  // ── State dialog konfirmasi internal (MinBun & investor internal) ──
-  type InternalTarget = { trx: Transaksi; keterangan: string; row: PaymentRow } | null;
-  const [internalTarget,  setInternalTarget]  = useState<InternalTarget>(null);
+  // State dialog konfirmasi internal
+  const [internalTarget,  setInternalTarget]  = useState<ProcessedEntity | null>(null);
   const [isConfirmingInt, setIsConfirmingInt] = useState(false);
 
-  // ── State form pengaturan rekening internal ──
+  // State dialog upload transfer massal
+  const [uploadTarget, setUploadTarget] = useState<ProcessedEntity | null>(null);
+  const [uploadFile, setUploadFile]     = useState<File | null>(null);
+  const [uploadPreview, setUploadPreview] = useState<string>("");
+  const [isUploading, setIsUploading]   = useState(false);
+
+  // State form pengaturan
   const [showSettings, setShowSettings]  = useState(false);
   const [isSavingMB,   setIsSavingMB]   = useState(false);
   const [isSavingTR,   setIsSavingTR]   = useState(false);
   const [formMinbun,   setFormMinbun]   = useState({ nama: minbun.nama, bankName: minbun.bankName, accountNumber: minbun.accountNumber });
   const [formTrader,   setFormTrader]   = useState({ nama: trader.nama, bankName: trader.bankName, accountNumber: trader.accountNumber });
 
-  useEffect(() => {
-    setFormMinbun({ nama: minbun.nama, bankName: minbun.bankName, accountNumber: minbun.accountNumber });
-  }, [minbun.nama, minbun.bankName, minbun.accountNumber]);
-  useEffect(() => {
-    setFormTrader({ nama: trader.nama, bankName: trader.bankName, accountNumber: trader.accountNumber });
-  }, [trader.nama, trader.bankName, trader.accountNumber]);
+  useEffect(() => { setFormMinbun({ nama: minbun.nama, bankName: minbun.bankName, accountNumber: minbun.accountNumber }); }, [minbun]);
+  useEffect(() => { setFormTrader({ nama: trader.nama, bankName: trader.bankName, accountNumber: trader.accountNumber }); }, [trader]);
 
-  // Transaksi yang memerlukan bagi hasil: sudah selesai/bermasalah
-  const tasks = useMemo(() => {
-    return transaksis
-      .filter((t) => t.status === "selesai" || t.status === "bermasalah")
-      .map((trx) => {
-        const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
-        return { trx, rows };
-      })
-      .filter((t) => t.rows.length > 0)
-      .sort((a, b) => a.trx.date.localeCompare(b.trx.date));
-  }, [transaksis, mous, investors, brokers, minbun, trader]);
+  const internalInvestorIds = useMemo(
+    () => new Set(investors.filter((inv) => inv.isInternal).map((inv) => inv.id)),
+    [investors],
+  );
 
-  // Ringkasan — jumlah per penerima yang BELUM dicentang
+  // 1. Ringkasan (Summary Metrics)
   const summary = useMemo(() => {
-    let investor = 0, trader = 0, minbun = 0, broker = 0;
+    let investor = 0, traderAmt = 0, minbunAmt = 0, broker = 0;
     let totalTasks = 0, doneTasks = 0;
 
-    tasks.forEach((t) => {
-      t.rows.forEach((r) => {
-        const checked = !!t.trx.bagiHasilChecks?.[r.checkKey] || doneKeys.has(`${t.trx.id}__${r.checkKey}`);
+    transaksis.filter((t) => t.status === "selesai" || t.status === "bermasalah").forEach((trx) => {
+      const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+      rows.forEach((r) => {
         totalTasks++;
-        if (checked) {
+        const isDone = !!trx.bagiHasilChecks?.[r.checkKey] || doneKeys.has(`${trx.id}__${r.checkKey}`);
+        if (isDone) {
           doneTasks++;
-          return;
+        } else if (r.keterangan === "Investor") {
+          investor += r.jumlah;
+        } else if (r.keterangan === "Trader") {
+          traderAmt += r.jumlah;
+        } else if (r.keterangan === "MinBun") {
+          minbunAmt += r.jumlah;
+        } else if (r.keterangan === "Broker") {
+          broker += r.jumlah;
         }
-        if (r.keterangan === "Investor") investor += r.jumlah;
-        else if (r.keterangan === "Trader") trader  += r.jumlah;
-        else if (r.keterangan === "MinBun") minbun  += r.jumlah;
-        else if (r.keterangan === "Broker") broker  += r.jumlah;
       });
     });
 
-    return { investor, trader, minbun, broker, totalTasks, doneTasks };
-  }, [tasks, doneKeys]);
+    return { investor, trader: traderAmt, minbun: minbunAmt, broker, totalTasks, doneTasks };
+  }, [transaksis, mous, investors, brokers, minbun, trader, doneKeys]);
 
-  // Klik ceklis: konfirmasi cashflow untuk internal/MinBun, langsung centang untuk yang lain
-  const handleToggleRow = (trx: Transaksi, row: PaymentRow) => {
-    const isChecked = !!trx.bagiHasilChecks?.[row.checkKey] || doneKeys.has(`${trx.id}__${row.checkKey}`);
-    if (!isChecked) {
-      const isMinBun     = row.keterangan === "MinBun";
-      const isInternalInv = row.keterangan === "Investor" && !!row.investorId && internalInvestorIds.has(row.investorId);
-      if (isMinBun || isInternalInv) {
-        setInternalTarget({ trx, keterangan: row.keterangan, row });
-      } else {
-        void handleDirectCheck(trx, row);
+  // 2. Data Entity (Bulk Data)
+  const displayEntities = useMemo(() => {
+    const map = new Map<string, ProcessedEntity & { items: EntitySummaryItem[] }>();
+
+    transaksis.filter((t) => t.status === "selesai" || t.status === "bermasalah").forEach((trx) => {
+      const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+      rows.forEach((r) => {
+        const key = `${r.keterangan}_${r.investorId || r.nama}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            id: key, nama: r.nama, keterangan: r.keterangan, bankName: r.bankName,
+            accountNumber: r.accountNumber, investorId: r.investorId, items: [], filteredItems: [], totalAmount: 0
+          });
+        }
+        const isDone = !!trx.bagiHasilChecks?.[r.checkKey] || doneKeys.has(`${trx.id}__${r.checkKey}`);
+        map.get(key)!.items.push({ trx, jumlah: r.jumlah, checkKey: r.checkKey, isDone });
+      });
+    });
+
+    const result: ProcessedEntity[] = [];
+    map.forEach((ent) => {
+      const filteredItems = ent.items.filter((i) => i.isDone === showDone);
+      if (filteredItems.length > 0) {
+        const totalAmount = filteredItems.reduce((s, i) => s + i.jumlah, 0);
+        result.push({ ...ent, filteredItems, totalAmount });
       }
-    } else {
-      void handleUncheck(trx, row);
-    }
-  };
+    });
 
-  const handleDirectCheck = async (trx: Transaksi, row: PaymentRow) => {
-    const key       = `${trx.id}__${row.checkKey}`;
-    const latestTask = tasks.find((t) => t.trx.id === trx.id);
-    const latestTrx  = latestTask?.trx ?? trx;
-    const checks     = { ...(latestTrx.bagiHasilChecks ?? {}), [row.checkKey]: true };
-    const allDone    = latestTask ? latestTask.rows.every((r) => checks[r.checkKey]) : false;
-    setToggling(key);
-    try {
-      await updateTransaksi(trx.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
-      setDoneKeys((prev) => new Set(prev).add(key));
-      toast.success(`${row.keterangan} — ${row.nama} ditandai selesai`);
-    } catch {
-      toast.error("Gagal menyimpan perubahan. Coba lagi.");
-    } finally {
-      setToggling(null);
-    }
-  };
+    result.sort((a, b) => b.totalAmount - a.totalAmount);
+    return result;
+  }, [transaksis, mous, investors, brokers, minbun, trader, doneKeys, showDone]);
 
-  const handleUncheck = async (trx: Transaksi, row: PaymentRow) => {
-    const key    = `${trx.id}__${row.checkKey}`;
-    const checks = { ...(trx.bagiHasilChecks ?? {}), [row.checkKey]: false };
-    const task   = tasks.find((t) => t.trx.id === trx.id);
-    const allDone = task ? task.rows.every((r) => checks[r.checkKey]) : false;
-    setToggling(key);
-    try {
-      await updateTransaksi(trx.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
-      setDoneKeys((prev) => { const s = new Set(prev); s.delete(key); return s; });
-      const hasCashFlow =
-        row.keterangan === "MinBun" ||
-        (row.keterangan === "Investor" && !!row.investorId && internalInvestorIds.has(row.investorId));
-      toast.info(
-        `${row.keterangan} ditandai belum dibayar.${hasCashFlow ? " Entri Cash Flow tidak dihapus otomatis." : ""}`,
-      );
-    } catch {
-      toast.error("Gagal menyimpan perubahan. Coba lagi.");
-    } finally {
-      setToggling(null);
-    }
-  };
-
-  const cashflowTagRecorded = (tag: string) =>
-    pengeluarans.some((p) => p.catatan === tag);
-
-  // Submit dialog internal: mark check → catat ke cashflow (tanpa upload bukti)
-  const handleConfirmInternal = async () => {
-    if (!internalTarget) return;
-    const { trx: snapshotTrx, keterangan, row } = internalTarget;
-    const key = `${snapshotTrx.id}__${row.checkKey}`;
-
-    const latestTask = tasks.find((t) => t.trx.id === snapshotTrx.id);
-    const latestTrx  = latestTask?.trx ?? snapshotTrx;
-
-    if (latestTrx.bagiHasilChecks?.[row.checkKey] || doneKeys.has(key)) {
-      setInternalTarget(null);
+  // Handler Klik Tombol Aksi per Entitas
+  const handleActionClick = (entity: ProcessedEntity) => {
+    if (showDone) {
+      void handleUndoBulk(entity);
       return;
     }
 
-    const checks  = { ...(latestTrx.bagiHasilChecks ?? {}), [row.checkKey]: true };
-    const allDone = latestTask ? latestTask.rows.every((r) => checks[r.checkKey]) : false;
-    const today   = todayWibStr();
+    const isInternal = isBulkEntityInternal(entity, internalInvestorIds);
+    const setTargetFn = isInternal ? setInternalTarget : setUploadTarget;
+    setTargetFn(entity);
+  };
 
-    setIsConfirmingInt(true);
-    setToggling(key);
+  // ── Fungsi Pembatalan ──
+  const handleUndoBulk = async (entity: ProcessedEntity) => {
+    setToggling(entity.id);
     try {
-      await updateTransaksi(snapshotTrx.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
-      setDoneKeys((prev) => new Set(prev).add(key));
-
-      const isMinBun = keterangan === "MinBun";
-      const tag = isMinBun
-        ? `[Reminder] TRX ${snapshotTrx.id} · MinBun`
-        : `[Internal-Profit:${row.investorId}:${snapshotTrx.id}]`;
-
-      if (cashflowTagRecorded(tag)) {
-        toast.info("Entri Arus Kas untuk tugas ini sudah ada — tidak dicatat ulang.");
-      } else if (isMinBun) {
-        await addPengeluaran({
-          date:      today,
-          deskripsi: `Bagi Hasil MinBun — TRX ${snapshotTrx.id}`,
-          debet:     row.jumlah,
-          kredit:    0,
-          kategori:  "Fee MinBun",
-          catatan:   tag,
-        });
-        toast.success(`Bagi hasil MinBun TRX ${snapshotTrx.id} dicatat di Arus Kas`);
-      } else {
-        await addPengeluaran({
-          date:      today,
-          deskripsi: `Profit Internal — ${row.nama} — TRX ${snapshotTrx.id}`,
-          debet:     row.jumlah,
-          kredit:    0,
-          kategori:  "BagHas Modal MinBun",
-          catatan:   tag,
-        });
-        toast.success(`Profit internal ${row.nama} dicatat di Arus Kas`);
+      for (const item of entity.filteredItems) {
+        const checks = { ...item.trx.bagiHasilChecks, [item.checkKey]: false };
+        await updateTransaksi(item.trx.id, { bagiHasilChecks: checks, bagiHasilDone: false });
+        setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${item.trx.id}__${item.checkKey}`); return s; });
       }
+      toast.info(`Status pembayaran untuk ${entity.nama} dibatalkan.`);
+    } catch {
+      toast.error("Gagal membatalkan. Coba lagi.");
+    } finally {
+      setToggling(null);
+    }
+  };
 
+  const cashflowTagRecorded = (tag: string) => pengeluarans.some((p) => p.catatan === tag);
+
+  // ── Fungsi Simpan Internal (Tanpa Upload) ──
+  const handleConfirmInternal = async () => {
+    if (!internalTarget) return;
+    setIsConfirmingInt(true);
+    setToggling(internalTarget.id);
+    try {
+      await processInternalEntity({
+        entity: internalTarget,
+        mous,
+        investors,
+        brokers,
+        minbun,
+        trader,
+        cashflowTagRecordedFn: cashflowTagRecorded,
+        addPengeluaranFn: addPengeluaran,
+        updateTransaksiFn: updateTransaksi,
+        setDoneKeysFn: setDoneKeys,
+      });
+
+      toast.success(`Pembayaran internal untuk ${internalTarget.nama} dicatat ke Arus Kas.`);
       setInternalTarget(null);
     } catch {
-      toast.error("Gagal menyimpan. Coba lagi.");
+      toast.error("Gagal mencatat. Coba lagi.");
     } finally {
       setIsConfirmingInt(false);
       setToggling(null);
     }
   };
 
-  const handleSaveMinbun = async () => {
-    setIsSavingMB(true);
-    try {
-      await updateMinbun(formMinbun);
-      toast.success("Rekening MinBun berhasil disimpan");
-    } catch {
-      toast.error("Gagal menyimpan rekening MinBun");
-    } finally {
-      setIsSavingMB(false);
-    }
-  };
-
-  const handleSaveTrader = async () => {
-    setIsSavingTR(true);
-    try {
-      await updateTrader(formTrader);
-      toast.success("Rekening Trader berhasil disimpan");
-    } catch {
-      toast.error("Gagal menyimpan rekening Trader");
-    } finally {
-      setIsSavingTR(false);
-    }
-  };
-
-  const handleSendReminder = async () => {
-    setIsSendingReminder(true);
-    try {
-      const pbToken = pb.authStore.token;
-      if (!pbToken) {
-        toast.error("Sesi tidak ditemukan. Silakan login ulang.");
-        return;
-      }
-
-      const res = await fetch("/api/trigger-reminder", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${pbToken}` },
-      });
-      const data = await res.json() as {
-        sent?: number; message?: string;
-        adminEmailStatus?: string; investorEmailsSent?: number;
-        waStatus?: string; errors?: string[]; error?: string; detail?: string;
-      };
-
-      if (!res.ok) {
-        toast.error(`Gagal: ${data.error ?? "Unknown error"}${data.detail ? ` — ${data.detail}` : ""}`);
-      } else if (data.sent === 0) {
-        toast.info(data.message ?? "Tidak ada yang perlu dikirim");
+  // ── File Handler ──
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setUploadFile(file);
+      if (file.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onload = (ev) => setUploadPreview(ev.target?.result as string);
+        reader.readAsDataURL(file);
       } else {
-        const parts = [`${data.sent} reminder terkirim`];
-        if (data.adminEmailStatus === "sent")    parts.push("✉️ Email admin OK");
-        if (data.adminEmailStatus === "skipped") parts.push("✉️ Email admin (belum dikonfigurasi)");
-        if (data.waStatus    === "sent")    parts.push("💬 WA OK");
-        if (data.waStatus    === "skipped") parts.push("💬 WA (belum dikonfigurasi)");
-        toast.success(parts.join(" · "));
-        await refreshLogs();
+        setUploadPreview("");
       }
+    } else {
+      setUploadFile(null);
+      setUploadPreview("");
+    }
+  };
 
+  // ── Fungsi Simpan Massal (Eksternal + Upload Bukti + WA) ──
+  const handleConfirmUpload = async () => {
+    if (!uploadTarget) return;
+    setIsUploading(true);
+    setToggling(uploadTarget.id);
+    try {
+      await processUploadEntity({
+        entity: uploadTarget,
+        uploadFile,
+        mous,
+        investors,
+        brokers,
+        minbun,
+        trader,
+        uploadBuktiTransaksiFn: uploadBuktiTransaksi,
+        updateTransaksiFn: updateTransaksi,
+        setDoneKeysFn: setDoneKeys,
+      });
+
+      toast.success(`Pembayaran massal untuk ${uploadTarget.nama} berhasil diselesaikan.`);
+      setUploadTarget(null);
+      setUploadFile(null);
+      setUploadPreview("");
     } catch {
-      toast.error("Gagal menghubungi server. Coba lagi.");
+      toast.error("Gagal menyimpan pembayaran. Coba lagi.");
     } finally {
-      setIsSendingReminder(false);
+      setIsUploading(false);
+      setToggling(null);
     }
   };
 
@@ -493,6 +680,49 @@ export function ReminderContent() {
     Broker:   "bg-blue-100 text-blue-700 border-blue-200",
     Trader:   "bg-purple-100 text-purple-700 border-purple-200",
     MinBun:   "bg-green-100 text-green-700 border-green-200",
+  };
+
+  const handleSaveMinbun = async () => {
+    setIsSavingMB(true);
+    try { await updateMinbun(formMinbun); toast.success("Rekening MinBun berhasil disimpan"); }
+    catch { toast.error("Gagal menyimpan rekening MinBun"); } finally { setIsSavingMB(false); }
+  };
+  const handleSaveTrader = async () => {
+    setIsSavingTR(true);
+    try { await updateTrader(formTrader); toast.success("Rekening Trader berhasil disimpan"); }
+    catch { toast.error("Gagal menyimpan rekening Trader"); } finally { setIsSavingTR(false); }
+  };
+
+  const buildReminderSuccessMessage = (data: any) => {
+    const parts = [`${data.sent} reminder terkirim`];
+    if (data.adminEmailStatus === "sent") parts.push("✉️ Email admin OK");
+    if (data.waStatus === "sent") parts.push("💬 WA OK");
+    return parts.join(" · ");
+  };
+
+  const handleSendReminder = async () => {
+    setIsSendingReminder(true);
+    try {
+      const response = await fetch("/api/send-reminder", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${pb.authStore.token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Gagal mengirim reminder");
+      }
+
+      const data = await response.json();
+      toast.success(buildReminderSuccessMessage(data));
+      await refreshLogs();
+    } catch {
+      toast.error("Gagal mengirim reminder. Coba lagi.");
+    } finally {
+      setIsSendingReminder(false);
+    }
   };
 
   return (
@@ -504,7 +734,7 @@ export function ReminderContent() {
           Reminder Bagi Hasil
         </h1>
         <p className="text-muted-foreground">
-          Pantau dan catat pelunasan bagi hasil per transaksi ·{" "}
+          Pantau dan catat pelunasan bagi hasil yang dikelompokkan secara massal ·{" "}
           <span className="font-medium">{summary.doneTasks}/{summary.totalTasks}</span> tugas selesai
         </p>
       </div>
@@ -553,213 +783,70 @@ export function ReminderContent() {
         </Card>
       </div>
 
-      {/* Task list */}
+      {/* Task list Bulk */}
       <Card>
         <CardHeader className="pb-0">
           <div className="flex items-center justify-between gap-4 flex-wrap">
-            <CardTitle className="text-base">Daftar Tugas Bagi Hasil</CardTitle>
+            <CardTitle className="text-base">Pembayaran Massal (Bulk Transfer)</CardTitle>
 
-            {/* Tab toggle */}
             <div className="flex items-center rounded-lg border border-border bg-muted/40 p-0.5 text-sm">
               <button
                 onClick={() => setShowDone(false)}
                 className={`px-3 py-1.5 rounded-md font-medium transition-colors whitespace-nowrap ${
-                  !showDone
-                    ? "bg-background shadow-sm text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
+                  showDone ? "text-muted-foreground hover:text-foreground" : "bg-background shadow-sm text-foreground"
                 }`}
               >
                 Pending
-                <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
-                  !showDone ? "bg-orange-100 text-orange-700" : "bg-muted text-muted-foreground"
-                }`}>
-                  {summary.totalTasks - summary.doneTasks}
-                </span>
               </button>
               <button
                 onClick={() => setShowDone(true)}
                 className={`px-3 py-1.5 rounded-md font-medium transition-colors whitespace-nowrap ${
-                  showDone
-                    ? "bg-background shadow-sm text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
+                  showDone ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 Selesai
-                <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
-                  showDone ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"
-                }`}>
-                  {summary.doneTasks}
-                </span>
               </button>
             </div>
           </div>
         </CardHeader>
         <CardContent className="p-0 pt-3">
-          {tasks.length === 0 ? (
+          {displayEntities.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-14 text-muted-foreground gap-3">
               <CheckCircle2 className="h-10 w-10" />
-              <p className="text-sm">Tidak ada transaksi yang memerlukan bagi hasil</p>
+              <p className="text-sm">{showDone ? "Belum ada pembayaran yang selesai" : "Tidak ada tagihan yang menunggu pembayaran"}</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Nama</th>
-                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Keterangan</th>
-                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Nama Bank</th>
-                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">No Rekening</th>
-                    <th className="text-right  py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Jumlah</th>
-                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">No TRX</th>
-                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Tanggal</th>
-                    <th className="text-center py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Status</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Penerima</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Peran</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Rekening Tujuan</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground">Daftar Transaksi</th>
+                    <th className="text-right  py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Total Tagihan</th>
+                    <th className="text-center py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {tasks.flatMap((task) => {
-                    const checks  = task.trx.bagiHasilChecks ?? {};
-                    const isRowDone = (r: PaymentRow) => {
-                      const k = `${task.trx.id}__${r.checkKey}`;
-                      return !!checks[r.checkKey] || doneKeys.has(k);
-                    };
-                    const visibleRows = showDone
-                      ? task.rows.filter(isRowDone)
-                      : task.rows.filter((r) => !isRowDone(r));
-                    if (visibleRows.length === 0) return [];
-
-                    const rowCount = visibleRows.length;
-                    const statusBadge = task.trx.status === "bermasalah"
-                      ? <Badge variant="destructive" className="text-xs py-0.5">Bermasalah</Badge>
-                      : <Badge className="text-xs py-0.5 bg-green-600 hover:bg-green-600">Selesai</Badge>;
-
-                    const rowEls = visibleRows.map((pr, idx) => {
-                      const rowKey    = `${task.trx.id}__${pr.checkKey}`;
-                      const rowDone   = !!checks[pr.checkKey] || doneKeys.has(rowKey);
-                      const isLoading = toggling === rowKey;
-                      const rowClass  = "transition-colors hover:bg-muted/40";
-
-                      return (
-                        <tr
-                          key={rowKey}
-                          className={`border-b border-border/50 ${rowClass} ${idx === 0 ? "border-t-2 border-t-border" : ""}`}
-                        >
-                          {/* Nama */}
-                          <td className="py-2.5 px-3 whitespace-nowrap">
-                            <span className={showDone ? "text-muted-foreground" : "font-medium"}>
-                              {pr.nama}
-                            </span>
-                          </td>
-                          {/* Keterangan */}
-                          <td className="py-2.5 px-3 whitespace-nowrap">
-                            <div className="flex items-center gap-1 flex-wrap">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${keteranganColor[pr.keterangan]}`}>
-                                {pr.keterangan}
-                              </span>
-                              {pr.keterangan === "Investor" && pr.investorId && internalInvestorIds.has(pr.investorId) && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
-                                  <ShieldCheck className="h-2.5 w-2.5" />Internal
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          {/* Nama Bank */}
-                          <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">
-                            {pr.bankName}
-                          </td>
-                          {/* No Rekening */}
-                          <td className="py-2.5 px-3 whitespace-nowrap font-mono text-xs text-muted-foreground">
-                            {pr.accountNumber}
-                          </td>
-                          {/* Jumlah */}
-                          <td className="py-2.5 px-3 text-right whitespace-nowrap font-semibold">
-                            {formatShort(pr.jumlah)}
-                            <div className="text-[10px] font-normal text-muted-foreground">{formatCurrency(pr.jumlah)}</div>
-                          </td>
-                          {/* No TRX — hanya baris pertama, rowspan */}
-                          {idx === 0 && (
-                            <td
-                              className="py-2.5 px-3 font-mono text-xs font-bold text-foreground whitespace-nowrap align-top border-l-[3px] border-l-border"
-                              rowSpan={rowCount}
-                            >
-                              {task.trx.id}
-                            </td>
-                          )}
-                          {/* Tanggal — hanya baris pertama, rowspan */}
-                          {idx === 0 && (
-                            <td className="py-2.5 px-3 whitespace-nowrap align-top" rowSpan={rowCount}>
-                              {statusBadge}
-                              <div className="text-[10px] text-muted-foreground mt-0.5">{formatDate(task.trx.date)}</div>
-                            </td>
-                          )}
-                          {/* Status — ceklis + indikator bukti */}
-                          <td className="py-2.5 px-3 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <TooltipProvider delayDuration={200}>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8"
-                                      disabled={isLoading}
-                                      onClick={() => handleToggleRow(task.trx, pr)}
-                                    >
-                                      {rowDone
-                                        ? <CheckCircle2 className="h-5 w-5 text-green-500" />
-                                        : <Circle className="h-5 w-5 text-muted-foreground" />
-                                      }
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="left" className="text-xs">
-                                    {rowDone
-                                      ? "Tandai belum dibayar"
-                                      : pr.keterangan === "MinBun"
-                                        ? "Catat ke Arus Kas"
-                                        : pr.keterangan === "Investor" && pr.investorId && internalInvestorIds.has(pr.investorId)
-                                          ? "Catat profit internal ke Arus Kas"
-                                          : "Tandai selesai"}
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    });
-                    const total = visibleRows.reduce((sum, r) => sum + r.jumlah, 0);
-                    return [
-                      ...rowEls,
-                      <tr key={`${task.trx.id}__total`} className="bg-muted/20">
-                        <td colSpan={4} className="py-1.5 px-3 text-right text-xs font-medium text-muted-foreground">Total</td>
-                        <td className="py-1.5 px-3 text-right whitespace-nowrap font-bold text-sm">
-                          {formatShort(total)}
-                          <div className="text-[10px] font-normal text-muted-foreground">{formatCurrency(total)}</div>
-                        </td>
-                        <td colSpan={3} className="border-b-2 border-border" />
-                      </tr>,
-                    ];
-                  })}
-                  {/* Empty state per tab */}
-                  {tasks.every((task) =>
-                    task.rows.every((r) =>
-                      showDone
-                        ? !task.trx.bagiHasilChecks?.[r.checkKey]
-                        : !!task.trx.bagiHasilChecks?.[r.checkKey]
-                    )
-                  ) && (
-                    <tr>
-                      <td colSpan={8} className="py-12 text-center text-sm text-muted-foreground">
-                        {showDone
-                          ? "Belum ada tugas yang selesai"
-                          : <span className="flex flex-col items-center gap-2">
-                              <CheckCircle2 className="h-8 w-8 text-green-500" />
-                              Semua tugas sudah selesai 🎉
-                            </span>
-                        }
-                      </td>
-                    </tr>
-                  )}
+                  {displayEntities.map((ent) => (
+                    <EntityRow
+                      key={ent.id}
+                      ent={ent}
+                      toggling={toggling}
+                      internalInvestorIds={internalInvestorIds}
+                      showDone={showDone}
+                      handleActionClick={handleActionClick}
+                      keteranganColor={keteranganColor}
+                    />
+                  ))}
+                  <tr className="bg-muted/20">
+                    <td colSpan={4} className="py-2.5 px-3 text-right text-xs font-medium text-muted-foreground">Total Keseluruhan</td>
+                    <td className="py-2.5 px-3 text-right whitespace-nowrap font-bold text-base">
+                      {formatCurrency(displayEntities.reduce((sum, e) => sum + e.totalAmount, 0))}
+                    </td>
+                    <td />
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -767,110 +854,153 @@ export function ReminderContent() {
         </CardContent>
       </Card>
 
+      {/* ── Dialog Upload Transfer Massal (Bulk Transfer) ── */}
+      <Dialog open={!!uploadTarget} onOpenChange={(o) => { if (!o) { setUploadTarget(null); setUploadFile(null); setUploadPreview(""); }}}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle>Selesaikan Pembayaran</DialogTitle>
+            <DialogDescription>
+              Upload satu bukti transfer untuk melunasi {uploadTarget?.filteredItems.length} tagihan atas nama <strong>{uploadTarget?.nama}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          {uploadTarget && (
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg border bg-muted/20 p-3 text-sm">
+                <p className="font-semibold text-muted-foreground mb-2">Rincian Tagihan:</p>
+                <ul className="space-y-1.5 mb-3 max-h-[140px] overflow-y-auto pr-2">
+                  {uploadTarget.filteredItems.map(i => (
+                    <li key={i.trx.id} className="flex justify-between items-center text-xs border-b border-border/50 pb-1.5">
+                      <span className="font-mono">{i.trx.id}</span>
+                      <span>{formatCurrency(i.jumlah)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex justify-between items-center font-bold text-base pt-1">
+                  <span>Total Transfer</span>
+                  <span className="text-orange-600">{formatCurrency(uploadTarget.totalAmount)}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Bukti Transfer (Opsional)</Label>
+                <label className={`flex flex-col items-center justify-center w-full border-2 border-dashed rounded-lg cursor-pointer transition-colors px-4 py-6 ${
+                  uploadFile ? "border-green-400 bg-green-50/50" : "border-border hover:border-muted-foreground/40 hover:bg-muted/30"
+                }`}>
+                  <input type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileChange} />
+                  {uploadFile ? (
+                    <div className="flex flex-col items-center text-center space-y-2">
+                      <FileCheck className="h-8 w-8 text-green-500" />
+                      <div>
+                        <p className="text-sm font-medium text-green-700">{uploadFile.name}</p>
+                        <p className="text-xs text-muted-foreground">Klik untuk ganti file</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center text-center space-y-2 text-muted-foreground">
+                      <Upload className="h-8 w-8 opacity-70" />
+                      <div>
+                        <p className="text-sm font-medium">Klik untuk upload bukti</p>
+                        <p className="text-xs">Format JPG, PNG, atau PDF</p>
+                      </div>
+                    </div>
+                  )}
+                </label>
+                {uploadPreview && (
+                  <div className="rounded-lg overflow-hidden border mt-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={uploadPreview} alt="Preview" className="w-full max-h-32 object-contain bg-muted" />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 mt-2">
+            <Button variant="outline" onClick={() => setUploadTarget(null)} disabled={isUploading}>Batal</Button>
+            <Button onClick={handleConfirmUpload} disabled={isUploading}>
+              {isUploading ? "Memproses…" : "Selesaikan & Kirim Notif"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog Konfirmasi Internal (MinBun/Investor Internal) ── */}
+      <Dialog open={!!internalTarget} onOpenChange={(open) => { if (!open) setInternalTarget(null); }}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              {internalTarget?.keterangan === "MinBun" ? "Konfirmasi Bagi Hasil MinBun" : "Catat Profit Internal"}
+            </DialogTitle>
+            <DialogDescription>
+              Terdapat <strong>{internalTarget?.filteredItems.length} tagihan</strong> yang akan dilunasi dan dicatat sebagai pemasukan di Arus Kas. Tidak diperlukan bukti transfer.
+            </DialogDescription>
+          </DialogHeader>
+
+          {internalTarget && (
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">{internalTarget.keterangan === "MinBun" ? "Penerima" : "Investor"}</span>
+                <span className="font-medium">{internalTarget.nama}</span>
+              </div>
+              <div className="border-t pt-2 flex justify-between font-semibold">
+                <span>Total Dicatat</span>
+                <span className="text-green-600">{formatCurrency(internalTarget.totalAmount)}</span>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setInternalTarget(null)} disabled={isConfirmingInt}>Batal</Button>
+            <Button onClick={handleConfirmInternal} disabled={isConfirmingInt}>
+              {isConfirmingInt ? "Menyimpan…" : "Catat ke Kas"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Pengaturan Rekening Internal ── */}
       <Card>
         <CardHeader className="pb-3">
-          <button
-            onClick={() => setShowSettings((v) => !v)}
-            className="flex items-center justify-between w-full text-left"
-          >
+          <button onClick={() => setShowSettings((v) => !v)} className="flex items-center justify-between w-full text-left">
             <div className="flex items-center gap-2">
               <Settings2 className="h-4 w-4 text-muted-foreground" />
               <CardTitle className="text-base">Pengaturan Rekening Internal</CardTitle>
             </div>
-            {showSettings
-              ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
-              : <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            }
+            {showSettings ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
           </button>
-          {!showSettings && (
-            <p className="text-xs text-muted-foreground mt-1 ml-6">
-              Kelola nama, bank, dan nomor rekening MinBun & Trader
-            </p>
-          )}
+          {!showSettings && <p className="text-xs text-muted-foreground mt-1 ml-6">Kelola nama, bank, dan nomor rekening MinBun & Trader</p>}
         </CardHeader>
-
         {showSettings && (
           <CardContent className="space-y-6">
-            {/* MinBun */}
             <div>
               <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-green-100 text-green-700 border-green-200">MinBun</span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-green-100 text-green-700 border-green-200">MinBun</span>{" "}
                 Rekening MinBun
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Nama</Label>
-                  <Input
-                    value={formMinbun.nama}
-                    onChange={(e) => setFormMinbun((f) => ({ ...f, nama: e.target.value }))}
-                    placeholder="MinBun / nama perusahaan"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Nama Bank</Label>
-                  <Input
-                    value={formMinbun.bankName}
-                    onChange={(e) => setFormMinbun((f) => ({ ...f, bankName: e.target.value }))}
-                    placeholder="BCA / BRI / Mandiri..."
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Nomor Rekening</Label>
-                  <Input
-                    value={formMinbun.accountNumber}
-                    onChange={(e) => setFormMinbun((f) => ({ ...f, accountNumber: e.target.value }))}
-                    placeholder="1234567890"
-                  />
-                </div>
+                <div className="space-y-1.5"><Label className="text-xs">Nama</Label><Input value={formMinbun.nama} onChange={(e) => setFormMinbun((f) => ({ ...f, nama: e.target.value }))} placeholder="MinBun / nama perusahaan" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">Nama Bank</Label><Input value={formMinbun.bankName} onChange={(e) => setFormMinbun((f) => ({ ...f, bankName: e.target.value }))} placeholder="BCA / BRI / Mandiri..." /></div>
+                <div className="space-y-1.5"><Label className="text-xs">Nomor Rekening</Label><Input value={formMinbun.accountNumber} onChange={(e) => setFormMinbun((f) => ({ ...f, accountNumber: e.target.value }))} placeholder="1234567890" /></div>
               </div>
               <div className="mt-3 flex justify-end">
-                <Button size="sm" onClick={handleSaveMinbun} disabled={isSavingMB}>
-                  <Save className="h-3.5 w-3.5 mr-1.5" />
-                  {isSavingMB ? "Menyimpan…" : "Simpan MinBun"}
-                </Button>
+                <Button size="sm" onClick={handleSaveMinbun} disabled={isSavingMB}><Save className="h-3.5 w-3.5 mr-1.5" />{isSavingMB ? "Menyimpan…" : "Simpan MinBun"}</Button>
               </div>
             </div>
-
             <div className="border-t" />
-
-            {/* Trader */}
             <div>
               <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-purple-100 text-purple-700 border-purple-200">Trader</span>
-                Rekening Trader
+                {" "}Rekening Trader
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Nama</Label>
-                  <Input
-                    value={formTrader.nama}
-                    onChange={(e) => setFormTrader((f) => ({ ...f, nama: e.target.value }))}
-                    placeholder="Trader / nama trader"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Nama Bank</Label>
-                  <Input
-                    value={formTrader.bankName}
-                    onChange={(e) => setFormTrader((f) => ({ ...f, bankName: e.target.value }))}
-                    placeholder="BCA / BRI / Mandiri..."
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Nomor Rekening</Label>
-                  <Input
-                    value={formTrader.accountNumber}
-                    onChange={(e) => setFormTrader((f) => ({ ...f, accountNumber: e.target.value }))}
-                    placeholder="1234567890"
-                  />
-                </div>
+                <div className="space-y-1.5"><Label className="text-xs">Nama</Label><Input value={formTrader.nama} onChange={(e) => setFormTrader((f) => ({ ...f, nama: e.target.value }))} placeholder="Trader / nama trader" /></div>
+                <div className="space-y-1.5"><Label className="text-xs">Nama Bank</Label><Input value={formTrader.bankName} onChange={(e) => setFormTrader((f) => ({ ...f, bankName: e.target.value }))} placeholder="BCA / BRI / Mandiri..." /></div>
+                <div className="space-y-1.5"><Label className="text-xs">Nomor Rekening</Label><Input value={formTrader.accountNumber} onChange={(e) => setFormTrader((f) => ({ ...f, accountNumber: e.target.value }))} placeholder="1234567890" /></div>
               </div>
               <div className="mt-3 flex justify-end">
-                <Button size="sm" onClick={handleSaveTrader} disabled={isSavingTR}>
-                  <Save className="h-3.5 w-3.5 mr-1.5" />
-                  {isSavingTR ? "Menyimpan…" : "Simpan Trader"}
-                </Button>
+                <Button size="sm" onClick={handleSaveTrader} disabled={isSavingTR}><Save className="h-3.5 w-3.5 mr-1.5" />{isSavingTR ? "Menyimpan…" : "Simpan Trader"}</Button>
               </div>
             </div>
           </CardContent>
@@ -891,156 +1021,77 @@ export function ReminderContent() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void refreshLogs()}
-                disabled={logsLoading}
-              >
-                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${logsLoading ? "animate-spin" : ""}`} />
-                Refresh
+              <Button variant="outline" size="sm" onClick={() => void refreshLogs()} disabled={logsLoading}>
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${logsLoading ? "animate-spin" : ""}`} />Refresh
               </Button>
-              <Button
-                size="sm"
-                onClick={() => void handleSendReminder()}
-                disabled={isSendingReminder}
-              >
-                <Send className="h-3.5 w-3.5 mr-1.5" />
-                {isSendingReminder ? "Mengirim…" : "Kirim Sekarang"}
+              <Button size="sm" onClick={() => void handleSendReminder()} disabled={isSendingReminder}>
+                <Send className="h-3.5 w-3.5 mr-1.5" />{isSendingReminder ? "Mengirim…" : "Kirim Sekarang"}
               </Button>
             </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {logsLoading ? (
+          {logsLoading && (
             <div className="py-8 text-center text-sm text-muted-foreground">Memuat…</div>
-          ) : logs.length === 0 ? (
+          )}
+          {!logsLoading && logs.length === 0 && (
             <div className="py-10 text-center text-sm text-muted-foreground">
-              <Clock className="h-8 w-8 mx-auto mb-2 opacity-40" />
-              Belum ada riwayat pengiriman reminder
+              <Clock className="h-8 w-8 mx-auto mb-2 opacity-40" />Belum ada riwayat pengiriman reminder
             </div>
-          ) : (
+          )}
+          {!logsLoading && logs.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left   py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Waktu Kirim</th>
-                    <th className="text-left   py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Investor</th>
-                    <th className="text-left   py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">No. Referensi</th>
-                    <th className="text-center py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Jenis</th>
-                    <th className="text-center py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Email</th>
-                    <th className="text-center py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">WhatsApp</th>
-                    <th className="text-left   py-2.5 px-4 font-medium text-muted-foreground whitespace-nowrap">Keterangan</th>
+                    <th className="text-left py-2.5 px-4 font-medium text-muted-foreground">Waktu Kirim</th>
+                    <th className="text-left py-2.5 px-4 font-medium text-muted-foreground">Investor</th>
+                    <th className="text-left py-2.5 px-4 font-medium text-muted-foreground">No. Referensi</th>
+                    <th className="text-center py-2.5 px-4 font-medium text-muted-foreground">Jenis</th>
+                    <th className="text-center py-2.5 px-4 font-medium text-muted-foreground">Email</th>
+                    <th className="text-center py-2.5 px-4 font-medium text-muted-foreground">WhatsApp</th>
+                    <th className="text-left py-2.5 px-4 font-medium text-muted-foreground">Keterangan</th>
                   </tr>
                 </thead>
                 <tbody>
                   {logs.slice(0, 50).map((log: ReminderLog) => {
                     const isNotif = log.triggeredBy === "notifikasi";
+                    const isManual = log.triggeredBy === "manual";
+                    const typeClassName = isManual ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400" : "bg-muted text-muted-foreground";
+                    const formattedAmount = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(log.jumlah);
+                    const keteranganText = log.jumlah > 0 ? `${log.keterangan} · ${formattedAmount}` : log.keterangan;
+                    const descriptionContent = isNotif ? keteranganText : log.mouCustomId;
                     return (
                       <tr key={log.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
                         <td className="py-2.5 px-4 whitespace-nowrap text-muted-foreground text-xs">
-                          {new Date(log.sentAt).toLocaleString("id-ID", {
-                            day: "2-digit", month: "short", year: "numeric",
-                            hour: "2-digit", minute: "2-digit",
-                          })}
+                          {new Date(log.sentAt).toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                         </td>
                         <td className="py-2.5 px-4 font-medium whitespace-nowrap">{log.investorName}</td>
                         <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground whitespace-nowrap">{log.mouCustomId}</td>
                         <td className="py-2.5 px-4 text-center">
                           {isNotif ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
-                              Bagi Hasil
-                            </span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">Bagi Hasil</span>
                           ) : (
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                              log.triggeredBy === "manual"
-                                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
-                                : "bg-muted text-muted-foreground"
-                            }`}>
-                              {log.triggeredBy === "manual" ? "Manual" : "Otomatis"}
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${typeClassName}`}>
+                              {isManual ? "Manual" : "Otomatis"}
                             </span>
                           )}
                         </td>
-                        <td className="py-2.5 px-4 text-center">
-                          <ChannelBadge status={log.emailStatus} icon={<Mail className="h-3 w-3" />} />
-                        </td>
-                        <td className="py-2.5 px-4 text-center">
-                          <ChannelBadge status={log.waStatus} icon={<MessageCircle className="h-3 w-3" />} />
-                        </td>
+                        <td className="py-2.5 px-4 text-center"><ChannelBadge status={log.emailStatus} icon={<Mail className="h-3 w-3" />} /></td>
+                        <td className="py-2.5 px-4 text-center"><ChannelBadge status={log.waStatus} icon={<MessageCircle className="h-3 w-3" />} /></td>
                         <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">
-                          {isNotif
-                            ? `${log.keterangan}${log.jumlah > 0 ? ` · ${new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(log.jumlah)}` : ""}`
-                            : log.mouCustomId
-                          }
-                          {log.errorMessage && (
-                            <div className="text-red-500 text-[10px] mt-0.5 max-w-[200px] truncate" title={log.errorMessage}>
-                              {log.errorMessage}
-                            </div>
-                          )}
+                          {descriptionContent}
+                          {log.errorMessage && <div className="text-red-500 text-[10px] mt-0.5 max-w-[200px] truncate" title={log.errorMessage}>{log.errorMessage}</div>}
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
-              {logs.length > 50 && (
-                <p className="text-xs text-muted-foreground text-center py-3">
-                  Menampilkan 50 terbaru dari {logs.length} log
-                </p>
-              )}
             </div>
           )}
         </CardContent>
       </Card>
-
-      {/* ── Dialog Konfirmasi Internal (investor internal & MinBun) ── */}
-      <Dialog open={!!internalTarget} onOpenChange={(open) => { if (!open) setInternalTarget(null); }}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-primary" />
-              {internalTarget?.keterangan === "MinBun"
-                ? "Konfirmasi Bagi Hasil MinBun"
-                : "Catat Profit Internal ke Arus Kas"}
-            </DialogTitle>
-            <DialogDescription>
-              {internalTarget?.keterangan === "MinBun"
-                ? <>Bagi hasil MinBun untuk TRX <strong>{internalTarget.trx.id}</strong> akan dicatat sebagai pemasukan di Arus Kas. Tidak diperlukan bukti transfer.</>
-                : <>Profit TRX <strong>{internalTarget?.trx.id}</strong> untuk investor internal akan dicatat sebagai pemasukan (debet) di Arus Kas. Tidak diperlukan bukti transfer.</>
-              }
-            </DialogDescription>
-          </DialogHeader>
-
-          {internalTarget && (
-            <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">
-                  {internalTarget.keterangan === "MinBun" ? "Penerima" : "Investor"}
-                </span>
-                <span className="font-medium">{internalTarget.row.nama}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Transaksi</span>
-                <span className="font-mono text-xs font-medium">{internalTarget.trx.id}</span>
-              </div>
-              <div className="border-t pt-2 flex justify-between font-semibold">
-                <span>{internalTarget.keterangan === "MinBun" ? "Bagi hasil dicatat" : "Profit dicatat"}</span>
-                <span className="text-green-600">{formatCurrency(internalTarget.row.jumlah)}</span>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setInternalTarget(null)} disabled={isConfirmingInt}>
-              Batal
-            </Button>
-            <Button onClick={() => void handleConfirmInternal()} disabled={isConfirmingInt}>
-              {isConfirmingInt ? "Menyimpan…" : "Konfirmasi & Catat ke Kas"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
     </div>
   );
 }
