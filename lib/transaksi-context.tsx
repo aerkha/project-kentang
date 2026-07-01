@@ -1,15 +1,15 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
 
-const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
+const currentUserId = () => pb.authStore.record?.id ?? "";
 
 export interface TransaksiInvestorEntry {
-  mouId: string;              // ID PKS yang dipakai; "" untuk entry lama
+  mouId: string;              
   investorId: string;
   investorName: string;
-  investorBrokerName: string;  // "" jika langsung (tanpa broker)
+  investorBrokerName: string;  
   nilaiInvestasi: number;
   pctTrader:  number;
   pctMinBun:  number;
@@ -26,26 +26,11 @@ export const TRANSAKSI_STATUS_LABEL: Record<TransaksiStatus, string> = {
   bermasalah: "Bermasalah",
 };
 
-/**
- * Status efektif. "perbarui" bukan lagi status otomatis — sisa hari periode
- * ditampilkan terpisah, dan pembaruan dilakukan manual lewat tombol aksi
- * (status "selesai" → "berjalan"). Record lama berstatus "perbarui"
- * diperlakukan sebagai "berjalan".
- */
 export function effectiveStatus(t: { status: TransaksiStatus; date: string }): TransaksiStatus {
   if (t.status === "perbarui") return "berjalan";
   return t.status;
 }
 
-/**
- * Status aktif investor diturunkan sepenuhnya dari transaksi — transaksi adalah
- * satu-satunya sumber kebenaran (PKS hanya formalitas). Tidak ada flag isActive
- * tersimpan yang bisa drift.
- *
- * Investor AKTIF ⟺ punya ≥1 transaksi berstatus "berjalan" atau "bermasalah"
- * (modal belum kembali) dengan nilai investasi > 0. Tanpa partisipasi semacam
- * itu — termasuk modal yang masih parkir / investor baru — investor NONAKTIF.
- */
 const ACTIVE_TRANSAKSI_STATUS = new Set<TransaksiStatus>(["berjalan", "bermasalah"]);
 
 export function isInvestorActive(investorId: string, transaksis: Transaksi[]): boolean {
@@ -56,7 +41,6 @@ export function isInvestorActive(investorId: string, transaksis: Transaksi[]): b
   );
 }
 
-/** Set ID semua investor aktif — sekali lewat, untuk dipakai di list/dashboard. */
 export function activeInvestorIds(transaksis: Transaksi[]): Set<string> {
   const ids = new Set<string>();
   for (const t of transaksis) {
@@ -69,9 +53,11 @@ export function activeInvestorIds(transaksis: Transaksi[]): Set<string> {
 }
 
 export interface Transaksi {
-  id: string;             // TRX-0001 (customId)
+  id: string;             
   date: string;
   description: string;
+  endDate?: string;            // <-- DITAMBAHKAN
+  isAutorenewal?: boolean;     // <-- DITAMBAHKAN
   hpp: number;
   kebutuhanModal: number;
   investorEntries: TransaksiInvestorEntry[];
@@ -79,7 +65,6 @@ export interface Transaksi {
   hargaJual: number;
   status: TransaksiStatus;
   catatanAkhir: string;
-  // Pelacakan bagi hasil — digunakan oleh halaman Reminder
   bagiHasilChecks?: Record<string, boolean>;
   bagiHasilDone?: boolean;
   buktiInvestor?: string;
@@ -88,7 +73,6 @@ export interface Transaksi {
   buktiMinBun?: string;
 }
 
-/** Hitung semua nilai turunan dari sebuah Transaksi */
 export function calcTransaksi(t: Transaksi) {
   const qty            = t.hpp > 0 ? t.kebutuhanModal / t.hpp : 0;
   const totalInvestasi = t.investorEntries.reduce((s, e) => s + e.nilaiInvestasi, 0);
@@ -99,7 +83,6 @@ export function calcTransaksi(t: Transaksi) {
   return { qty, totalInvestasi, selisih, totalOngkir, income, profit };
 }
 
-// Mapping keterangan → nama field file bukti di PocketBase (koleksi transaksis)
 export const BUKTI_FIELD_TRX: Record<string, string> = {
   Investor: "buktiInvestor",
   Broker:   "buktiBroker",
@@ -121,20 +104,15 @@ interface TransaksiContextType {
   addTransaksi:    (t: Omit<Transaksi, "id">) => Promise<void>;
   updateTransaksi: (id: string, updates: Partial<Transaksi>) => Promise<void>;
   deleteTransaksi: (id: string) => Promise<void>;
-  /** Sinkronkan nama & broker investor yang ter-denormalisasi di entry transaksi */
   syncInvestorInfo: (investorId: string, investorName: string, investorBrokerName: string) => Promise<void>;
-  /** Upload bukti transfer untuk satu penerima bagi hasil */
   uploadBuktiTransaksi: (id: string, keterangan: string, file: File) => Promise<string>;
 }
 
 const TransaksiContext = createContext<TransaksiContextType | undefined>(undefined);
 
-// ── Record mappers ──────────────────────────────────────────────────────────
-
 const VALID_STATUSES = new Set<TransaksiStatus>(["berjalan", "perbarui", "selesai", "bermasalah"]);
 function normalizeStatus(s: string): TransaksiStatus {
   if (VALID_STATUSES.has(s as TransaksiStatus)) return s as TransaksiStatus;
-  // backward-compat: old values
   if (s === "rencana" || s === "batal") return "berjalan";
   return "berjalan";
 }
@@ -151,6 +129,8 @@ function recordToTransaksi(
     id:              customId,
     date:            r.date           as string,
     description:     (r.description  as string) || "",
+    endDate:         (r.endDate      as string) || "",
+    isAutorenewal:   (r.isAutorenewal as boolean) || false,
     hpp:             r.hpp            as number,
     kebutuhanModal:  r.kebutuhanModal as number,
     investorEntries,
@@ -187,7 +167,18 @@ function recordToInvestorEntry(r: Record<string, unknown>): TransaksiInvestorEnt
   };
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+function updateInvestorEntries(
+  entries: TransaksiInvestorEntry[],
+  investorId: string,
+  investorName: string,
+  investorBrokerName: string,
+): TransaksiInvestorEntry[] {
+  return entries.map((e) =>
+    e.investorId === investorId
+      ? { ...e, investorName, investorBrokerName }
+      : e,
+  );
+}
 
 function isCustomIdConflict(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
@@ -195,23 +186,24 @@ function isCustomIdConflict(err: unknown): boolean {
   return data?.data?.customId?.code === "validation_not_unique";
 }
 
-async function generateCustomId(): Promise<string> {
+// <-- GENERATOR ID BARU: Mendukung huruf (A) jika isAutorenewal dicentang
+async function generateCustomId(isAutorenewal: boolean = false): Promise<string> {
   try {
-    // Cari nilai numerik tertinggi secara eksplisit — sort leksikografis tidak aman
-    // karena "TRX-0009" > "TRX-0010" secara alfabet.
     const res = await pb.collection("transaksis").getFullList({ fields: "customId" });
-    if (res.length === 0) return "TRX-0001";
+    if (res.length === 0) return isAutorenewal ? "TRX-0001A" : "TRX-0001";
     const max = res.reduce((m, r) => {
-      const n = parseInt((r.customId as string).replace("TRX-", "")) || 0;
-      return n > m ? n : m;
+      // Hilangkan "TRX-" dan huruf alfabet di belakangnya untuk mencari nilai maksimal
+      const numStr = (r.customId as string).replace("TRX-", "").replace(/[A-Z]/gi, "");
+      const n = Number.parseInt(numStr) || 0;
+      return Math.max(m, n);
     }, 0);
-    return `TRX-${String(max + 1).padStart(4, "0")}`;
+    const num = String(max + 1).padStart(4, "0");
+    return isAutorenewal ? `TRX-${num}A` : `TRX-${num}`;
   } catch {
-    return "TRX-0001";
+    return isAutorenewal ? "TRX-0001A" : "TRX-0001";
   }
 }
 
-/** Buat junction records di transaksi_investors untuk satu transaksi */
 async function createInvestorEntries(
   transaksiPbId: string,
   entries: TransaksiInvestorEntry[],
@@ -234,7 +226,6 @@ async function createInvestorEntries(
   );
 }
 
-/** Ambil ID semua junction records milik satu transaksi */
 async function listInvestorEntryIds(transaksiPbId: string): Promise<string[]> {
   const existing = await pb.collection("transaksi_investors").getFullList({
     filter: `transaksiId = "${transaksiPbId}"`,
@@ -243,14 +234,11 @@ async function listInvestorEntryIds(transaksiPbId: string): Promise<string[]> {
   return existing.map((r) => r.id);
 }
 
-/** Hapus junction records berdasarkan ID */
 async function deleteInvestorEntriesByIds(ids: string[]): Promise<void> {
   await Promise.all(ids.map((id) => pb.collection("transaksi_investors").delete(id)));
 }
 
-// ── Provider ─────────────────────────────────────────────────────────────────
-
-export function TransaksiProvider({ children }: { children: ReactNode }) {
+export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [transaksis, setTransaksis] = useState<Transaksi[]>([]);
   const pbIdMapRef = useRef(new Map<string, string>());
   const map = pbIdMapRef.current;
@@ -268,9 +256,6 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
     } catch { return null; }
   };
 
-  // Load transaksis + investor entries secara paralel, lalu join di memory.
-  // Gunakan allSettled agar transaksis tetap ter-load meski transaksi_investors
-  // belum dibuat di PocketBase (koleksi baru, mungkin belum ada).
   useEffect(() => {
     Promise.allSettled([
       pb.collection("transaksis").getFullList({ sort: "customId" }),
@@ -283,16 +268,18 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
 
       const trxRecords = trxResult.value;
 
-      // Kelompokkan investor entries by transaksi PB record ID
       const invMap = new Map<string, TransaksiInvestorEntry[]>();
       if (invResult.status === "fulfilled") {
         for (const r of invResult.value) {
           const tid = r.transaksiId as string;
-          if (!invMap.has(tid)) invMap.set(tid, []);
-          invMap.get(tid)!.push(recordToInvestorEntry(r as Record<string, unknown>));
+          let entryList = invMap.get(tid);
+          if (!entryList) {
+            entryList = [];
+            invMap.set(tid, entryList);
+          }
+          entryList.push(recordToInvestorEntry(r));
         }
       } else {
-        // transaksi_investors belum ada — transaksis tetap ditampilkan dengan investorEntries kosong
         console.warn("[transaksi] transaksi_investors belum tersedia:", invResult.reason);
       }
 
@@ -309,19 +296,18 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── CRUD ──────────────────────────────────────────────────────────────────
-
   const addTransaksi = async (t: Omit<Transaksi, "id">) => {
-    let customId = await generateCustomId();
+    let customId = await generateCustomId(t.isAutorenewal);
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        // 1. Buat transaksi (tanpa investorEntries)
         const record = await pb.collection("transaksis").create({
           customId,
           createdBy:      currentUserId(),
           updatedBy:      currentUserId(),
           date:           t.date,
           description:    t.description || "",
+          endDate:        t.endDate || "",
+          isAutorenewal:  t.isAutorenewal || false,
           hpp:            t.hpp,
           kebutuhanModal: t.kebutuhanModal,
           ongkirPerKg:    t.ongkirPerKg,
@@ -330,7 +316,6 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
           catatanAkhir:   t.catatanAkhir || "",
         });
 
-        // 2. Buat junction records — hapus induk jika gagal agar tidak orphan
         try {
           await createInvestorEntries(record.id, t.investorEntries);
         } catch (entryErr) {
@@ -340,12 +325,12 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
 
         setTransaksis((prev) => [
           ...prev,
-          recordToTransaksi(record as Record<string, unknown>, map, t.investorEntries),
+          recordToTransaksi(record, map, t.investorEntries),
         ]);
         return;
       } catch (err) {
         if (isCustomIdConflict(err) && attempt < 4) {
-          customId = await generateCustomId();
+          customId = await generateCustomId(t.isAutorenewal);
           continue;
         }
         throw err;
@@ -357,7 +342,6 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
     const pbId = await resolvePbId(id);
     if (!pbId) throw new Error(`Transaksi "${id}" tidak ditemukan.`);
 
-    // Pisahkan investorEntries dan bagiHasilChecks dari payload utama
     const { investorEntries, bagiHasilChecks, ...trxUpdates } = updates;
 
     const pbUpdates: Record<string, unknown> = { ...trxUpdates, updatedBy: currentUserId() };
@@ -367,10 +351,6 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
 
     const record = await pb.collection("transaksis").update(pbId, pbUpdates);
 
-    // Jika investorEntries ikut diupdate:
-    // Catat ID entry lama SEBELUM membuat yang baru, lalu hapus berdasarkan ID —
-    // tidak bergantung pada urutan `created` (granularitas detik, bisa tertukar).
-    // Entry baru dibuat dulu agar tidak ada data loss jika create gagal di tengah.
     let resolvedEntries: TransaksiInvestorEntry[] | undefined;
     if (investorEntries !== undefined) {
       const oldEntryIds = await listInvestorEntryIds(pbId);
@@ -383,7 +363,7 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
       prev.map((t) => {
         if (t.id !== id) return t;
         return recordToTransaksi(
-          record as Record<string, unknown>,
+          record,
           map,
           resolvedEntries ?? t.investorEntries,
         );
@@ -395,7 +375,6 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
     const pbId = await resolvePbId(id);
     if (!pbId) throw new Error(`Transaksi "${id}" tidak ditemukan.`);
 
-    // Hapus junction records dulu, baru transaksi
     await deleteInvestorEntriesByIds(await listInvestorEntryIds(pbId));
     await pb.collection("transaksis").delete(pbId);
 
@@ -403,11 +382,6 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
     setTransaksis((prev) => prev.filter((t) => t.id !== id));
   };
 
-  /**
-   * Perbarui investorName / investorBrokerName di semua entry transaksi milik
-   * seorang investor. Dipanggil setelah data investor diedit agar tampilan
-   * broker & nama di halaman Transaksi tidak menyimpan data lama.
-   */
   const syncInvestorInfo = async (
     investorId: string,
     investorName: string,
@@ -431,9 +405,7 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
     setTransaksis((prev) =>
       prev.map((t) => ({
         ...t,
-        investorEntries: t.investorEntries.map((e) =>
-          e.investorId === investorId ? { ...e, investorName, investorBrokerName } : e,
-        ),
+        investorEntries: updateInvestorEntries(t.investorEntries, investorId, investorName, investorBrokerName),
       })),
     );
   };
@@ -448,13 +420,15 @@ export function TransaksiProvider({ children }: { children: ReactNode }) {
     const record = await pb.collection("transaksis").update(pbId, fd);
     const url = pbFileUrlTrx(pbId, record[fieldName]);
     setTransaksis((prev) =>
-      prev.map((t) => t.id !== id ? t : { ...t, [fieldName]: url }),
+      prev.map((t) => t.id === id ? { ...t, [fieldName]: url } : t),
     );
     return url;
   };
 
+  const contextValue = useMemo(() => ({ transaksis, addTransaksi, updateTransaksi, deleteTransaksi, syncInvestorInfo, uploadBuktiTransaksi }), [transaksis, addTransaksi, updateTransaksi, deleteTransaksi, syncInvestorInfo, uploadBuktiTransaksi]);
+
   return (
-    <TransaksiContext.Provider value={{ transaksis, addTransaksi, updateTransaksi, deleteTransaksi, syncInvestorInfo, uploadBuktiTransaksi }}>
+    <TransaksiContext.Provider value={contextValue}>
       {children}
     </TransaksiContext.Provider>
   );

@@ -41,6 +41,7 @@ import {
   Truck,
   Receipt,
   ClipboardCheck,
+  RefreshCw,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -60,6 +61,8 @@ interface InvestorEntryForm {
 interface TrxFormData {
   date: string;
   description: string;
+  endDate: string;          
+  isAutorenewal: boolean;   
   hpp: string;
   kebutuhanModal: string;
   investorEntries: InvestorEntryForm[];
@@ -67,7 +70,6 @@ interface TrxFormData {
   hargaJual: string;
 }
 
-/** Default pct berdasarkan broker investor — langsung dari data investor */
 function investorPct(
   investorBrokerName: string,
 ): Pick<InvestorEntryForm, "pctTrader" | "pctMinBun" | "pctBrokerI" | "pctBrokerII"> {
@@ -97,6 +99,8 @@ function getJalur(inv: Investor): InvestorJalur {
 const initialForm = (): TrxFormData => ({
   date: "",
   description: "30 hari",
+  endDate: "",
+  isAutorenewal: false,
   hpp: "",
   kebutuhanModal: "",
   investorEntries: [emptyEntry()],
@@ -143,35 +147,46 @@ function statusVariant(status: TransaksiStatus): string {
   }
 }
 
-// Ambil jumlah hari periode dari teks "Periode" (mis. "30 hari"), default 30.
 function parsePeriodeDays(desc: string): number {
   const m = /\d+/.exec(desc || "");
   const n = m ? Number.parseInt(m[0], 10) : 30;
   return n > 0 ? n : 30;
 }
 
-// Sisa hari sampai periode berakhir = (tanggal + periode) − hari ini.
 function sisaHari(t: { date: string; description: string }): number {
+  if (!t.date) return 0;
   const days    = parsePeriodeDays(t.description);
-  const elapsed = (Date.now() - new Date(t.date).getTime()) / 86_400_000;
-  return Math.ceil(days - elapsed);
+  const [y, m, d] = t.date.slice(0, 10).split("-").map(Number);
+  const endMs = Date.UTC(y, m - 1, d + days);
+  const now = new Date();
+  const todayMs = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.ceil((endMs - todayMs) / 86_400_000);
 }
 
-// ─────────────────────────────────────────────
-// BUG FIX: Helper penentuan Display Status
-// ─────────────────────────────────────────────
+function endDatePks(mou: MoU) {
+  if (mou.endDate) return mou.endDate.slice(0, 10);
+  const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + (mou.contractPeriod * (mou.siklus ?? 1)))).toISOString().slice(0, 10);
+}
+
+function sisaHariPks(mou: MoU): number {
+  if (!mou.date) return 0;
+  const endStr = endDatePks(mou);
+  const now = new Date();
+  const todayMs = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const [ey, em, ed] = endStr.split("-").map(Number);
+  const endMs = Date.UTC(ey, em - 1, ed);
+  return Math.round((endMs - todayMs) / 86_400_000);
+}
+
 function getDisplayStatus(t: Transaksi): TransaksiStatus {
   const base = effectiveStatus(t);
-  // Jika transaksi masih berjalan tapi periodenya lewat (< 0), otomatis status jadi "selesai"
   if (base === "berjalan" && sisaHari(t) < 0) {
     return "selesai";
   }
   return base;
 }
 
-// ─────────────────────────────────────────────
-// Helper Teks untuk Menghindari Nested Ternary
-// ─────────────────────────────────────────────
 function getSisaHariText(s: number) {
   if (s > 0) return `Sisa ${s} hari`;
   if (s === 0) return "Hari terakhir";
@@ -196,7 +211,6 @@ function getSelisihStatusColor(s: number) {
   return "text-orange-500";
 }
 
-// Read-only preview box
 function Preview({ label, value, color }: Readonly<{ label: string; value: string; color?: string }>) {
   return (
     <div className="space-y-1.5">
@@ -336,7 +350,7 @@ function TrxFormFields({
       ),
     }));
   };
-  const set = (k: keyof Omit<TrxFormData, "investorEntries">, v: string) =>
+  const set = (k: keyof Omit<TrxFormData, "investorEntries">, v: string | boolean) =>
     setFormData({ ...formData, [k]: v });
 
   const overLimitEntries = useMemo(() => {
@@ -415,27 +429,48 @@ function TrxFormFields({
 
   return (
     <form onSubmit={handleFormSubmit} className="flex flex-col gap-0">
-      <div className="overflow-y-auto max-h-[62vh] pr-2 space-y-5">
-        {/* Info Pengiriman */}
+      <div className="overflow-y-auto max-h-[65vh] pr-2 space-y-5">
+        {/* Info Pengiriman & Autorenewal */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Informasi Pengiriman
           </p>
           <div className="space-y-1.5">
             <Label className="text-xs">ID Transaksi</Label>
-            <div className="px-3 py-2 bg-muted rounded-md text-sm font-mono text-muted-foreground">
-              {previewId}
+            <div className="px-3 py-2 bg-muted rounded-md text-sm font-mono text-muted-foreground flex items-center justify-between">
+              <span>{previewId}</span>
+              {formData.isAutorenewal && <span className="text-[10px] text-blue-500 font-medium tracking-wide">(Autorenewal Aktif)</span>}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="trx-date" className="text-xs">Tanggal <span className="text-destructive">*</span></Label>
+              <Label htmlFor="trx-date" className="text-xs">Tanggal Mulai <span className="text-destructive">*</span></Label>
               <Input id="trx-date" type="date" value={formData.date} onChange={(e) => set("date", e.target.value)} required />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="trx-desc" className="text-xs">Periode</Label>
               <Input id="trx-desc" value={formData.description} onChange={(e) => set("description", e.target.value)} placeholder="30 hari" />
             </div>
+          </div>
+          
+          {/* Box Autorenewal */}
+          <div className="flex flex-col gap-3 p-3 bg-muted/40 border border-border rounded-md mt-2">
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <Checkbox checked={formData.isAutorenewal} onCheckedChange={(c) => set("isAutorenewal", !!c)} />
+              <div className="space-y-0.5">
+                <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">Autorenewal Transaksi</span>
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                  Sistem akan otomatis menggandakan transaksi ini untuk bulan depan sesaat setelah transaksi ini dilunasi.
+                </p>
+              </div>
+            </label>
+            {formData.isAutorenewal && (
+              <div className="space-y-1.5 pt-3 mt-1 border-t border-border/60">
+                <Label htmlFor="trx-end-date" className="text-xs">Tanggal Berakhir (Batas Maksimal) <span className="text-destructive">*</span></Label>
+                <Input id="trx-end-date" type="date" value={formData.endDate} onChange={(e) => set("endDate", e.target.value)} required={formData.isAutorenewal} />
+                <p className="text-[10px] text-muted-foreground">Siklus Autorenewal akan otomatis berhenti / dibatalkan jika melewati batas tanggal ini.</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -515,6 +550,17 @@ function TrxFormFields({
                       const isOver    = overLimitEntries.has(mou.id);
                       const sisa      = displaySisaForPks(mou);
                       const inv       = investors.find((x) => x.id === mou.investorId);
+                      const pksSisa   = sisaHariPks(mou);
+                      
+                      let pksStatusClass: string;
+                      if (pksSisa <= 0) {
+                        pksStatusClass = 'text-red-500 font-bold';
+                      } else if (pksSisa <= 7) {
+                        pksStatusClass = 'text-orange-500';
+                      } else {
+                        pksStatusClass = 'text-muted-foreground';
+                      }
+                      
                       return (
                         <div key={mou.id} className="flex items-center gap-3">
                           <Checkbox checked={checked} onCheckedChange={() => togglePks(mou)} />
@@ -526,6 +572,9 @@ function TrxFormFields({
                                   {inv.brokerName}
                                 </span>
                               )}
+                              <span className={`text-[10px] font-medium shrink-0 ${pksStatusClass}`}>
+                                (Sisa PKS: {pksSisa <= 0 ? 'Jatuh Tempo' : `${pksSisa} hari`})
+                              </span>
                             </div>
                             <span className="text-xs text-muted-foreground truncate">{mou.investorName}</span>
                           </div>
@@ -645,17 +694,23 @@ export function TransaksiContent() {
     [visibleTransaksis],
   );
 
+  // <-- MENDUKUNG PREVIEW ID DENGAN HURUF "A" JIKA AUTORENEWAL DICENTANG
   const nextId = () => {
     const max = transaksis.reduce((m, x) => {
-      const n = Number.parseInt(x.id.replace("TRX-", "")) || 0;
+      // Hapus TRX- dan huruf dibelakangnya
+      const numStr = x.id.replace("TRX-", "").replace(/[A-Z]/gi, "");
+      const n = Number.parseInt(numStr) || 0;
       return Math.max(m, n);
     }, 0);
-    return `TRX-${String(max + 1).padStart(4, "0")}`;
+    const numStr = String(max + 1).padStart(4, "0");
+    return form.isAutorenewal ? `TRX-${numStr}A` : `TRX-${numStr}`;
   };
 
   const formToData = (f: TrxFormData, existing?: Transaksi | null): Omit<Transaksi, "id"> => ({
     date:           f.date,
     description:    f.description,
+    endDate:        f.isAutorenewal ? f.endDate : "",
+    isAutorenewal:  f.isAutorenewal,
     hpp:            Number.parseFloat(f.hpp) || 0,
     kebutuhanModal: Number.parseFloat(f.kebutuhanModal) || 0,
     investorEntries: f.investorEntries
@@ -703,7 +758,7 @@ export function TransaksiContent() {
       const data = formToData(form);
       await addTransaksi(data);
       await reconcilePksTermination(
-        data.investorEntries.map((e) => e.investorId),
+        data.investorEntries.map((e: any) => e.investorId),
         [...transaksis, { id: nextId(), ...data }],
       );
       toast.success("Transaksi berhasil disimpan");
@@ -724,7 +779,7 @@ export function TransaksiContent() {
       const data = formToData(form, selected);
       await updateTransaksi(selected.id, data);
       await reconcilePksTermination(
-        [...selected.investorEntries, ...data.investorEntries].map((e) => e.investorId),
+        [...selected.investorEntries, ...data.investorEntries].map((e: any) => e.investorId),
         transaksis.map((t) => (t.id === selected.id ? { ...t, ...data } : t)),
       );
       toast.success("Transaksi berhasil diperbarui");
@@ -741,9 +796,12 @@ export function TransaksiContent() {
   const openEdit = (t: Transaksi) => {
     setSelected(t);
     const assignedMouIds = new Set<string>();
+    const tAny = t as any;
     setForm({
       date:        t.date,
       description: t.description,
+      endDate:     tAny.endDate || "",
+      isAutorenewal: tAny.isAutorenewal || false,
       hpp:         t.hpp.toString(),
       kebutuhanModal: t.kebutuhanModal.toString(),
       investorEntries: t.investorEntries.length > 0
@@ -965,6 +1023,7 @@ export function TransaksiContent() {
                     const c = calcTransaksi(t);
                     const baseStatus = effectiveStatus(t);
                     const displayStatus = getDisplayStatus(t);
+                    const tAny = t as any;
 
                     const brokers = [...new Set(
                       t.investorEntries
@@ -991,6 +1050,11 @@ export function TransaksiContent() {
                               </div>
                             );
                           })()}
+                          {tAny.isAutorenewal && (
+                            <div className="mt-1 inline-flex items-center gap-1 text-[9px] font-medium bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded-full" title={`Berakhir: ${tAny.endDate ? formatDate(tAny.endDate) : "Tidak dibatasi"}`}>
+                              <RefreshCw className="h-2.5 w-2.5" /> Autorenewal
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">{formatRp(t.hpp)}</td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">{formatQty(c.qty)}</td>

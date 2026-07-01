@@ -6,7 +6,13 @@ import nodemailer from "nodemailer";
 import { todayWibStr } from "@/lib/utils";
 
 function pbEsc(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const backslash = String.fromCodePoint(92);
+  const escapedBackslash = String.fromCodePoint(92, 92);
+  const escapedQuote = backslash + '"';
+
+  return value
+    .replaceAll(backslash, escapedBackslash)
+    .replaceAll('"', escapedQuote);
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -56,10 +62,137 @@ function diffDays(startStr: string, endStr: string): number {
   return Math.round((endMs - startMs) / 86_400_000);
 }
 
+function parsePeriodeDays(desc: string): number {
+  const m = /\d+/.exec(desc || "");
+  const n = m ? Number.parseInt(m[0], 10) : 30;
+  return n > 0 ? n : 30;
+}
+
 function endDatePks(mou: any) {
   const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
   const totalDays = (mou.contractPeriod || 30) * (mou.siklus || 1);
   return new Date(Date.UTC(y, m - 1, d + totalDays)).toISOString().slice(0, 10);
+}
+
+// ─── Core Logic Autorenewal Transaksi ─────────────────────────────────────────
+
+async function processAutorenewals(pb: PocketBase) {
+  const today = todayWibStr();
+  
+  // Cari semua transaksi lunas yang masih menuntut autorenewal
+  const renewingTrxs = await pb.collection("transaksis").getFullList<any>({
+    filter: "isAutorenewal = true && bagiHasilDone = true",
+    sort: "created",
+  });
+
+  for (const old of renewingTrxs) {
+    try {
+      // 1. Cek apakah sudah melewati Batas Tanggal Akhir
+      const isExpired = old.endDate && diffDays(today, old.endDate.slice(0, 10)) < 0;
+
+      if (isExpired) {
+        await pb.collection("transaksis").update(old.id, {
+          isAutorenewal: false,
+          catatanAkhir: old.catatanAkhir 
+            ? `${old.catatanAkhir}\n[Sistem] Autorenewal dihentikan karena melewati Tanggal Akhir.` 
+            : "[Sistem] Autorenewal dihentikan karena melewati Tanggal Akhir."
+        });
+        continue;
+      }
+
+      // 2. Generate ID Transaksi baru (Kenaikan Suffix Alphabet A -> B -> C)
+      const oldCustomId = old.customId || old.id;
+      let newCustomId = "";
+      
+      const match = oldCustomId.match(/^(TRX-\d+)([A-Z]*)$/i);
+      if (match) {
+        const base = match[1]; // contoh: "TRX-0001"
+        const suffix = match[2].toUpperCase(); // contoh: "A" atau ""
+        
+        if (!suffix) {
+          // Jika aslinya hanya "TRX-0001", otomatis menjadi "TRX-0001B" (Siklus 2)
+          newCustomId = base + "B"; 
+        } else {
+          // Increment huruf (A -> B, Z -> AA)
+          let newSuffix = "";
+          let carry = true;
+          for (let i = suffix.length - 1; i >= 0; i--) {
+            if (carry) {
+              const charCode = suffix.charCodeAt(i);
+              if (charCode === 90) { // huruf 'Z'
+                newSuffix = "A" + newSuffix;
+                carry = true;
+              } else {
+                newSuffix = String.fromCharCode(charCode + 1) + newSuffix;
+                carry = false;
+              }
+            } else {
+              newSuffix = suffix[i] + newSuffix;
+            }
+          }
+          if (carry) newSuffix = "A" + newSuffix;
+          newCustomId = base + newSuffix;
+        }
+      } else {
+        // Fallback aman jika formatnya tidak dikenali
+        newCustomId = oldCustomId + "B"; 
+      }
+
+      // 3. Kalkulasi Tanggal Siklus Baru (Murni Matematika +Periode Hari)
+      const period = parsePeriodeDays(old.description);
+      const [y, m, d] = (old.date as string).slice(0, 10).split("-").map(Number);
+      const nextDate = new Date(Date.UTC(y, m - 1, d + period)).toISOString().slice(0, 10);
+
+      // 4. Ambil data investor dari transaksi lama
+      const oldInvestors = await pb.collection("transaksi_investors").getFullList<any>({
+        filter: `transaksiId = "${pbEsc(old.id)}"`
+      });
+
+      // 5. Eksekusi Pembuatan Transaksi Baru (Semua value tetap dipertahankan)
+      const newTrx = await pb.collection("transaksis").create({
+        customId: newCustomId,
+        date: nextDate,
+        description: old.description,
+        endDate: old.endDate,
+        isAutorenewal: true,
+        hpp: old.hpp,
+        kebutuhanModal: old.kebutuhanModal,
+        ongkirPerKg: old.ongkirPerKg,
+        hargaJual: old.hargaJual, // TETAP MENGGUNAKAN HARGA JUAL ASLI
+        status: "berjalan",
+        bagiHasilDone: false,
+        bagiHasilChecks: {},
+        catatanAkhir: `[Sistem] Transaksi autorenewal lanjutan dari ${oldCustomId}`
+      });
+
+      // 6. Duplikasi Partisipasi Investor
+      for (const inv of oldInvestors) {
+         await pb.collection("transaksi_investors").create({
+            transaksiId: newTrx.id,
+            investorId: inv.investorId,
+            mouId: inv.mouId,
+            investorName: inv.investorName,
+            investorBrokerName: inv.investorBrokerName,
+            nilaiInvestasi: inv.nilaiInvestasi,
+            pctTrader: inv.pctTrader,
+            pctMinBun: inv.pctMinBun,
+            pctBrokerI: inv.pctBrokerI,
+            pctBrokerII: inv.pctBrokerII
+         });
+      }
+
+      // 7. Matikan isAutorenewal di transaksi lama dan catat jejak auditnya
+      await pb.collection("transaksis").update(old.id, {
+        isAutorenewal: false,
+        catatanAkhir: old.catatanAkhir 
+          ? `${old.catatanAkhir}\n[Sistem] Autorenewal siklus berikutnya sukses dibuat di ${newCustomId}` 
+          : `[Sistem] Autorenewal siklus berikutnya sukses dibuat di ${newCustomId}`
+      });
+
+    } catch (error) {
+      console.error(`[Autorenewal] Gagal memproses kloning TRX ${old.id}:`, error);
+    }
+  }
 }
 
 // ─── Core Logic Pencarian Tagihan ─────────────────────────────────────────────
@@ -292,6 +425,9 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
   }
 
   try {
+    // ── EKSEKUSI AUTORENEWAL TRANSAKSI SEBELUM MENCARI TAGIHAN ──
+    await processAutorenewals(pb);
+
     const allPending = await findPendingTasks(pb);
 
     if (allPending.length === 0) {
