@@ -12,7 +12,6 @@ import { useSettings } from "@/lib/settings-context";
 import { useReminderLogs, type ReminderLog } from "@/lib/reminder-logs-context";
 import pb from "@/lib/pocketbase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -43,6 +42,7 @@ import {
   Save,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Send,
   RefreshCw,
   Mail,
@@ -50,7 +50,7 @@ import {
   Clock,
   ShieldCheck,
   Upload,
-  FileCheck,
+  XCircle,
 } from "lucide-react";
 
 // ── Helpers Umum ─────────────────────────────────────────────────────────────
@@ -73,7 +73,6 @@ function formatCurrency(n: number) {
 
 // ── Helpers Hitungan Mundur Hari (Standardisasi Kalender Murni) ──────────────
 
-// Helper untuk mendapat selisih hari murni dari string YYYY-MM-DD
 function diffDays(startStr: string, endStr: string): number {
   const [sy, sm, sd] = startStr.slice(0, 10).split("-").map(Number);
   const [ey, em, ed] = endStr.slice(0, 10).split("-").map(Number);
@@ -83,12 +82,11 @@ function diffDays(startStr: string, endStr: string): number {
 }
 
 function parsePeriodeDays(desc: string): number {
-  const m = /\d+/.exec(desc);
+  const m = /\d+/.exec(desc ?? "");
   const n = m ? Number.parseInt(m[0], 10) : 30;
   return n > 0 ? n : 30;
 }
 
-// Sisa Hari untuk Transaksi (otomatis +periode hari dari tanggal mulai)
 function sisaHari(t: { date: string; description: string }): number {
   if (!t.date) return 0;
   const days = parsePeriodeDays(t.description);
@@ -99,7 +97,6 @@ function sisaHari(t: { date: string; description: string }): number {
   return diffDays(todayWibStr(), endStr);
 }
 
-// Jatuh Tempo PKS (MURNI MATEMATIS MENGABAIKAN INPUT MANUAL AGAR SINKRON DENGAN TRANSAKSI)
 function endDatePks(mou: MoU) {
   const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
   const totalDays = (mou.contractPeriod || 30) * (mou.siklus || 1);
@@ -286,6 +283,7 @@ function buildTransaksiRows(
 type EntitySummaryItem = {
   sourceId: string; 
   type: "Bagi Hasil" | "Pengembalian Modal";
+  keterangan: string; // Detail peran (Investor, Broker, dll)
   trx?: Transaksi;
   mou?: MoU;
   jumlah: number;
@@ -296,14 +294,16 @@ type EntitySummaryItem = {
 };
 
 type ProcessedEntity = {
-  id: string; 
+  id: string; // Kombinasi murni nama/investorId + SISA HARI
   nama: string;
-  keterangan: PaymentRow["keterangan"];
   bankName: string;
   accountNumber: string;
   investorId?: string;
+  roles: string[]; 
   filteredItems: EntitySummaryItem[];
   totalAmount: number;
+  isInternal: boolean;
+  sisaTarget: number; // Target jatuh tempo grup ini
 };
 
 function ChannelBadge({ status, icon }: Readonly<{ status: string; icon: React.ReactNode }>) {
@@ -332,6 +332,93 @@ type ProcessInternalEntityParams = {
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 };
 
+async function processInternalBagiHasilItem({
+  item,
+  entity,
+  mous,
+  investors,
+  brokers,
+  minbun,
+  trader,
+  cashflowTagRecordedFn,
+  addPengeluaranFn,
+  updateTransaksiFn,
+  setDoneKeysFn,
+  today,
+}: {
+  item: ProcessedEntity["filteredItems"][number];
+  entity: ProcessedEntity;
+  mous: MoU[];
+  investors: Investor[];
+  brokers: Broker[];
+  minbun: AccountInfo;
+  trader: AccountInfo;
+  cashflowTagRecordedFn: (tag: string) => boolean;
+  addPengeluaranFn: (p: any) => Promise<void>;
+  updateTransaksiFn: (id: string, data: any) => Promise<void>;
+  setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
+  today: string;
+}) {
+  const trx = item.trx!;
+  const trxId = trx.id;
+  const isMinBun = item.keterangan === "MinBun";
+  const tag = isMinBun
+    ? `[Reminder] TRX ${trxId} · MinBun`
+    : `[Internal-Profit:${entity.investorId}:${trxId}]`;
+
+  if (!cashflowTagRecordedFn(tag)) {
+    await addPengeluaranFn({
+      date: today,
+      deskripsi: isMinBun ? `Bagi Hasil MinBun — TRX ${trxId}` : `Profit Internal — ${entity.nama} — TRX ${trxId}`,
+      debet: item.jumlah,
+      kredit: 0,
+      kategori: isMinBun ? "Fee MinBun" : "BagHas Modal MinBun",
+      catatan: tag,
+    });
+  }
+
+  const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
+  const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+  const allDone = allRows.every((r) => checks[r.checkKey]);
+
+  await updateTransaksiFn(trxId, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+  setDoneKeysFn((prev) => new Set(prev).add(`${trxId}__${item.checkKey}`));
+}
+
+async function processInternalPengembalianModalItem({
+  item,
+  entity,
+  today,
+  cashflowTagRecordedFn,
+  addPengeluaranFn,
+  updateMouFn,
+  setDoneKeysFn,
+}: {
+  item: ProcessedEntity["filteredItems"][number];
+  entity: ProcessedEntity;
+  today: string;
+  cashflowTagRecordedFn: (tag: string) => boolean;
+  addPengeluaranFn: (p: any) => Promise<void>;
+  updateMouFn: (id: string, data: any) => Promise<void>;
+  setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
+}) {
+  const tag = `[Internal-Return:${entity.investorId}:${item.mou!.id}]`;
+
+  if (!cashflowTagRecordedFn(tag)) {
+    await addPengeluaranFn({
+      date: today,
+      deskripsi: `Pengembalian Modal Internal — ${entity.nama} — PKS ${item.mou!.id}`,
+      debet: item.jumlah,
+      kredit: 0,
+      kategori: "Pengembalian Modal",
+      catatan: tag,
+    });
+  }
+
+  await updateMouFn(item.mou!.id, { isTerminated: true });
+  setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
+}
+
 async function processInternalEntity({
   entity,
   mous,
@@ -346,60 +433,43 @@ async function processInternalEntity({
   setDoneKeysFn,
 }: ProcessInternalEntityParams) {
   const today = todayWibStr();
-  const isMinBun = entity.keterangan === "MinBun";
-  async function handleBagiHasil(item: EntitySummaryItem) {
-    if (!item.trx) return;
-    const trx = item.trx;
-    const trxId = trx.id;
-    const tag = isMinBun
-      ? `[Reminder] TRX ${trxId} · MinBun`
-      : `[Internal-Profit:${entity.investorId}:${trxId}]`;
-
-    if (!cashflowTagRecordedFn(tag)) {
-      await addPengeluaranFn({
-        date: today,
-        deskripsi: isMinBun ? `Bagi Hasil MinBun — TRX ${item.trx.id}` : `Profit Internal — ${entity.nama} — TRX ${item.trx.id}`,
-        debet: item.jumlah,
-        kredit: 0,
-        kategori: isMinBun ? "Fee MinBun" : "BagHas Modal MinBun",
-        catatan: tag,
-      });
-    }
-
-    const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
-    const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
-    const allDone = allRows.every((r) => checks[r.checkKey]);
-
-    await updateTransaksiFn(trxId, { bagiHasilChecks: checks, bagiHasilDone: allDone });
-    setDoneKeysFn((prev) => new Set(prev).add(`${trxId}__${item.checkKey}`));
-  }
-
-  async function handlePengembalianModal(item: EntitySummaryItem) {
-    if (!item.mou) return;
-    const tag = `[Internal-Return:${entity.investorId}:${item.mou.id}]`;
-    if (!cashflowTagRecordedFn(tag)) {
-      await addPengeluaranFn({
-        date: today,
-        deskripsi: `Pengembalian Modal Internal — ${entity.nama} — PKS ${item.mou.id}`,
-        debet: item.jumlah,
-        kredit: 0,
-        kategori: "Pengembalian Modal",
-        catatan: tag,
-      });
-    }
-    await updateMouFn(item.mou.id, { isTerminated: true });
-    setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
-  }
 
   for (const item of entity.filteredItems) {
-    if (item.type === "Bagi Hasil") await handleBagiHasil(item);
-    else if (item.type === "Pengembalian Modal") await handlePengembalianModal(item);
+    if (item.type === "Bagi Hasil" && item.trx) {
+      await processInternalBagiHasilItem({
+        item,
+        entity,
+        mous,
+        investors,
+        brokers,
+        minbun,
+        trader,
+        cashflowTagRecordedFn,
+        addPengeluaranFn,
+        updateTransaksiFn,
+        setDoneKeysFn,
+        today,
+      });
+      continue;
+    }
+
+    if (item.type === "Pengembalian Modal" && item.mou) {
+      await processInternalPengembalianModalItem({
+        item,
+        entity,
+        today,
+        cashflowTagRecordedFn,
+        addPengeluaranFn,
+        updateMouFn,
+        setDoneKeysFn,
+      });
+    }
   }
 }
 
 type ProcessUploadEntityParams = {
   entity: ProcessedEntity;
-  uploadFile: File | null;
+  uploadFiles: File[];
   mous: MoU[];
   investors: Investor[];
   brokers: Broker[];
@@ -412,50 +482,12 @@ type ProcessUploadEntityParams = {
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 };
 
-async function uploadBuktiIfNeeded(
-  item: EntitySummaryItem,
-  entity: ProcessedEntity,
-  uploadFile: File | null,
-  uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>,
-  uploadBuktiPengembalianFn?: (mouId: string, file: File) => Promise<string>
-) {
-  if (!uploadFile) return "";
-  if (item.type === "Pengembalian Modal" && item.mou && uploadBuktiPengembalianFn) {
-    return uploadBuktiPengembalianFn(item.mou.id, uploadFile);
-  }
-  if (item.trx) {
-    return uploadBuktiTransaksiFn(item.trx.id, entity.keterangan, uploadFile);
-  }
-  return "";
-}
-
-async function notifyInvestorIfNeeded(
-  item: EntitySummaryItem,
-  entity: ProcessedEntity,
-  buktiUrl: string,
-) {
-  if (entity.keterangan !== "Investor" && entity.keterangan !== "Pengembalian Modal") return;
-  if (!entity.investorId) return;
-
-  await fetch("/api/notify-investor", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${pb.authStore.token}`,
-    },
-    body: JSON.stringify({
-      transaksiId: item.sourceId,
-      keterangan: item.type,
-      investorId: entity.investorId,
-      jumlah: item.jumlah,
-      buktiUrl,
-    }),
-  }).catch((err) => console.error("Gagal panggil API WA:", err));
-}
+// Single item type from ProcessedEntity.filteredItems
+type ProcessedItem = ProcessedEntity["filteredItems"][number];
 
 async function processUploadEntity({
   entity,
-  uploadFile,
+  uploadFiles,
   mous,
   investors,
   brokers,
@@ -467,32 +499,69 @@ async function processUploadEntity({
   updateMouFn,
   setDoneKeysFn,
 }: ProcessUploadEntityParams) {
-  for (const item of entity.filteredItems) {
-    if (item.type === "Bagi Hasil" && item.trx) {
-      const trx = item.trx;
-      const buktiUrl = await uploadBuktiIfNeeded(item, entity, uploadFile, uploadBuktiTransaksiFn, uploadBuktiPengembalianFn);
+  
+  const fileUrls: string[] = [];
+  const validFiles = uploadFiles.filter(Boolean);
 
-      const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
-      const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+  // Proses semua file secara bergantian ke item transaksi/mou agar tidak menimpa satu field di PB
+  const uploadForItem = async (item: ProcessedItem, file?: File) => {
+    if (!file) return;
+    let url = "";
+    if (item.type === "Pengembalian Modal" && item.mou && uploadBuktiPengembalianFn) {
+      url = await uploadBuktiPengembalianFn(item.mou.id, file);
+    } else if (item.trx) {
+      url = await uploadBuktiTransaksiFn(item.trx.id, item.keterangan, file);
+    }
+    if (url) fileUrls.push(url);
+  };
+
+  const markDoneForItem = async (item: ProcessedItem) => {
+    if (item.type === "Bagi Hasil" && item.trx) {
+      const checks = { ...item.trx.bagiHasilChecks, [item.checkKey]: true };
+      const allRows = buildTransaksiRows(item.trx, mous, investors, brokers, minbun, trader);
       const allDone = allRows.every((r) => checks[r.checkKey]);
 
-      await updateTransaksiFn(trx.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
-      setDoneKeysFn((prev) => new Set(prev).add(`${trx.id}__${item.checkKey}`));
-
-      await notifyInvestorIfNeeded(item, entity, buktiUrl);
+      await updateTransaksiFn(item.trx.id, { bagiHasilChecks: checks, bagiHasilDone: allDone });
+      setDoneKeysFn((prev) => {
+        const next = new Set(prev);
+        if (item.trx) next.add(`${item.trx.id}__${item.checkKey}`);
+        return next;
+      });
+      return;
     }
-    else if (item.type === "Pengembalian Modal" && item.mou) {
-      const buktiUrl = await uploadBuktiIfNeeded(item, entity, uploadFile, uploadBuktiTransaksiFn, uploadBuktiPengembalianFn);
+
+    if (item.type === "Pengembalian Modal" && item.mou) {
       await updateMouFn(item.mou.id, { isTerminated: true });
       setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
-
-      await notifyInvestorIfNeeded(item, entity, buktiUrl);
     }
-  }
-}
+  };
 
-function isBulkEntityInternal(entity: ProcessedEntity, internalInvestorIds: Set<string>) {
-  return entity.keterangan === "MinBun" || (entity.keterangan === "Investor" && !!entity.investorId && internalInvestorIds.has(entity.investorId));
+  for (let i = 0; i < entity.filteredItems.length; i++) {
+    const item = entity.filteredItems[i];
+    const fileToUpload = validFiles[i % validFiles.length];
+    await uploadForItem(item, fileToUpload);
+    await markDoneForItem(item);
+  }
+
+  // Gabungkan semua URL yang berhasil diupload menjadi 1 string untuk notifikasi WA
+  const combinedUrls = Array.from(new Set(fileUrls)).join(",");
+  
+  if (entity.investorId) {
+    await fetch("/api/notify-investor", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${pb.authStore.token}`,
+      },
+      body: JSON.stringify({
+        transaksiId: entity.filteredItems.map(i => i.sourceId).join(", "),
+        keterangan: entity.roles.join(" & "),
+        investorId: entity.investorId,
+        jumlah: entity.totalAmount,
+        buktiUrl: combinedUrls,
+      }),
+    }).catch((err) => console.error("Gagal panggil API WA:", err));
+  }
 }
 
 function getBulkActionTooltipText(showDone: boolean, isInternal: boolean) {
@@ -501,97 +570,140 @@ function getBulkActionTooltipText(showDone: boolean, isInternal: boolean) {
   return "Upload Bukti & Tandai Selesai";
 }
 
+// ── Komponen Baris Tabel Kolaps (Accordion Row) ──────────────────────────────
+
 function EntityRow({
   ent,
   toggling,
-  internalInvestorIds,
   showDone,
   handleActionClick,
-  keteranganColor,
+  expandedRows,
+  toggleExpand,
 }: Readonly<{
   ent: ProcessedEntity;
   toggling: string | null;
-  internalInvestorIds: Set<string>;
   showDone: boolean;
   handleActionClick: (e: ProcessedEntity) => void;
-  keteranganColor: Record<PaymentRow["keterangan"], string>;
+  expandedRows: Set<string>;
+  toggleExpand: (id: string) => void;
 }>) {
   const isLoading = toggling === ent.id;
-  const isInternal = isBulkEntityInternal(ent, internalInvestorIds);
-  const tooltipText = getBulkActionTooltipText(showDone, isInternal);
-  const hasDue = ent.filteredItems.some(i => i.sisa <= 0); 
+  const isExpanded = expandedRows.has(ent.id);
+  const tooltipText = getBulkActionTooltipText(showDone, ent.isInternal);
+  const hasDue = ent.sisaTarget <= 0; 
 
   return (
-    <tr key={ent.id} className="border-b border-border/50 hover:bg-muted/40 transition-colors">
-      <td className="py-3 px-3 font-medium whitespace-nowrap">{ent.nama}</td>
-      <td className="py-3 px-3 whitespace-nowrap">
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${keteranganColor[ent.keterangan]}`}>
-          {ent.keterangan}
-        </span>
-        {isInternal && (
-          <span className="inline-flex ml-1.5 items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
-            <ShieldCheck className="h-2.5 w-2.5" />Internal
-          </span>
-        )}
-      </td>
-      <td className="py-3 px-3 whitespace-nowrap">
-        <div className="text-muted-foreground">{ent.bankName}</div>
-        <div className="font-mono text-xs text-muted-foreground mt-0.5">{ent.accountNumber}</div>
-      </td>
-      <td className="py-3 px-3">
-        <div className="flex flex-col gap-1.5 max-w-[280px]">
-          {ent.filteredItems.map(i => (
-            <div key={i.sourceId} className="flex items-center gap-2">
-              <Badge variant="secondary" className="text-[10px] font-mono font-normal shrink-0">
-                {i.sourceId}
-              </Badge>
-              {!showDone && (
-                <span className={`text-[10px] ${getSisaHariColor(i.sisa)} whitespace-nowrap`}>
-                  • {getSisaHariText(i.sisa)}
-                </span>
-              )}
+    <>
+      <tr className={`border-b border-border/50 transition-colors ${isExpanded ? "bg-muted/30" : "hover:bg-muted/40"}`}>
+        <td className="py-3 px-3 whitespace-nowrap cursor-pointer select-none" onClick={() => toggleExpand(ent.id)}>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 rounded-full">
+              {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </Button>
+            <span className="font-medium">{ent.nama}</span>
+            {ent.isInternal && (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
+                <ShieldCheck className="h-2.5 w-2.5" />Internal
+              </span>
+            )}
+          </div>
+        </td>
+        <td className="py-3 px-3 cursor-pointer" onClick={() => toggleExpand(ent.id)}>
+          <div className="flex flex-wrap gap-1">
+            {ent.roles.map(r => (
+              <span key={r} className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium border bg-secondary text-secondary-foreground border-border">
+                {r}
+              </span>
+            ))}
+          </div>
+        </td>
+        <td className="py-3 px-3 whitespace-nowrap cursor-pointer" onClick={() => toggleExpand(ent.id)}>
+          <div className="text-muted-foreground">{ent.bankName}</div>
+          <div className="font-mono text-xs text-muted-foreground mt-0.5">{ent.accountNumber}</div>
+        </td>
+        <td className="py-3 px-3 cursor-pointer" onClick={() => toggleExpand(ent.id)}>
+          <div className="flex flex-col gap-0.5">
+            {showDone ? (
+              <span className="text-xs text-green-600 font-medium">Selesai</span>
+            ) : (
+              <span className={`text-xs ${getSisaHariColor(ent.sisaTarget)}`}>
+                {getSisaHariText(ent.sisaTarget)}
+              </span>
+            )}
+            <div className="text-[10px] text-muted-foreground mt-0.5 hover:underline">
+              {ent.filteredItems.length} Tagihan (Lihat Rincian)
             </div>
-          ))}
-        </div>
-      </td>
-      <td className="py-3 px-3 text-right whitespace-nowrap font-bold text-base">
-        <div className={showDone ? "text-green-600" : ""}>{formatCurrency(ent.totalAmount)}</div>
-        <div className="text-[10px] font-normal text-muted-foreground mt-0.5">
-          {ent.filteredItems.length} tagihan digabung
-        </div>
-      </td>
-      <td className="py-3 px-3 text-center">
-        <TooltipProvider delayDuration={200}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                disabled={isLoading}
-                onClick={() => handleActionClick(ent)}
-              >
-                {showDone
-                  ? <CheckCircle2 className="h-5 w-5 text-green-500" />
-                  : <Circle className={`h-5 w-5 ${hasDue ? "text-orange-500" : "text-muted-foreground"}`} />
-                }
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left" className="text-xs">
-              {tooltipText}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </td>
-    </tr>
+          </div>
+        </td>
+        <td className="py-3 px-3 text-right whitespace-nowrap cursor-pointer" onClick={() => toggleExpand(ent.id)}>
+          <div className={`font-bold text-base ${showDone ? "text-green-600" : ""}`}>{formatCurrency(ent.totalAmount)}</div>
+        </td>
+        <td className="py-3 px-3 text-center">
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 z-10"
+                  disabled={isLoading}
+                  onClick={(e) => { e.stopPropagation(); handleActionClick(ent); }}
+                >
+                  {showDone
+                    ? <CheckCircle2 className="h-5 w-5 text-green-500" />
+                    : <Circle className={`h-5 w-5 ${hasDue ? "text-orange-500" : "text-muted-foreground"}`} />
+                  }
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="text-xs">
+                {tooltipText}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </td>
+      </tr>
+      
+      {/* Expanded Rincian Data */}
+      {isExpanded && (
+        <tr className="bg-muted/10 border-b border-border/50">
+          <td colSpan={6} className="p-0">
+            <div className="px-10 py-4 pb-5 border-l-4 border-primary">
+              <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">Rincian Tagihan</h4>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b border-border/50">
+                    <th className="pb-2 font-medium">ID Referensi</th>
+                    <th className="pb-2 font-medium">Tipe / Keterangan</th>
+                    <th className="pb-2 font-medium text-right">Nominal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ent.filteredItems.map(item => (
+                    <tr key={item.sourceId + item.checkKey} className="border-b border-border/30 last:border-0 hover:bg-muted/30">
+                      <td className="py-2.5 font-mono">{item.sourceId}</td>
+                      <td className="py-2.5">
+                        <span className="font-semibold">{item.type}</span>
+                        {item.type !== item.keterangan && <span className="text-muted-foreground"> ({item.keterangan})</span>}
+                      </td>
+                      <td className="py-2.5 text-right font-medium">{formatCurrency(item.jumlah)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
+
+// ── Komponen Utama ────────────────────────────────────────────────────────────
 
 export function ReminderContent() {
   const mouContext = useMou();
   const { mous, updateMou } = mouContext;
   
-  // Safe-cast fungsi tambahan dari mou-context
   const uploadBuktiPengembalian = (mouContext as any).uploadBuktiPengembalian;
 
   const { transaksis, updateTransaksi, uploadBuktiTransaksi } = useTransaksi();
@@ -605,15 +717,16 @@ export function ReminderContent() {
   const [toggling, setToggling]          = useState<string | null>(null);
   const [showDone, setShowDone]          = useState(false);
   const [doneKeys, setDoneKeys]          = useState<Set<string>>(new Set());
+  const [expandedRows, setExpandedRows]  = useState<Set<string>>(new Set());
 
   // State dialog konfirmasi internal
   const [internalTarget,  setInternalTarget]  = useState<ProcessedEntity | null>(null);
   const [isConfirmingInt, setIsConfirmingInt] = useState(false);
 
-  // State dialog upload transfer massal
+  // State dialog upload transfer massal (>50jt multi file)
   const [uploadTarget, setUploadTarget] = useState<ProcessedEntity | null>(null);
-  const [uploadFile, setUploadFile]     = useState<File | null>(null);
-  const [uploadPreview, setUploadPreview] = useState<string>("");
+  const [uploadFiles, setUploadFiles]   = useState<File[]>([]);
+  const [uploadPreviews, setUploadPreviews] = useState<string[]>([]);
   const [isUploading, setIsUploading]   = useState(false);
 
   // State form pengaturan
@@ -631,12 +744,20 @@ export function ReminderContent() {
     [investors],
   );
 
-  // 1. Ringkasan (Summary Metrics) - Menampilkan semua (berjalan & selesai)
+  const toggleExpandRow = (id: string) => {
+    setExpandedRows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) newSet.delete(id);
+      else newSet.add(id);
+      return newSet;
+    });
+  };
+
+  // 1. Ringkasan (Summary Metrics)
   const summary = useMemo(() => {
     let investor = 0, traderAmt = 0, minbunAmt = 0, broker = 0, modalToReturn = 0;
     let totalTasks = 0, doneTasks = 0;
 
-    // A. Metrik Transaksi
     transaksis.forEach((trx) => {
       const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
       rows.forEach((r) => {
@@ -656,25 +777,33 @@ export function ReminderContent() {
       });
     });
 
-    // B. Metrik Pengembalian Modal (PKS)
     mous.forEach((mou) => {
       const isDone = mou.isTerminated || doneKeys.has(`MOU__${mou.id}`);
-      
-      // Filter dihapus: Semua PKS aktif langsung masuk hitungan summary
-      totalTasks++;
-      if (isDone) {
-        doneTasks++;
-      } else {
-        modalToReturn += mou.investmentAmount;
+      const sisa = sisaHariPks(mou);
+      if (isDone || sisa <= 0) {
+        totalTasks++;
+        if (isDone) doneTasks++;
+        else modalToReturn += mou.investmentAmount;
       }
     });
 
     return { investor, trader: traderAmt, minbun: minbunAmt, broker, modalToReturn, totalTasks, doneTasks };
   }, [transaksis, mous, investors, brokers, minbun, trader, doneKeys]);
 
-  // 2. Data Entity (Bulk Data) - Menampilkan semua (berjalan & selesai)
+  // 2. Data Entity (Bulk Data) - DIKELOMPOKKAN BERDASARKAN NAMA DAN JATUH TEMPO (SISA HARI)
   const displayEntities = useMemo(() => {
     const map = new Map<string, ProcessedEntity & { items: EntitySummaryItem[] }>();
+
+    const addToMap = (key: string, rName: string, rBank: string, rAcc: string, rInvId: string | undefined, item: EntitySummaryItem, sisaTarget: number) => {
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key, nama: rName, bankName: rBank, accountNumber: rAcc, investorId: rInvId,
+          roles: [], items: [], filteredItems: [], totalAmount: 0, 
+          isInternal: false, sisaTarget
+        });
+      }
+      map.get(key)!.items.push(item);
+    };
 
     // A. Proses dari Transaksi (Bagi Hasil)
     transaksis.forEach((trx) => {
@@ -683,18 +812,14 @@ export function ReminderContent() {
       const statusTampil = getDisplayStatus(trx);
 
       rows.forEach((r) => {
-        const key = `${r.keterangan}_${r.investorId || r.nama}`;
-        if (!map.has(key)) {
-          map.set(key, {
-            id: key, nama: r.nama, keterangan: r.keterangan, bankName: r.bankName,
-            accountNumber: r.accountNumber, investorId: r.investorId, items: [], filteredItems: [], totalAmount: 0
-          });
-        }
+        // Group Key = ID/Nama Penerima + "_" + Sisa Hari (Jatuh tempo yang sama)
+        const key = `${r.investorId || r.nama}_${sisa}`;
         const isDone = !!trx.bagiHasilChecks?.[r.checkKey] || doneKeys.has(`${trx.id}__${r.checkKey}`);
-        map.get(key)!.items.push({ 
-          sourceId: trx.id, type: "Bagi Hasil", trx, 
+        
+        addToMap(key, r.nama, r.bankName, r.accountNumber, r.investorId, {
+          sourceId: trx.id, type: "Bagi Hasil", keterangan: r.keterangan, trx, 
           jumlah: r.jumlah, checkKey: r.checkKey, isDone, sisa, statusTampil 
-        });
+        }, sisa);
       });
     });
 
@@ -703,37 +828,15 @@ export function ReminderContent() {
       const sisa = sisaHariPks(mou);
       const isDone = mou.isTerminated || doneKeys.has(`MOU__${mou.id}`);
 
+      if (!isDone && sisa > 0) return; 
+
       const inv = investors.find(i => i.id === mou.investorId);
-      const key = `Pengembalian Modal_${mou.investorId || mou.investorName}`;
+      const key = `${mou.investorId || mou.investorName}_${sisa}`;
       
-      if (!map.has(key)) {
-        map.set(key, {
-          id: key, nama: mou.investorName, keterangan: "Pengembalian Modal",
-          bankName: inv?.bankName || "—",
-          accountNumber: inv?.accountNumber || "—",
-          investorId: mou.investorId, items: [], filteredItems: [], totalAmount: 0
-        });
-      }
-
-      let statusTampil: "selesai" | "jatuh tempo" | "berjalan";
-      if (isDone) {
-        statusTampil = "selesai";
-      } else if (sisa <= 0) {
-        statusTampil = "jatuh tempo";
-      } else {
-        statusTampil = "berjalan";
-      }
-
-      map.get(key)!.items.push({
-        sourceId: mou.id,
-        type: "Pengembalian Modal",
-        mou: mou,
-        jumlah: mou.investmentAmount,
-        checkKey: `MOU__${mou.id}`,
-        isDone,
-        sisa,
-        statusTampil,
-      });
+      addToMap(key, mou.investorName, inv?.bankName || "—", inv?.accountNumber || "—", mou.investorId, {
+        sourceId: mou.id, type: "Pengembalian Modal", keterangan: "Pengembalian Modal", mou: mou,
+        jumlah: mou.investmentAmount, checkKey: `MOU__${mou.id}`, isDone, sisa, statusTampil: isDone ? "selesai" : "jatuh tempo",
+      }, sisa);
     });
 
     const result: ProcessedEntity[] = [];
@@ -741,35 +844,45 @@ export function ReminderContent() {
       const filteredItems = ent.items.filter((i) => i.isDone === showDone);
       if (filteredItems.length > 0) {
         const totalAmount = filteredItems.reduce((s, i) => s + i.jumlah, 0);
-        result.push({ ...ent, filteredItems, totalAmount });
+        const uniqueRoles = Array.from(new Set(filteredItems.map(i => i.type)));
+        const isInternal = filteredItems.some(i => i.keterangan === "MinBun" || (i.keterangan === "Investor" && ent.investorId && internalInvestorIds.has(ent.investorId)));
+        
+        result.push({ ...ent, filteredItems, totalAmount, roles: uniqueRoles, isInternal });
       }
     });
 
-    result.sort((a, b) => b.totalAmount - a.totalAmount);
+    // Urutkan berdasarkan: Jatuh tempo paling dekat (ASC), lalu Nominal paling besar (DESC)
+    result.sort((a, b) => {
+      if (a.sisaTarget !== b.sisaTarget) return a.sisaTarget - b.sisaTarget;
+      return b.totalAmount - a.totalAmount;
+    });
+    
     return result;
-  }, [transaksis, mous, investors, brokers, minbun, trader, doneKeys, showDone]);
+  }, [transaksis, mous, investors, brokers, minbun, trader, doneKeys, showDone, internalInvestorIds]);
 
-  // Handler Klik Tombol Aksi per Entitas
+  // Handlers Aksi
   const handleActionClick = (entity: ProcessedEntity) => {
     if (showDone) {
       void handleUndoBulk(entity);
       return;
     }
 
-    const isInternal = isBulkEntityInternal(entity, internalInvestorIds);
-    const setTargetFn = isInternal ? setInternalTarget : setUploadTarget;
-    setTargetFn(entity);
+    if (entity.isInternal) {
+      setInternalTarget(entity);
+    } else {
+      setUploadTarget(entity);
+    }
   };
 
-  // ── Fungsi Pembatalan ──
   const handleUndoBulk = async (entity: ProcessedEntity) => {
     setToggling(entity.id);
     try {
       for (const item of entity.filteredItems) {
         if (item.type === "Bagi Hasil" && item.trx) {
           const checks = { ...item.trx.bagiHasilChecks, [item.checkKey]: false };
-          await updateTransaksi(item.trx.id, { bagiHasilChecks: checks, bagiHasilDone: false });
-          setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${item.trx!.id}__${item.checkKey}`); return s; });
+          const trxId = item.trx.id;
+          await updateTransaksi(trxId, { bagiHasilChecks: checks, bagiHasilDone: false });
+          setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trxId}__${item.checkKey}`); return s; });
         } else if (item.type === "Pengembalian Modal" && item.mou) {
           await updateMou(item.mou.id, { isTerminated: false });
           setDoneKeys((prev) => { const s = new Set(prev); s.delete(item.checkKey); return s; });
@@ -785,7 +898,6 @@ export function ReminderContent() {
 
   const cashflowTagRecorded = (tag: string) => pengeluarans.some((p) => p.catatan === tag);
 
-  // ── Fungsi Simpan Internal (Tanpa Upload) ──
   const handleConfirmInternal = async () => {
     if (!internalTarget) return;
     setIsConfirmingInt(true);
@@ -815,25 +927,33 @@ export function ReminderContent() {
     }
   };
 
-  // ── File Handler ──
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setUploadFile(file);
-      if (file.type.startsWith("image/")) {
-        const reader = new FileReader();
-        reader.onload = (ev) => setUploadPreview(ev.target?.result as string);
-        reader.readAsDataURL(file);
-      } else {
-        setUploadPreview("");
-      }
-    } else {
-      setUploadFile(null);
-      setUploadPreview("");
+  // MULTIPLE FILE UPLOAD HANDLERS
+  const handleFileChangeMulti = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files);
+      setUploadFiles((prev) => [...prev, ...newFiles]);
+      
+      const newPreviews = newFiles.map(f => {
+        if (f.type.startsWith("image/")) return URL.createObjectURL(f);
+        return "📄 Dokumen PDF";
+      });
+      setUploadPreviews((prev) => [...prev, ...newPreviews]);
     }
+    // reset input agar bisa memilih file yang sama berulang kali
+    e.target.value = '';
   };
 
-  // ── Fungsi Simpan Massal (Eksternal + Upload Bukti + WA) ──
+  const removeUploadFile = (idx: number) => {
+    setUploadFiles(prev => prev.filter((_, i) => i !== idx));
+    setUploadPreviews(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const clearUploadDialog = () => {
+    setUploadTarget(null);
+    setUploadFiles([]);
+    setUploadPreviews([]);
+  };
+
   const handleConfirmUpload = async () => {
     if (!uploadTarget) return;
     setIsUploading(true);
@@ -841,7 +961,7 @@ export function ReminderContent() {
     try {
       await processUploadEntity({
         entity: uploadTarget,
-        uploadFile,
+        uploadFiles,
         mous,
         investors,
         brokers,
@@ -855,23 +975,13 @@ export function ReminderContent() {
       });
 
       toast.success(`Pembayaran massal untuk ${uploadTarget.nama} berhasil diselesaikan.`);
-      setUploadTarget(null);
-      setUploadFile(null);
-      setUploadPreview("");
+      clearUploadDialog();
     } catch {
       toast.error("Gagal menyimpan pembayaran. Coba lagi.");
     } finally {
       setIsUploading(false);
       setToggling(null);
     }
-  };
-
-  const keteranganColor: Record<PaymentRow["keterangan"], string> = {
-    Investor: "bg-orange-100 text-orange-700 border-orange-200",
-    Broker:   "bg-blue-100 text-blue-700 border-blue-200",
-    Trader:   "bg-purple-100 text-purple-700 border-purple-200",
-    MinBun:   "bg-green-100 text-green-700 border-green-200",
-    "Pengembalian Modal": "bg-rose-100 text-rose-700 border-rose-200",
   };
 
   const handleSaveMinbun = async () => {
@@ -897,15 +1007,10 @@ export function ReminderContent() {
     try {
       const response = await fetch("/api/send-reminder", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${pb.authStore.token}`,
-        },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${pb.authStore.token}` },
       });
 
-      if (!response.ok) {
-        throw new Error("Gagal mengirim reminder");
-      }
+      if (!response.ok) throw new Error("Gagal mengirim reminder");
 
       const data = await response.json();
       toast.success(buildReminderSuccessMessage(data));
@@ -989,7 +1094,7 @@ export function ReminderContent() {
       <Card>
         <CardHeader className="pb-0">
           <div className="flex items-center justify-between gap-4 flex-wrap">
-            <CardTitle className="text-base">Tugas Bagi Hasil Harian</CardTitle>
+            <CardTitle className="text-base">Tugas Transfer Harian</CardTitle>
 
             <div className="flex items-center rounded-lg border border-border bg-muted/40 p-0.5 text-sm">
               <button
@@ -1022,11 +1127,11 @@ export function ReminderContent() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Penerima</th>
-                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Peran</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap w-1/4">Penerima Tagihan</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Komponen Peran</th>
                     <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Rekening Tujuan</th>
-                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground">Daftar Transaksi</th>
-                    <th className="text-right  py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Total Tagihan</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground">Jatuh Tempo & Rincian</th>
+                    <th className="text-right  py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Total Transfer</th>
                     <th className="text-center py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Aksi</th>
                   </tr>
                 </thead>
@@ -1036,15 +1141,15 @@ export function ReminderContent() {
                       key={ent.id}
                       ent={ent}
                       toggling={toggling}
-                      internalInvestorIds={internalInvestorIds}
                       showDone={showDone}
                       handleActionClick={handleActionClick}
-                      keteranganColor={keteranganColor}
+                      expandedRows={expandedRows}
+                      toggleExpand={toggleExpandRow}
                     />
                   ))}
-                  <tr className="bg-muted/20">
-                    <td colSpan={4} className="py-2.5 px-3 text-right text-xs font-medium text-muted-foreground">Total Keseluruhan</td>
-                    <td className="py-2.5 px-3 text-right whitespace-nowrap font-bold text-base">
+                  <tr className="bg-muted/20 border-t-2 border-border">
+                    <td colSpan={4} className="py-3 px-3 text-right text-xs font-semibold text-muted-foreground">Total Keseluruhan</td>
+                    <td className="py-3 px-3 text-right whitespace-nowrap font-bold text-base">
                       {formatCurrency(displayEntities.reduce((sum, e) => sum + e.totalAmount, 0))}
                     </td>
                     <td />
@@ -1056,67 +1161,73 @@ export function ReminderContent() {
         </CardContent>
       </Card>
 
-      {/* ── Dialog Upload Transfer Massal (Bulk Transfer) ── */}
-      <Dialog open={!!uploadTarget} onOpenChange={(o) => { if (!o) { setUploadTarget(null); setUploadFile(null); setUploadPreview(""); }}}>
+      {/* ── Dialog Upload Transfer Massal (Bulk Transfer >50Jt Support) ── */}
+      <Dialog open={!!uploadTarget} onOpenChange={(o) => !o && clearUploadDialog()}>
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
             <DialogTitle>Selesaikan Pembayaran</DialogTitle>
             <DialogDescription>
-              Upload satu bukti transfer untuk melunasi {uploadTarget?.filteredItems.length} tagihan atas nama <strong>{uploadTarget?.nama}</strong>.
+              Silakan lakukan transfer ke <strong>{uploadTarget?.nama}</strong> sebesar <strong className="text-orange-600">{formatCurrency(uploadTarget?.totalAmount || 0)}</strong>.
             </DialogDescription>
           </DialogHeader>
 
           {uploadTarget && (
             <div className="space-y-4 py-2">
+              {/* Rincian Singkat */}
               <div className="rounded-lg border bg-muted/20 p-3 text-sm">
-                <p className="font-semibold text-muted-foreground mb-2">Rincian Tagihan:</p>
-                <ul className="space-y-1.5 mb-3 max-h-[140px] overflow-y-auto pr-2">
-                  {uploadTarget.filteredItems.map(i => (
-                    <li key={i.sourceId} className="flex justify-between items-center text-xs border-b border-border/50 pb-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono">{i.sourceId}</span>
-                        <span className={`text-[10px] ${getSisaHariColor(i.sisa)}`}>
-                          ({getSisaHariText(i.sisa)})
-                        </span>
-                      </div>
-                      <span>{formatCurrency(i.jumlah)}</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="flex justify-between items-center font-bold text-base pt-1">
-                  <span>Total Transfer</span>
-                  <span className="text-orange-600">{formatCurrency(uploadTarget.totalAmount)}</span>
+                <div className="flex justify-between items-center text-muted-foreground mb-1">
+                  <span>No Rekening:</span>
+                  <span className="font-mono text-foreground">{uploadTarget.accountNumber}</span>
+                </div>
+                <div className="flex justify-between items-center text-muted-foreground">
+                  <span>Bank:</span>
+                  <span className="font-medium text-foreground">{uploadTarget.bankName}</span>
+                </div>
+                <div className="mt-3 text-[10px] text-muted-foreground text-right border-t pt-2">
+                  Jatuh Tempo: {getSisaHariText(uploadTarget.sisaTarget)} · Terdiri dari {uploadTarget.filteredItems.length} rincian
                 </div>
               </div>
 
+              {/* Multiple Upload Slot */}
               <div className="space-y-2">
-                <Label>Bukti Transfer (Opsional)</Label>
-                <label className={`flex flex-col items-center justify-center w-full border-2 border-dashed rounded-lg cursor-pointer transition-colors px-4 py-6 ${
-                  uploadFile ? "border-green-400 bg-green-50/50" : "border-border hover:border-muted-foreground/40 hover:bg-muted/30"
-                }`}>
-                  <input type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileChange} />
-                  {uploadFile ? (
-                    <div className="flex flex-col items-center text-center space-y-2">
-                      <FileCheck className="h-8 w-8 text-green-500" />
-                      <div>
-                        <p className="text-sm font-medium text-green-700">{uploadFile.name}</p>
-                        <p className="text-xs text-muted-foreground">Klik untuk ganti file</p>
-                      </div>
+                <Label>Bukti Transfer <span className="text-muted-foreground font-normal">(Boleh lebih dari 1 file jika &gt;50 Juta)</span></Label>
+                
+                <label className="flex flex-col items-center justify-center w-full border-2 border-dashed rounded-lg cursor-pointer transition-colors px-4 py-5 border-border hover:border-primary/50 hover:bg-muted/30">
+                  <input type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChangeMulti} />
+                  <div className="flex flex-col items-center text-center space-y-2 text-muted-foreground">
+                    <Upload className="h-6 w-6 opacity-70" />
+                    <div>
+                      <p className="text-sm font-medium">Klik untuk tambah gambar/PDF</p>
+                      <p className="text-xs">Bisa pilih beberapa sekaligus</p>
                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center text-center space-y-2 text-muted-foreground">
-                      <Upload className="h-8 w-8 opacity-70" />
-                      <div>
-                        <p className="text-sm font-medium">Klik untuk upload bukti</p>
-                        <p className="text-xs">Format JPG, PNG, atau PDF</p>
-                      </div>
-                    </div>
-                  )}
+                  </div>
                 </label>
-                {uploadPreview && (
-                  <div className="rounded-lg overflow-hidden border mt-2">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={uploadPreview} alt="Preview" className="w-full max-h-32 object-contain bg-muted" />
+
+                {/* Previews */}
+                {uploadPreviews.length > 0 && (
+                  <div className="mt-3 bg-muted/20 p-2 rounded-lg border">
+                    <p className="text-xs font-semibold text-muted-foreground mb-2">File Terpilih ({uploadFiles.length}):</p>
+                    <div className="grid grid-cols-4 gap-2">
+                      {uploadPreviews.map((preview, i) => (
+                        <div key={preview} className="relative group">
+                          {preview.startsWith("blob:") ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={preview} alt="Preview" className="w-full h-16 object-cover rounded border bg-white" />
+                          ) : (
+                            <div className="w-full h-16 rounded border bg-white flex items-center justify-center text-[10px] font-medium text-center p-1">
+                              {preview}
+                            </div>
+                          )}
+                          <button 
+                            onClick={() => removeUploadFile(i)} 
+                            className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Hapus file"
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1124,7 +1235,7 @@ export function ReminderContent() {
           )}
 
           <DialogFooter className="gap-2 mt-2">
-            <Button variant="outline" onClick={() => setUploadTarget(null)} disabled={isUploading}>Batal</Button>
+            <Button variant="outline" onClick={clearUploadDialog} disabled={isUploading}>Batal</Button>
             <Button onClick={handleConfirmUpload} disabled={isUploading}>
               {isUploading ? "Memproses…" : "Selesaikan & Kirim Notif"}
             </Button>
@@ -1138,10 +1249,10 @@ export function ReminderContent() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-primary" />
-              {internalTarget?.keterangan === "MinBun" ? "Konfirmasi Bagi Hasil MinBun" : "Catat Profit Internal"}
+              Catat Penerimaan Internal
             </DialogTitle>
             <DialogDescription>
-              Terdapat <strong>{internalTarget?.filteredItems.length} tagihan</strong> yang akan dilunasi dan dicatat sebagai pemasukan di Arus Kas. Tidak diperlukan bukti transfer.
+              Terdapat <strong>{internalTarget?.filteredItems.length} tagihan</strong> yang akan dicatat sebagai pemasukan di Arus Kas. Tidak diperlukan bukti transfer.
             </DialogDescription>
           </DialogHeader>
 
@@ -1149,7 +1260,7 @@ export function ReminderContent() {
             <div className="space-y-4 py-2">
               <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
                 <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">{internalTarget.keterangan === "MinBun" ? "Penerima" : "Investor"}</span>
+                  <span className="text-muted-foreground">Penerima</span>
                   <span className="font-medium">{internalTarget.nama}</span>
                 </div>
                 
@@ -1160,7 +1271,7 @@ export function ReminderContent() {
                       <li key={i.sourceId} className="flex justify-between items-center text-xs">
                         <div className="flex items-center gap-2">
                           <span className="font-mono">{i.sourceId}</span>
-                          <span className={`text-[10px] ${getSisaHariColor(i.sisa)}`}>({getSisaHariText(i.sisa)})</span>
+                          <span className="text-[10px] text-muted-foreground">({i.type})</span>
                         </div>
                         <span>{formatCurrency(i.jumlah)}</span>
                       </li>
@@ -1169,7 +1280,7 @@ export function ReminderContent() {
                 </div>
 
                 <div className="border-t pt-2 flex justify-between font-semibold mt-2">
-                  <span>Total Dicatat</span>
+                  <span>Total Dicatat ke Kas</span>
                   <span className="text-green-600">{formatCurrency(internalTarget.totalAmount)}</span>
                 </div>
               </div>
