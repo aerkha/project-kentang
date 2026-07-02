@@ -698,7 +698,7 @@ export default function TransaksiContent() {
   const nextId = () => {
     const max = transaksis.reduce((m, x) => {
       const numStr = x.id.replace("TRX-", "").replace(/[A-Z]/gi, "");
-      const n = parseInt(numStr) || 0;
+      const n = Number.parseInt(numStr) || 0;
       return Math.max(m, n);
     }, 0);
     const numStr = String(max + 1).padStart(4, "0");
