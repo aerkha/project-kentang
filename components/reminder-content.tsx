@@ -698,6 +698,8 @@ function getBulkActionTooltipText(showDone: boolean, isInternal: boolean) {
 
 // ── Komponen Baris Tabel Kolaps (Accordion Row) ──────────────────────────────
 
+// ── Komponen Baris Tabel Kolaps (Accordion Row) ──────────────────────────────
+
 function EntityRow({
   ent,
   toggling,
@@ -749,13 +751,10 @@ function EntityRow({
         </td>
         <td className="py-3 px-3 cursor-pointer" onClick={() => toggleExpand(ent.id)}>
           <div className="flex flex-col gap-0.5">
-            {showDone ? (
-              <span className={`text-xs ${getSisaHariColor(ent.sisaTarget)}`}>
-                {getSisaHariText(ent.sisaTarget)}
-              </span>
-            ) : (
-              <span className="text-xs text-green-600 font-medium">Selesai</span>
-            )}
+            {/* PERUBAHAN: Selalu tampilkan hitungan hari, hapus kondisi "Selesai" */}
+            <span className={`text-xs ${getSisaHariColor(ent.sisaTarget)}`}>
+              {getSisaHariText(ent.sisaTarget)}
+            </span>
             <div className="text-[10px] text-muted-foreground mt-0.5 hover:underline">
               {ent.filteredItems.length} Tagihan (Lihat Rincian)
             </div>
