@@ -61,8 +61,8 @@ interface InvestorEntryForm {
 interface TrxFormData {
   date: string;
   description: string;
-  endDate: string;          
-  isAutorenewal: boolean;   
+  endDate: string;          // DITAMBAHKAN
+  isAutorenewal: boolean;   // DITAMBAHKAN
   hpp: string;
   kebutuhanModal: string;
   investorEntries: InvestorEntryForm[];
@@ -70,6 +70,7 @@ interface TrxFormData {
   hargaJual: string;
 }
 
+/** Default pct berdasarkan broker investor — langsung dari data investor */
 function investorPct(
   investorBrokerName: string,
 ): Pick<InvestorEntryForm, "pctTrader" | "pctMinBun" | "pctBrokerI" | "pctBrokerII"> {
@@ -99,8 +100,8 @@ function getJalur(inv: Investor): InvestorJalur {
 const initialForm = (): TrxFormData => ({
   date: "",
   description: "30 hari",
-  endDate: "",
-  isAutorenewal: false,
+  endDate: "",            // DITAMBAHKAN
+  isAutorenewal: false,   // DITAMBAHKAN
   hpp: "",
   kebutuhanModal: "",
   investorEntries: [emptyEntry()],
@@ -350,6 +351,8 @@ function TrxFormFields({
       ),
     }));
   };
+  
+  // DUKUNGAN BOOLEAN UNTUK AUTORENEWAL
   const set = (k: keyof Omit<TrxFormData, "investorEntries">, v: string | boolean) =>
     setFormData({ ...formData, [k]: v });
 
@@ -429,7 +432,8 @@ function TrxFormFields({
 
   return (
     <form onSubmit={handleFormSubmit} className="flex flex-col gap-0">
-      <div className="overflow-y-auto max-h-[65vh] pr-2 space-y-5">
+      <div className="overflow-y-auto max-h-[62vh] pr-2 space-y-5">
+        
         {/* Info Pengiriman & Autorenewal */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
@@ -453,7 +457,7 @@ function TrxFormFields({
             </div>
           </div>
           
-          {/* Box Autorenewal */}
+          {/* Box Autorenewal (KINI MUNCUL KEMBALI) */}
           <div className="flex flex-col gap-3 p-3 bg-muted/40 border border-border rounded-md mt-2">
             <label className="flex items-center gap-2.5 cursor-pointer">
               <Checkbox checked={formData.isAutorenewal} onCheckedChange={(c) => set("isAutorenewal", !!c)} />
@@ -551,11 +555,11 @@ function TrxFormFields({
                       const sisa      = displaySisaForPks(mou);
                       const inv       = investors.find((x) => x.id === mou.investorId);
                       const pksSisa   = sisaHariPks(mou);
-                      let pksClass = 'text-muted-foreground';
+                      let pksSisaClass = 'text-muted-foreground';
                       if (pksSisa <= 0) {
-                        pksClass = 'text-red-500 font-bold';
+                        pksSisaClass = 'text-red-500 font-bold';
                       } else if (pksSisa <= 7) {
-                        pksClass = 'text-orange-500';
+                        pksSisaClass = 'text-orange-500';
                       }
                       
                       return (
@@ -569,7 +573,7 @@ function TrxFormFields({
                                   {inv.brokerName}
                                 </span>
                               )}
-                              <span className={`text-[10px] font-medium shrink-0 ${pksClass}`}>
+                              <span className={`text-[10px] font-medium shrink-0 ${pksSisaClass}`}>
                                 (Sisa PKS: {pksSisa <= 0 ? 'Jatuh Tempo' : `${pksSisa} hari`})
                               </span>
                             </div>
@@ -694,7 +698,7 @@ export default function TransaksiContent() {
   const nextId = () => {
     const max = transaksis.reduce((m, x) => {
       const numStr = x.id.replace("TRX-", "").replace(/[A-Z]/gi, "");
-      const n = Number.parseInt(numStr) || 0;
+      const n = parseInt(numStr) || 0;
       return Math.max(m, n);
     }, 0);
     const numStr = String(max + 1).padStart(4, "0");
