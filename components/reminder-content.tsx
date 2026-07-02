@@ -1055,7 +1055,7 @@ export function ReminderContent() {
   const handleSendReminder = async () => {
     setIsSendingReminder(true);
     try {
-      const response = await fetch("/api/send-reminder", {
+      const response = await fetch("/api/send-reminders", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${pb.authStore.token}` },
       });
