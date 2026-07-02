@@ -51,6 +51,7 @@ import {
   ShieldCheck,
   Upload,
   XCircle,
+  Crown,
 } from "lucide-react";
 
 // ── Helpers Umum ─────────────────────────────────────────────────────────────
@@ -80,7 +81,7 @@ function diffDays(startStr: string, endStr: string): number {
 }
 
 function parsePeriodeDays(desc: string): number {
-  const m = desc ? /\d+/.exec(desc) : null;
+  const m = /\d+/.exec(desc || "");
   const n = m ? Number.parseInt(m[0], 10) : 30;
   return n > 0 ? n : 30;
 }
@@ -326,86 +327,110 @@ type ProcessInternalEntityParams = {
   cashflowTagRecordedFn: (tag: string) => boolean;
   addPengeluaranFn: (p: any) => Promise<void>;
   updateTransaksiFn: (id: string, data: any) => Promise<void>;
-  updateMouFn: (id: string, data: any) => Promise<void>;
+  updateMouFn?: (id: string, data: any) => Promise<void>;
   triggerAutorenewalFn: (id: string) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 };
 
-function buildBagiHasilChecks(
+function buildInternalBagiHasilTag(entity: ProcessedEntity, trxId: string, isMinBun: boolean) {
+  return isMinBun
+    ? `[Reminder] TRX ${trxId} · MinBun`
+    : `[Internal-Profit:${entity.investorId}:${trxId}]`;
+}
+
+function buildInternalBagiHasilDescription(entity: ProcessedEntity, trxId: string, isMinBun: boolean) {
+  return isMinBun
+    ? `Bagi Hasil MinBun — TRX ${trxId}`
+    : `Profit Internal — ${entity.nama} — TRX ${trxId}`;
+}
+
+function resolveBagiHasilChecks(
   trx: any,
-  checkKey: string,
+  item: EntitySummaryItem,
   mous: MoU[],
   investors: Investor[],
   brokers: Broker[],
   minbun: AccountInfo,
   trader: AccountInfo,
 ) {
-  const checks = { ...trx.bagiHasilChecks, [checkKey]: true };
+  const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
   const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
   const externalRows = allRows.filter((r) => r.keterangan !== "MinBun" && r.keterangan !== "Trader");
-  const bagiHasilDone = externalRows.length > 0
+  const done = externalRows.length > 0
     ? externalRows.every((r) => checks[r.checkKey])
     : allRows.every((r) => checks[r.checkKey]);
-  return { checks, bagiHasilDone };
+
+  return { checks, done };
 }
 
 async function processInternalBagiHasilItem({
+  entity,
   item,
   mous,
   investors,
   brokers,
   minbun,
   trader,
+  cashflowTagRecordedFn,
+  addPengeluaranFn,
   updateTransaksiFn,
   triggerAutorenewalFn,
   setDoneKeysFn,
+  today,
   triggeredRenewals,
-}: {
+}: ProcessInternalEntityParams & {
   item: EntitySummaryItem;
-  mous: MoU[];
-  investors: Investor[];
-  brokers: Broker[];
-  minbun: AccountInfo;
-  trader: AccountInfo;
-  updateTransaksiFn: (id: string, data: any) => Promise<void>;
-  triggerAutorenewalFn: (id: string) => Promise<void>;
-  setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
+  today: string;
   triggeredRenewals: Set<string>;
 }) {
   if (!item.trx) return;
+  const trxId = item.trx.id;
+  const isMinBun = item.keterangan === "MinBun";
+  const tag = buildInternalBagiHasilTag(entity, trxId, isMinBun);
 
-  const trx = item.trx;
-  const { checks, bagiHasilDone } = buildBagiHasilChecks(trx, item.checkKey, mous, investors, brokers, minbun, trader);
+  if (!cashflowTagRecordedFn(tag)) {
+    await addPengeluaranFn({
+      date: today,
+      deskripsi: buildInternalBagiHasilDescription(entity, trxId, isMinBun),
+      debet: item.jumlah,
+      kredit: 0,
+      kategori: isMinBun ? "Fee MinBun" : "BagHas Modal MinBun",
+      catatan: tag,
+    });
+  }
 
-  await updateTransaksiFn(trx.id, { bagiHasilChecks: checks, bagiHasilDone });
-  setDoneKeysFn((prev) => new Set(prev).add(`${trx.id}__${item.checkKey}`));
+  const { checks, done } = resolveBagiHasilChecks(item.trx, item, mous, investors, brokers, minbun, trader);
+  await updateTransaksiFn(trxId, { bagiHasilChecks: checks, bagiHasilDone: done });
+  setDoneKeysFn((prev) => new Set(prev).add(`${trxId}__${item.checkKey}`));
 
-  if (trx.isAutorenewal && bagiHasilDone && !triggeredRenewals.has(trx.id)) {
-    triggeredRenewals.add(trx.id);
-    await triggerAutorenewalFn(trx.id);
+  if (item.trx.isAutorenewal && done && !triggeredRenewals.has(trxId)) {
+    triggeredRenewals.add(trxId);
+    await triggerAutorenewalFn(trxId);
   }
 }
 
 async function processInternalPengembalianModalItem({
-  item,
   entity,
+  item,
   today,
   cashflowTagRecordedFn,
   addPengeluaranFn,
   updateMouFn,
   setDoneKeysFn,
 }: {
-  item: EntitySummaryItem;
   entity: ProcessedEntity;
+  item: EntitySummaryItem;
   today: string;
   cashflowTagRecordedFn: (tag: string) => boolean;
   addPengeluaranFn: (p: any) => Promise<void>;
-  updateMouFn: (id: string, data: any) => Promise<void>;
+  updateMouFn?: (id: string, data: any) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 }) {
+  // guard: item.mou may be undefined
   if (!item.mou) return;
 
   const tag = `[Internal-Return:${entity.investorId}:${item.mou.id}]`;
+
   if (!cashflowTagRecordedFn(tag)) {
     await addPengeluaranFn({
       date: today,
@@ -417,72 +442,8 @@ async function processInternalPengembalianModalItem({
     });
   }
 
-  await updateMouFn(item.mou.id, { isTerminated: true });
+  if (updateMouFn) await updateMouFn(item.mou.id, { isTerminated: true });
   setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
-}
-
-async function processInternalBagiHasilEntityItem({
-  item,
-  entity,
-  today,
-  cashflowTagRecordedFn,
-  addPengeluaranFn,
-  mous,
-  investors,
-  brokers,
-  minbun,
-  trader,
-  updateTransaksiFn,
-  triggerAutorenewalFn,
-  setDoneKeysFn,
-  triggeredRenewals,
-}: {
-  item: EntitySummaryItem;
-  entity: ProcessedEntity;
-  today: string;
-  cashflowTagRecordedFn: (tag: string) => boolean;
-  addPengeluaranFn: (p: any) => Promise<void>;
-  mous: MoU[];
-  investors: Investor[];
-  brokers: Broker[];
-  minbun: AccountInfo;
-  trader: AccountInfo;
-  updateTransaksiFn: (id: string, data: any) => Promise<void>;
-  triggerAutorenewalFn: (id: string) => Promise<void>;
-  setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
-  triggeredRenewals: Set<string>;
-}) {
-  const trx = item.trx!;
-  const isMinBun = item.keterangan === "MinBun";
-  const tag = isMinBun
-    ? `[Reminder] TRX ${trx.id} · MinBun`
-    : `[Internal-Profit:${entity.investorId}:${trx.id}]`;
-
-  if (!cashflowTagRecordedFn(tag)) {
-    await addPengeluaranFn({
-      date: today,
-      deskripsi: isMinBun
-        ? `Bagi Hasil MinBun — TRX ${trx.id}`
-        : `Profit Internal — ${entity.nama} — TRX ${trx.id}`,
-      debet: item.jumlah,
-      kredit: 0,
-      kategori: isMinBun ? "Fee MinBun" : "BagHas Modal MinBun",
-      catatan: tag,
-    });
-  }
-
-  await processInternalBagiHasilItem({
-    item,
-    mous,
-    investors,
-    brokers,
-    minbun,
-    trader,
-    updateTransaksiFn,
-    triggerAutorenewalFn,
-    setDoneKeysFn,
-    triggeredRenewals,
-  });
 }
 
 async function processInternalEntity({
@@ -504,29 +465,26 @@ async function processInternalEntity({
 
   for (const item of entity.filteredItems) {
     if (item.type === "Bagi Hasil" && item.trx) {
-      await processInternalBagiHasilEntityItem({
-        item,
+      await processInternalBagiHasilItem({
         entity,
-        today,
-        cashflowTagRecordedFn,
-        addPengeluaranFn,
+        item,
         mous,
         investors,
         brokers,
         minbun,
         trader,
+        cashflowTagRecordedFn,
+        addPengeluaranFn,
         updateTransaksiFn,
         triggerAutorenewalFn,
         setDoneKeysFn,
+        today,
         triggeredRenewals,
       });
-      continue;
-    }
-
-    if (item.type === "Pengembalian Modal" && item.mou) {
+    } else if (item.type === "Pengembalian Modal" && item.mou) {
       await processInternalPengembalianModalItem({
-        item,
         entity,
+        item,
         today,
         cashflowTagRecordedFn,
         addPengeluaranFn,
@@ -553,78 +511,78 @@ type ProcessUploadEntityParams = {
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 };
 
-async function getUploadUrlForItem(
-  item: ProcessedEntity["filteredItems"][number],
-  file: File | undefined,
+async function uploadItemFile(
+  item: any,
+  fileToUpload: File | undefined,
   uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>,
-  uploadBuktiPengembalianFn?: (mouId: string, file: File) => Promise<string>
-): Promise<string | null> {
-  if (!file) return null;
+  uploadBuktiPengembalianFn?: (mouId: string, file: File) => Promise<string>,
+) {
+  if (!fileToUpload) return "";
 
   if (item.type === "Pengembalian Modal" && item.mou && uploadBuktiPengembalianFn) {
-    return await uploadBuktiPengembalianFn(item.mou.id, file);
+    return uploadBuktiPengembalianFn(item.mou.id, fileToUpload);
   }
 
   if (item.trx) {
-    return await uploadBuktiTransaksiFn(item.trx.id, item.keterangan, file);
+    return uploadBuktiTransaksiFn(item.trx.id, item.keterangan, fileToUpload);
   }
 
-  return null;
+  return "";
 }
 
-type ProcessBagiHasilItemParams = {
-  item: ProcessedEntity["filteredItems"][number];
+type HandleCompletedItemDeps = {
   mous: MoU[];
   investors: Investor[];
   brokers: Broker[];
   minbun: AccountInfo;
   trader: AccountInfo;
   updateTransaksiFn: (id: string, data: any) => Promise<void>;
+  updateMouFn: (id: string, data: any) => Promise<void>;
   triggerAutorenewalFn: (id: string) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
-  triggeredRenewals: Set<string>;
 };
 
-async function processBagiHasilItem({
-  item,
-  mous,
-  investors,
-  brokers,
-  minbun,
-  trader,
-  updateTransaksiFn,
-  triggerAutorenewalFn,
-  setDoneKeysFn,
-  triggeredRenewals,
-}: ProcessBagiHasilItemParams) {
-  if (!item.trx) return;
-
-  const trx = item.trx;
-  const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
-  const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
-  const externalRows = allRows.filter((r) => r.keterangan !== "MinBun" && r.keterangan !== "Trader");
-  const bagiHasilDone = externalRows.length > 0
-    ? externalRows.every((r) => checks[r.checkKey])
-    : allRows.every((r) => checks[r.checkKey]);
-
-  await updateTransaksiFn(trx.id, { bagiHasilChecks: checks, bagiHasilDone });
-  setDoneKeysFn((prev) => new Set(prev).add(`${trx.id}__${item.checkKey}`));
-
-  if (trx.isAutorenewal && bagiHasilDone && !triggeredRenewals.has(trx.id)) {
-    triggeredRenewals.add(trx.id);
-    await triggerAutorenewalFn(trx.id);
-  }
-}
-
-async function processPengembalianModalItem(
-  item: ProcessedEntity["filteredItems"][number],
-  updateMouFn: (id: string, data: any) => Promise<void>,
-  setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void
+async function handleCompletedItem(
+  item: any,
+  deps: HandleCompletedItemDeps,
+  triggeredRenewals: Set<string>,
 ) {
-  if (!item.mou) return;
+  const {
+    mous,
+    investors,
+    brokers,
+    minbun,
+    trader,
+    updateTransaksiFn,
+    updateMouFn,
+    triggerAutorenewalFn,
+    setDoneKeysFn,
+  } = deps;
 
-  await updateMouFn(item.mou.id, { isTerminated: true });
-  setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
+  if (item.type === "Bagi Hasil" && item.trx) {
+    const trx = item.trx;
+    const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
+    const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+    const externalRows = allRows.filter((r) => r.keterangan !== "MinBun" && r.keterangan !== "Trader");
+    const bagiHasilDone = externalRows.length > 0
+      ? externalRows.every((r) => checks[r.checkKey])
+      : allRows.every((r) => checks[r.checkKey]);
+
+    await updateTransaksiFn(trx.id, { bagiHasilChecks: checks, bagiHasilDone });
+    setDoneKeysFn((prev) => new Set(prev).add(`${trx.id}__${item.checkKey}`));
+
+    if (trx.isAutorenewal && bagiHasilDone && !triggeredRenewals.has(trx.id)) {
+      triggeredRenewals.add(trx.id);
+      await triggerAutorenewalFn(trx.id);
+    }
+
+    return;
+  }
+
+  if (item.type === "Pengembalian Modal" && item.mou) {
+    await updateMouFn(item.mou.id, { isTerminated: true });
+    setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
+  }
 }
 
 async function processUploadEntity({
@@ -646,28 +604,28 @@ async function processUploadEntity({
   const validFiles = uploadFiles.filter(Boolean);
   const triggeredRenewals = new Set<string>();
 
-  for (const [index, item] of entity.filteredItems.entries()) {
-    const fileToUpload = validFiles.length ? validFiles[index % validFiles.length] : undefined;
-    const url = await getUploadUrlForItem(item, fileToUpload, uploadBuktiTransaksiFn, uploadBuktiPengembalianFn);
+  for (let i = 0; i < entity.filteredItems.length; i++) {
+    const item = entity.filteredItems[i];
+    const fileToUpload = validFiles[i % validFiles.length];
 
+    const url = await uploadItemFile(item, fileToUpload, uploadBuktiTransaksiFn, uploadBuktiPengembalianFn);
     if (url) fileUrls.push(url);
 
-    if (item.type === "Bagi Hasil") {
-      await processBagiHasilItem({
-        item,
+    await handleCompletedItem(
+      item,
+      {
         mous,
         investors,
         brokers,
         minbun,
         trader,
         updateTransaksiFn,
+        updateMouFn,
         triggerAutorenewalFn,
         setDoneKeysFn,
-        triggeredRenewals,
-      });
-    } else if (item.type === "Pengembalian Modal") {
-      await processPengembalianModalItem(item, updateMouFn, setDoneKeysFn);
-    }
+      },
+      triggeredRenewals,
+    );
   }
 
   const combinedUrls = Array.from(new Set(fileUrls)).join(",");
@@ -695,8 +653,6 @@ function getBulkActionTooltipText(showDone: boolean, isInternal: boolean) {
   if (isInternal) return "Catat ke Arus Kas (Tanpa Bukti)";
   return "Upload Bukti & Tandai Selesai";
 }
-
-// ── Komponen Baris Tabel Kolaps (Accordion Row) ──────────────────────────────
 
 // ── Komponen Baris Tabel Kolaps (Accordion Row) ──────────────────────────────
 
@@ -751,7 +707,6 @@ function EntityRow({
         </td>
         <td className="py-3 px-3 cursor-pointer" onClick={() => toggleExpand(ent.id)}>
           <div className="flex flex-col gap-0.5">
-            {/* PERUBAHAN: Selalu tampilkan hitungan hari, hapus kondisi "Selesai" */}
             <span className={`text-xs ${getSisaHariColor(ent.sisaTarget)}`}>
               {getSisaHariText(ent.sisaTarget)}
             </span>
@@ -832,7 +787,7 @@ export function ReminderContent() {
 
   const transaksiContext = useTransaksi();
   const { transaksis, updateTransaksi, uploadBuktiTransaksi } = transaksiContext;
-  const triggerAutorenewal = (transaksiContext as any).triggerAutorenewal ?? (async () => {});
+  const triggerAutorenewal = (transaksiContext as any).triggerAutorenewal;
   const { investors }                                 = useInvestors();
   const { brokers }                                   = useBrokers();
   const { pengeluarans, addPengeluaran }              = usePengeluaran();
@@ -879,13 +834,21 @@ export function ReminderContent() {
     });
   };
 
-  // 1. Ringkasan (Summary Metrics)
+  // 1. Ringkasan (Summary Metrics) - Ditambah Kalkulasi Owner
   const summary = useMemo(() => {
-    let investor = 0, traderAmt = 0, minbunAmt = 0, broker = 0, modalToReturn = 0;
+    let investor = 0, traderAmt = 0, minbunAmt = 0, broker = 0, modalToReturn = 0, ownerAmt = 0;
     let totalTasks = 0, doneTasks = 0;
 
     transaksis.forEach((trx) => {
       const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+      const calc = calcTransaksi(trx);
+      
+      // Hitung Profit Bersih Owner (Sisa dari total profit setelah dibagikan ke semua pihak)
+      if (calc.profit > 0) {
+        const totalDistributed = rows.reduce((sum, r) => sum + r.jumlah, 0);
+        ownerAmt += (calc.profit - totalDistributed);
+      }
+
       rows.forEach((r) => {
         totalTasks++;
         const isDone = !!trx.bagiHasilChecks?.[r.checkKey] || doneKeys.has(`${trx.id}__${r.checkKey}`);
@@ -907,7 +870,6 @@ export function ReminderContent() {
       const isDone = mou.isTerminated || doneKeys.has(`MOU__${mou.id}`);
       const sisa = sisaHariPks(mou);
       
-      // PERUBAHAN: Hitung ke ringkasan jika H-30
       if (isDone || sisa <= 30) {
         totalTasks++;
         if (isDone) doneTasks++;
@@ -915,7 +877,7 @@ export function ReminderContent() {
       }
     });
 
-    return { investor, trader: traderAmt, minbun: minbunAmt, broker, modalToReturn, totalTasks, doneTasks };
+    return { investor, trader: traderAmt, minbun: minbunAmt, broker, owner: ownerAmt, modalToReturn, totalTasks, doneTasks };
   }, [transaksis, mous, investors, brokers, minbun, trader, doneKeys]);
 
   // 2. Data Entity (Bulk Data)
@@ -953,7 +915,6 @@ export function ReminderContent() {
       const sisa = sisaHariPks(mou);
       const isDone = mou.isTerminated || doneKeys.has(`MOU__${mou.id}`);
 
-      // PERUBAHAN: PKS akan muncul di layar Pending jika sisa hari <= 30 (Waktu Persiapan Dana)
       if (!isDone && sisa > 30) return; 
 
       const inv = investors.find(i => i.id === mou.investorId);
@@ -1006,10 +967,9 @@ export function ReminderContent() {
       for (const item of entity.filteredItems) {
         if (item.type === "Bagi Hasil" && item.trx) {
           const trx = item.trx;
-          const trxId = trx.id;
           const checks = { ...trx.bagiHasilChecks, [item.checkKey]: false };
-          await updateTransaksi(trxId, { bagiHasilChecks: checks, bagiHasilDone: false });
-          setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trxId}__${item.checkKey}`); return s; });
+          await updateTransaksi(trx.id, { bagiHasilChecks: checks, bagiHasilDone: false });
+          setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trx.id}__${item.checkKey}`); return s; });
         } else if (item.type === "Pengembalian Modal" && item.mou) {
           await updateMou(item.mou.id, { isTerminated: false });
           setDoneKeys((prev) => { const s = new Set(prev); s.delete(item.checkKey); return s; });
@@ -1160,8 +1120,8 @@ export function ReminderContent() {
         </p>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      {/* Summary cards - Grid diperlebar untuk menampung 6 Card */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Bagi Hasil Investor</CardTitle>
@@ -1172,6 +1132,7 @@ export function ReminderContent() {
             <p className="text-xs text-muted-foreground">{formatCurrency(summary.investor)}</p>
           </CardContent>
         </Card>
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Pengembalian Modal</CardTitle>
@@ -1182,6 +1143,7 @@ export function ReminderContent() {
             <p className="text-xs text-muted-foreground">{formatCurrency(summary.modalToReturn)}</p>
           </CardContent>
         </Card>
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Bagi Hasil Trader</CardTitle>
@@ -1192,6 +1154,7 @@ export function ReminderContent() {
             <p className="text-xs text-muted-foreground">{formatCurrency(summary.trader)}</p>
           </CardContent>
         </Card>
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Bagi Hasil MinBun</CardTitle>
@@ -1202,6 +1165,7 @@ export function ReminderContent() {
             <p className="text-xs text-muted-foreground">{formatCurrency(summary.minbun)}</p>
           </CardContent>
         </Card>
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Bagi Hasil Broker</CardTitle>
@@ -1210,6 +1174,18 @@ export function ReminderContent() {
           <CardContent>
             <div className="text-2xl font-bold">{formatShort(summary.broker)}</div>
             <p className="text-xs text-muted-foreground">{formatCurrency(summary.broker)}</p>
+          </CardContent>
+        </Card>
+
+        {/* --- CARD BARU: OWNER / PERUSAHAAN --- */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Bagi Hasil Owner</CardTitle>
+            <Crown className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">{formatShort(summary.owner)}</div>
+            <p className="text-xs text-muted-foreground">{formatCurrency(summary.owner)}</p>
           </CardContent>
         </Card>
       </div>
@@ -1325,33 +1301,29 @@ export function ReminderContent() {
                   </div>
                 </label>
 
-                {uploadFiles.length > 0 && (
+                {uploadPreviews.length > 0 && (
                   <div className="mt-3 bg-muted/20 p-2 rounded-lg border">
                     <p className="text-xs font-semibold text-muted-foreground mb-2">File Terpilih ({uploadFiles.length}):</p>
                     <div className="grid grid-cols-4 gap-2">
-                      {uploadFiles.map((file, i) => {
-                        const preview = uploadPreviews[i] ?? "";
-                        const key = `${file.name}-${file.lastModified}-${file.size}`;
-                        return (
-                          <div key={key} className="relative group">
-                            {preview.startsWith("blob:") ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={preview} alt="Preview" className="w-full h-16 object-cover rounded border bg-white" />
-                            ) : (
-                              <div className="w-full h-16 rounded border bg-white flex items-center justify-center text-[10px] font-medium text-center p-1">
-                                {preview}
-                              </div>
-                            )}
-                            <button 
-                              onClick={() => removeUploadFile(i)} 
-                              className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="Hapus file"
-                            >
-                              <XCircle className="h-4 w-4" />
-                            </button>
-                          </div>
-                        );
-                      })}
+                      {uploadPreviews.map((preview, i) => (
+                        <div key={preview} className="relative group">
+                          {preview.startsWith("blob:") ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={preview} alt="Preview" className="w-full h-16 object-cover rounded border bg-white" />
+                          ) : (
+                            <div className="w-full h-16 rounded border bg-white flex items-center justify-center text-[10px] font-medium text-center p-1">
+                              {preview}
+                            </div>
+                          )}
+                          <button 
+                            onClick={() => removeUploadFile(i)} 
+                            className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Hapus file"
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
