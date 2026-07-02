@@ -1,4 +1,4 @@
-import { TransaksiContent } from "@/components/transaksi-content";
+import TransaksiContent from "@/components/transaksi-content";
 
 export const metadata = {
   title: "Data Transaksi | MinBun ERP",
