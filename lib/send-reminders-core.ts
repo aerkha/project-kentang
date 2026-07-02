@@ -6,21 +6,15 @@ import nodemailer from "nodemailer";
 import { todayWibStr } from "@/lib/utils";
 
 function pbEsc(value: string): string {
-  const backslash = String.fromCodePoint(92);
-  const escapedBackslash = String.fromCodePoint(92, 92);
-  const escapedQuote = backslash + '"';
-
-  return value
-    .replaceAll(backslash, escapedBackslash)
-    .replaceAll('"', escapedQuote);
+  return value.replaceAll('\\', "\\\\").replaceAll('"', String.raw`\"`);
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface PendingTask {
   type: "Bagi Hasil" | "Pengembalian Modal";
-  id: string; // TRX-XXXX atau MOU-XXXX
-  date: string; // Tanggal jatuh tempo untuk ditampilkan
+  id: string; 
+  date: string; 
   investors: string;
   amount: number;
   statusLabel: string;
@@ -68,6 +62,20 @@ function parsePeriodeDays(desc: string): number {
   return n > 0 ? n : 30;
 }
 
+// Helper untuk Transaksi (Bagi Hasil)
+function getEndDateTrx(date: string, description: string): string {
+  if (!date) return "";
+  const days = parsePeriodeDays(description);
+  const [y, m, d] = date.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+function sisaHariTrx(t: { date: string; description: string }): number {
+  if (!t.date) return 0;
+  return diffDays(todayWibStr(), getEndDateTrx(t.date, t.description));
+}
+
+// Helper untuk PKS (Pengembalian Modal)
 function endDatePks(mou: any) {
   const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
   const totalDays = (mou.contractPeriod || 30) * (mou.siklus || 1);
@@ -76,10 +84,22 @@ function endDatePks(mou: any) {
 
 // ─── Core Logic Autorenewal Transaksi ─────────────────────────────────────────
 
+// Generate the next customId for an autorenewal clone.
+// If the old id already ends with "-autorenew-N" increment N, otherwise append "-autorenew-1".
+function nextAutorenewalCustomId(oldId: string): string {
+  if (!oldId) return "autorenew-1";
+  const m = /(.*)-autorenew-(\d+)$/.exec(oldId);
+  if (m) {
+    const base = m[1];
+    const n = Number(m[2]) + 1;
+    return `${base}-autorenew-${n}`;
+  }
+  return `${oldId}-autorenew-1`;
+}
+
 async function processAutorenewals(pb: PocketBase) {
   const today = todayWibStr();
   
-  // Cari semua transaksi lunas yang masih menuntut autorenewal
   const renewingTrxs = await pb.collection("transaksis").getFullList<any>({
     filter: "isAutorenewal = true && bagiHasilDone = true",
     sort: "created",
@@ -87,7 +107,6 @@ async function processAutorenewals(pb: PocketBase) {
 
   for (const old of renewingTrxs) {
     try {
-      // 1. Cek apakah sudah melewati Batas Tanggal Akhir
       const isExpired = old.endDate && diffDays(today, old.endDate.slice(0, 10)) < 0;
 
       if (isExpired) {
@@ -100,55 +119,17 @@ async function processAutorenewals(pb: PocketBase) {
         continue;
       }
 
-      // 2. Generate ID Transaksi baru (Kenaikan Suffix Alphabet A -> B -> C)
       const oldCustomId = old.customId || old.id;
-      let newCustomId = "";
-      
-      const match = oldCustomId.match(/^(TRX-\d+)([A-Z]*)$/i);
-      if (match) {
-        const base = match[1]; // contoh: "TRX-0001"
-        const suffix = match[2].toUpperCase(); // contoh: "A" atau ""
-        
-        if (!suffix) {
-          // Jika aslinya hanya "TRX-0001", otomatis menjadi "TRX-0001B" (Siklus 2)
-          newCustomId = base + "B"; 
-        } else {
-          // Increment huruf (A -> B, Z -> AA)
-          let newSuffix = "";
-          let carry = true;
-          for (let i = suffix.length - 1; i >= 0; i--) {
-            if (carry) {
-              const charCode = suffix.charCodeAt(i);
-              if (charCode === 90) { // huruf 'Z'
-                newSuffix = "A" + newSuffix;
-                carry = true;
-              } else {
-                newSuffix = String.fromCharCode(charCode + 1) + newSuffix;
-                carry = false;
-              }
-            } else {
-              newSuffix = suffix[i] + newSuffix;
-            }
-          }
-          if (carry) newSuffix = "A" + newSuffix;
-          newCustomId = base + newSuffix;
-        }
-      } else {
-        // Fallback aman jika formatnya tidak dikenali
-        newCustomId = oldCustomId + "B"; 
-      }
+      const newCustomId = nextAutorenewalCustomId(oldCustomId);
 
-      // 3. Kalkulasi Tanggal Siklus Baru (Murni Matematika +Periode Hari)
       const period = parsePeriodeDays(old.description);
       const [y, m, d] = (old.date as string).slice(0, 10).split("-").map(Number);
       const nextDate = new Date(Date.UTC(y, m - 1, d + period)).toISOString().slice(0, 10);
 
-      // 4. Ambil data investor dari transaksi lama
       const oldInvestors = await pb.collection("transaksi_investors").getFullList<any>({
         filter: `transaksiId = "${pbEsc(old.id)}"`
       });
 
-      // 5. Eksekusi Pembuatan Transaksi Baru (Semua value tetap dipertahankan)
       const newTrx = await pb.collection("transaksis").create({
         customId: newCustomId,
         date: nextDate,
@@ -158,14 +139,13 @@ async function processAutorenewals(pb: PocketBase) {
         hpp: old.hpp,
         kebutuhanModal: old.kebutuhanModal,
         ongkirPerKg: old.ongkirPerKg,
-        hargaJual: old.hargaJual, // TETAP MENGGUNAKAN HARGA JUAL ASLI
+        hargaJual: old.hargaJual, 
         status: "berjalan",
         bagiHasilDone: false,
         bagiHasilChecks: {},
         catatanAkhir: `[Sistem] Transaksi autorenewal lanjutan dari ${oldCustomId}`
       });
 
-      // 6. Duplikasi Partisipasi Investor
       for (const inv of oldInvestors) {
          await pb.collection("transaksi_investors").create({
             transaksiId: newTrx.id,
@@ -181,7 +161,6 @@ async function processAutorenewals(pb: PocketBase) {
          });
       }
 
-      // 7. Matikan isAutorenewal di transaksi lama dan catat jejak auditnya
       await pb.collection("transaksis").update(old.id, {
         isAutorenewal: false,
         catatanAkhir: old.catatanAkhir 
@@ -197,54 +176,76 @@ async function processAutorenewals(pb: PocketBase) {
 
 // ─── Core Logic Pencarian Tagihan ─────────────────────────────────────────────
 
-async function findPendingTasks(pb: PocketBase): Promise<PendingTask[]> {
-  const tasks: PendingTask[] = [];
-  const today = todayWibStr();
+// Helper: Build map of investors from entries
+async function buildInvestorsMap(pb: PocketBase, trxPbIds: string): Promise<Map<string, any[]>> {
+  const entriesMap = new Map<string, any[]>();
+  if (!trxPbIds) return entriesMap;
+  
+  try {
+    const entries = await pb.collection("transaksi_investors").getFullList<any>({
+      filter: trxPbIds,
+      fields: "transaksiId,investorName,nilaiInvestasi",
+    });
+    for (const e of entries) {
+      const list = entriesMap.get(e.transaksiId) ?? [];
+      list.push(e);
+      entriesMap.set(e.transaksiId, list);
+    }
+  } catch { /* ignore */ }
+  
+  return entriesMap;
+}
 
-  // 1. Cari Transaksi (Bagi Hasil)
+// Helper: Process Bagi Hasil transaksi
+async function processBagiHasilTasks(pb: PocketBase, tasks: PendingTask[]): Promise<void> {
   const trxs = await pb.collection("transaksis").getFullList<any>({
-    filter: `(status = "selesai" || status = "bermasalah") && (bagiHasilDone = false)`,
+    filter: `bagiHasilDone = false && status != "batal"`,
     sort: "date",
   });
 
-  if (trxs.length > 0) {
-    const trxPbIds = trxs.map((r) => `transaksiId = "${pbEsc(r.id)}"`).join(" || ");
-    let entriesMap = new Map<string, any[]>();
-    try {
-      const entries = await pb.collection("transaksi_investors").getFullList<any>({
-        filter: trxPbIds,
-        fields: "transaksiId,investorName,nilaiInvestasi",
-      });
-      for (const e of entries) {
-        const list = entriesMap.get(e.transaksiId) ?? [];
-        list.push(e);
-        entriesMap.set(e.transaksiId, list);
-      }
-    } catch { /* ignore jika belum ada relasi */ }
+  if (trxs.length === 0) return;
 
-    for (const trx of trxs) {
-      const entries = entriesMap.get(trx.id) ?? [];
-      const investors = [...new Set(entries.map((e: any) => e.investorName))].join(", ") || "—";
-      const amount = entries.reduce((s: number, e: any) => s + e.nilaiInvestasi, 0);
-      tasks.push({
-        type: "Bagi Hasil",
-        id: trx.customId || trx.id,
-        date: trx.date,
-        investors,
-        amount,
-        statusLabel: trx.status === "bermasalah" ? "Bermasalah" : "Selesai",
-      });
+  const trxPbIds = trxs.map((r) => `transaksiId = "${pbEsc(r.id)}"`).join(" || ");
+  const entriesMap = await buildInvestorsMap(pb, trxPbIds);
+
+  for (const trx of trxs) {
+    const sisa = sisaHariTrx(trx);
+    const isManualSelesai = trx.status === "selesai" || trx.status === "bermasalah";
+    
+    if (!isManualSelesai && sisa > 0) continue;
+
+    const entries = entriesMap.get(trx.id) ?? [];
+    const investors = [...new Set(entries.map((e: any) => e.investorName))].join(", ") || "—";
+    const amount = entries.reduce((s: number, e: any) => s + e.nilaiInvestasi, 0);
+    
+    let statusLabel: string;
+    if (trx.status === "bermasalah") {
+      statusLabel = "Bermasalah";
+    } else if (sisa <= 0) {
+      statusLabel = "Jatuh Tempo";
+    } else {
+      statusLabel = "Selesai";
     }
+    
+    tasks.push({
+      type: "Bagi Hasil",
+      id: trx.customId || trx.id,
+      date: getEndDateTrx(trx.date, trx.description),
+      investors,
+      amount,
+      statusLabel,
+    });
   }
+}
 
-  // 2. Cari MoU (Pengembalian Modal)
+// Helper: Process Pengembalian Modal (MoU)
+async function processPengembalianModalTasks(pb: PocketBase, tasks: PendingTask[], today: string): Promise<void> {
   const mous = await pb.collection("mous").getFullList<any>({
     filter: `isTerminated = false`,
   });
 
   for (const mou of mous) {
     const endStr = endDatePks(mou);
-    // Masukkan ke daftar jika sudah jatuh tempo (sisa hari <= 0)
     if (diffDays(today, endStr) <= 0) {
       tasks.push({
         type: "Pengembalian Modal",
@@ -256,8 +257,15 @@ async function findPendingTasks(pb: PocketBase): Promise<PendingTask[]> {
       });
     }
   }
+}
 
-  // Urutkan berdasarkan tanggal terlama
+async function findPendingTasks(pb: PocketBase): Promise<PendingTask[]> {
+  const tasks: PendingTask[] = [];
+  const today = todayWibStr();
+
+  await processBagiHasilTasks(pb, tasks);
+  await processPengembalianModalTasks(pb, tasks, today);
+
   tasks.sort((a, b) => a.date.localeCompare(b.date));
   return tasks;
 }
@@ -302,7 +310,7 @@ function buildAdminEmailHtml(tasks: PendingTask[], date: string): string {
           <tr style="background:#f9fafb;">
             <th style="padding:10px 12px;color:#374151;font-weight:600;">No. Referensi</th>
             <th style="padding:10px 12px;color:#374151;font-weight:600;">Jenis Tagihan</th>
-            <th style="padding:10px 12px;color:#374151;font-weight:600;">Tanggal</th>
+            <th style="padding:10px 12px;color:#374151;font-weight:600;">Jatuh Tempo</th>
             <th style="padding:10px 12px;color:#374151;font-weight:600;">Investor</th>
             <th style="padding:10px 12px;color:#374151;font-weight:600;text-align:right;">Nominal Modal</th>
             <th style="padding:10px 12px;color:#374151;font-weight:600;text-align:center;">Status</th>
@@ -349,8 +357,9 @@ async function sendAdminEmail(tasks: PendingTask[], todayStr: string): Promise<C
 // ─── WhatsApp via Fonnte (ke admin) ────────────────────────────────────────────
 
 async function sendWhatsApp(tasks: PendingTask[], date: string): Promise<ChannelStatus> {
-  const token      = process.env.FONNTE_TOKEN;
-  const adminPhone = process.env.ADMIN_PHONE;
+  const token      = process.env.FONNTE_TOKEN?.trim();
+  const adminPhone = process.env.ADMIN_PHONE?.trim();
+  
   if (!token || !adminPhone) return "skipped";
 
   const lines = [
@@ -360,21 +369,25 @@ async function sendWhatsApp(tasks: PendingTask[], date: string): Promise<Channel
     `${tasks.length} tagihan menunggu proses pembayaran:`,
     ``,
     ...tasks.map((t, i) => {
-      return `${i + 1}. *${t.id}* (${t.type}) — ${fmtDate(t.date)}\n   Investor: ${t.investors}${t.amount > 0 ? `\n   Modal: ${fmtRp(t.amount)}` : ""}`;
+      const modalLine = t.amount > 0 ? `\n   Modal: ${fmtRp(t.amount)}` : "";
+      return `${i + 1}. *${t.id}* (${t.type}) — ${fmtDate(t.date)}\n   Investor: ${t.investors}${modalLine}`;
     }),
     ``,
     `_Silakan proses pelunasan secara massal melalui halaman Reminder._`,
   ];
 
+  // PERBAIKAN: Menggunakan format murni FormData agar 100% diterima oleh Fonnte
+  const formData = new FormData();
+  formData.append("target", adminPhone);
+  formData.append("message", lines.join("\n"));
+  formData.append("countryCode", "62");
+
   const res = await fetch("https://api.fonnte.com/send", {
     method: "POST",
     headers: { Authorization: token },
-    body: new URLSearchParams({
-      target:      adminPhone,
-      message:     lines.join("\n"),
-      countryCode: "62",
-    }),
+    body: formData,
   });
+  
   if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
   return "sent";
 }
@@ -396,8 +409,8 @@ export async function runRemindersTest(): Promise<ReminderResult> {
     amount: 50_000_000,
     statusLabel: "Selesai"
   };
-  const adminEmail = await sendAdminEmail([dummy], `${todayStr} (TEST)`).catch(() => "failed" as ChannelStatus);
-  const waStatus   = await sendWhatsApp([dummy], `${todayStr} (TEST)`).catch(() => "failed" as ChannelStatus);
+  const adminEmail = await sendAdminEmail([dummy], `${todayStr} (TEST)`).catch(() => "failed");
+  const waStatus   = await sendWhatsApp([dummy], `${todayStr} (TEST)`).catch(() => "failed");
   return { status: 200, body: { mode: "test", adminEmail, waStatus } };
 }
 
@@ -425,7 +438,6 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
   }
 
   try {
-    // ── EKSEKUSI AUTORENEWAL TRANSAKSI SEBELUM MENCARI TAGIHAN ──
     await processAutorenewals(pb);
 
     const allPending = await findPendingTasks(pb);
@@ -439,7 +451,6 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
     if (triggeredBy === "manual") {
       toSend.push(...allPending);
     } else {
-      // DEDUPLIKASI HARIAN: Hanya cegah jika reminder sudah dikirim dalam 20 jam terakhir
       const twentyHoursAgo = new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString();
       
       const sentFlags = await Promise.all(
@@ -466,15 +477,14 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
 
     const adminEmailStatus = await sendAdminEmail(toSend, todayStr).catch((e) => {
       errors.push(`Email admin: ${String(e)}`);
-      return "failed" as ChannelStatus;
+      return "failed";
     });
 
     const waStatus = await sendWhatsApp(toSend, todayStr).catch((e) => {
       errors.push(`WA: ${String(e)}`);
-      return "failed" as ChannelStatus;
+      return "failed";
     });
 
-    // Simpan log per tagihan agar terbaca di tabel Riwayat Reminder
     await Promise.all(
       toSend.map((task) =>
         pb.collection("reminder_logs").create({
