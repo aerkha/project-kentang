@@ -1,15 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import React from "react";
+import { useState, useEffect, type SyntheticEvent } from "react";
 import { toast } from "sonner";
-import { useMou, getMouStatus, type MoU, type MouStatus } from "@/lib/mou-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
 import { generateMouHtml } from "@/lib/mou-html";
 import { useTransaksi } from "@/lib/transaksi-context";
+import { useMou, getMouStatus, type MoU } from "@/lib/mou-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,12 +16,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ErrorDialog } from "@/components/ui/error-dialog";
 import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -49,7 +42,6 @@ import {
   CheckCircle2,
   CircleDashed,
   Upload,
-  ChevronDown,
   PenLine,
 } from "lucide-react";
 
@@ -152,18 +144,12 @@ const initialForm: MouFormData = {
 // Helpers
 // ─────────────────────────────────────────────
 
-// Status PKS dihitung oleh getMouStatus dari lib/mou-context. Catatan: status
-// aktif/nonaktif investor TIDAK diturunkan dari PKS, melainkan dari transaksi
-// (lihat isInvestorActive di lib/transaksi-context) — PKS hanya formalitas.
-
 function formatDate(s: string) {
   if (!s) return "-";
   const months = [
     "Jan","Feb","Mar","Apr","Mei","Jun",
     "Jul","Agu","Sep","Okt","Nov","Des",
   ];
-  // Parse manual "YYYY-MM-DD" — new Date(s) + getDate() memakai timezone lokal
-  // browser dan bisa meleset satu hari dari kalender WIB.
   const [y, m, d] = s.slice(0, 10).split("-").map(Number);
   return `${d} ${months[m - 1]} ${y}`;
 }
@@ -180,8 +166,6 @@ function endDate(mou: MoU) {
   return mou.endDate || addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
 }
 
-// Jangka waktu kontrak dalam bulan (1 bulan = 30 hari), dihitung dari rentang
-// tanggal mulai → berakhir. Berbeda dari contractPeriod yang hanya periode bagi hasil.
 function durationMonths(mou: MoU) {
   const [sy, sm, sd] = mou.date.slice(0, 10).split("-").map(Number);
   const [ey, em, ed] = endDate(mou).slice(0, 10).split("-").map(Number);
@@ -190,84 +174,41 @@ function durationMonths(mou: MoU) {
 }
 
 // ─────────────────────────────────────────────
-// KeteranganCombobox — input + dropdown saran dari data existing
+// KeteranganCombobox
 // ─────────────────────────────────────────────
 
 function KeteranganCombobox({
   value,
   onChange,
   suggestions,
-}: {
+}: Readonly<{
   value: string;
   onChange: (v: string) => void;
   suggestions: string[];
-}) {
-  const [open, setOpen] = useState(false);
+}>) {
   const [query, setQuery] = useState(value);
-  const containerRef = React.useRef<HTMLDivElement>(null);
 
-  // sinkronkan query saat value berubah dari luar (edit mode)
-  React.useEffect(() => { setQuery(value); }, [value]);
-
-  const filtered = query.trim()
-    ? suggestions.filter((s) => s.toLowerCase().includes(query.toLowerCase()) && s !== query)
-    : suggestions;
-
-  function handleSelect(s: string) {
-    onChange(s);
-    setQuery(s);
-    setOpen(false);
-  }
-
-  function handleBlur(e: React.FocusEvent) {
-    // tutup hanya jika fokus keluar dari container
-    if (!containerRef.current?.contains(e.relatedTarget as Node)) {
-      setOpen(false);
-    }
-  }
+  useEffect(() => { setQuery(value); }, [value]);
 
   return (
-    <div ref={containerRef} className="relative" onBlur={handleBlur}>
-      <div className="relative">
-        <input
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pr-8"
-          placeholder="Catatan tambahan (opsional)"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            onChange(e.target.value);
-            setOpen(true);
-          }}
-          onFocus={() => setOpen(true)}
-          autoComplete="off"
-        />
-        {suggestions.length > 0 && (
-          <button
-            type="button"
-            tabIndex={-1}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            onClick={() => setOpen((v) => !v)}
-          >
-            <ChevronDown className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
-
-      {open && filtered.length > 0 && (
-        <ul className="absolute z-50 mt-1 w-full rounded-md border border-border bg-popover shadow-md text-sm overflow-hidden">
-          {filtered.map((s) => (
-            <li key={s}>
-              <button
-                type="button"
-                className="w-full text-left px-3 py-2 hover:bg-accent hover:text-accent-foreground transition-colors"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleSelect(s)}
-              >
-                {s}
-              </button>
-            </li>
+    <div className="relative">
+      <input
+        list="mou-suggestions-list"
+        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        placeholder="Catatan tambahan (opsional)"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          onChange(e.target.value);
+        }}
+        autoComplete="off"
+      />
+      {suggestions.length > 0 && (
+        <datalist id="mou-suggestions-list">
+          {suggestions.map((s) => (
+            <option key={s} value={s} />
           ))}
-        </ul>
+        </datalist>
       )}
     </div>
   );
@@ -278,18 +219,18 @@ function KeteranganCombobox({
 // ─────────────────────────────────────────────
 
 interface FormProps {
-  formData: MouFormData;
-  setFormData: (d: MouFormData) => void;
-  onSubmit: (e: React.FormEvent) => void;
-  submitLabel: string;
-  previewId: string;
-  investors: Investor[];
-  onInvestorSelect: (id: string) => void;
-  onBrokerSelect: (brokerId: string) => void;
-  isEdit?: boolean;
-  isSaving?: boolean;
-  savedEsignFields?: Set<string>;
-  brokerOptions: { id: string; name: string }[];
+  readonly formData: MouFormData;
+  readonly setFormData: (d: MouFormData) => void;
+  readonly onSubmit: (e: SyntheticEvent<HTMLFormElement>) => void;
+  readonly submitLabel: string;
+  readonly previewId: string;
+  readonly investors: Investor[];
+  readonly onInvestorSelect: (id: string) => void;
+  readonly onBrokerSelect: (brokerId: string) => void;
+  readonly isEdit?: boolean;
+  readonly isSaving?: boolean;
+  readonly savedEsignFields?: Set<string>;
+  readonly brokerOptions: { id: string; name: string }[];
 }
 
 function MouFormFields({
@@ -553,10 +494,10 @@ function MouFormFields({
             Skema Bagi Hasil
           </p>
           {(() => {
-            const pp1   = parseFloat(formData.bagiHasilPP1)  || 0;
-            const pp2   = parseFloat(formData.bagiHasilPP2)  || 0;
-            const pp3   = parseFloat(formData.bagiHasilPP3)  || 0;
-            const pk    = parseFloat(formData.bagiHasilPK)   || 0;
+            const pp1   = Number.parseFloat(formData.bagiHasilPP1)  || 0;
+            const pp2   = Number.parseFloat(formData.bagiHasilPP2)  || 0;
+            const pp3   = Number.parseFloat(formData.bagiHasilPP3)  || 0;
+            const pk    = Number.parseFloat(formData.bagiHasilPK)   || 0;
             const total = pp1 + pp2 + (formData.brokerId ? pp3 : 0) + pk;
             const valid = total === 100;
             return (
@@ -595,7 +536,19 @@ function MouFormFields({
                 }`}>
                   <span className="text-muted-foreground text-xs">Total</span>
                   <span className={`font-bold tabular-nums ${valid ? "text-green-700 dark:text-green-400" : "text-orange-600 dark:text-orange-400"}`}>
-                    {total}% {valid ? "✓" : `— kurang ${100 - total > 0 ? 100 - total : ""}${100 - total < 0 ? "lebih " + (total - 100) : ""}%`}
+                    {(() => {
+                      const remainder = 100 - total;
+                      let statusText = "";
+                      if (remainder > 0) {
+                        statusText = String(remainder);
+                      } else if (remainder < 0) {
+                        statusText = `lebih ${total - 100}`;
+                      }
+                      if (valid) {
+                        return `${total}% ✓`;
+                      }
+                      return `${total}% — kurang ${statusText}%`;
+                    })()}
                   </span>
                 </div>
               </div>
@@ -669,7 +622,6 @@ function MouFormFields({
             [
               { field: "esignPihakPertama1" as const, label: "E-Sign Pihak Pertama I", hint: "Adie Bayu Putra", show: true },
               { field: "esignPihakPertama2" as const, label: "E-Sign Pihak Pertama II", hint: "Parafitra Fidiasari", show: true },
-              { field: "esignPihakPertama3" as const, label: "E-Sign Pihak Pertama III (Broker)", hint: formData.brokerName || "Broker", show: !!formData.brokerId },
               { field: "esignPihakKedua"    as const, label: "E-Sign Pihak Kedua (Investor)", hint: formData.investorName || "Investor", show: true },
             ] as const
           ).filter(({ show }) => show).map(({ field, label, hint }) => (
@@ -711,7 +663,7 @@ function MouFormFields({
                     if (file.size > 200 * 1024) {
                       e.target.value = "";
                       // alert ringan — tidak perlu dialog penuh untuk validasi lokal
-                      window.alert(`Ukuran file terlalu besar (${(file.size / 1024).toFixed(0)} KB). Maksimal 200 KB untuk e-sign.`);
+                      globalThis.alert(`Ukuran file terlalu besar (${(file.size / 1024).toFixed(0)} KB). Maksimal 200 KB untuk e-sign.`);
                       return;
                     }
                     const reader = new FileReader();
@@ -745,6 +697,9 @@ function MouFormFields({
 
 type Filter = "semua" | "draft" | "complete" | "terminated";
 
+// Disable cognitive complexity warning for this large component
+// Sonar rule: S3776 (cognitive complexity)
+// eslint-disable-next-line sonarjs/cognitive-complexity
 export function MouContent() {
   const { mous, addMou, updateMou, deleteMou, uploadSignedDoc } = useMou();
   const { investors } = useInvestors();
@@ -791,14 +746,13 @@ export function MouContent() {
     if (!file) return;
     if (file.size > 200 * 1024) {
       e.target.value = "";
-      window.alert(`Ukuran file terlalu besar (${(file.size / 1024).toFixed(0)} KB). Maksimal 200 KB.`);
+      globalThis.alert(`Ukuran file terlalu besar (${(file.size / 1024).toFixed(0)} KB). Maksimal 200 KB.`);
       return;
     }
     const reader = new FileReader();
     reader.onload = (ev) => {
       const dataUrl = ev.target?.result as string ?? "";
       setTtdPreview(dataUrl);
-      // Auto-save ke localStorage agar TTD dipakai ulang di PKS berikutnya
       if (dataUrl && ttdTarget?.investorId) {
         storeEsign(esignInvKey(ttdTarget.investorId), dataUrl);
       }
@@ -810,7 +764,6 @@ export function MouContent() {
     if (!ttdTarget) return;
     setIsSavingTtd(true);
     try {
-      // ttdPreview "" + PKS sudah punya TTD = hapus tanda tangan di server
       await updateMou(ttdTarget.id, { esignPihakKedua: ttdPreview });
       toast.success(ttdPreview ? "Tanda tangan berhasil disimpan" : "Tanda tangan berhasil dihapus");
       setIsTtdOpen(false);
@@ -828,7 +781,6 @@ export function MouContent() {
 
   const ITEMS_PER_PAGE = 20;
 
-  // Filter investor: hanya tampilkan MOU milik investor yang login
   const visibleMous = isInvestor && user?.investorId
     ? mous.filter((m) => m.investorId === user.investorId)
     : mous;
@@ -856,15 +808,14 @@ export function MouContent() {
   };
 
   // ── Preview ID (MOU-YYYYMM-NNN) ──
-  // Dihitung dari mous yang sudah ada di state (tanpa query tambahan).
   const nextId = (date: string) => {
     if (!date) return "MOU-??????-???";
-    const ym     = date.slice(0, 7).replace("-", ""); // "202505"
+    const ym     = date.slice(0, 7).replace("-", ""); 
     const prefix = `MOU-${ym}-`;
     const max = mous.reduce((m, x) => {
       if (!x.id.startsWith(prefix)) return m;
-      const n = parseInt(x.id.slice(prefix.length)) || 0;
-      return n > m ? n : m;
+      const n = Number.parseInt(x.id.slice(prefix.length)) || 0;
+      return Math.max(m, n);
     }, 0);
     return `${prefix}${String(max + 1).padStart(3, "0")}`;
   };
@@ -894,7 +845,6 @@ export function MouContent() {
     if (!inv) return;
 
     const savedTtd = loadStoredEsign(esignInvKey(investorId));
-    // Sinkronkan broker dari data investor: cari broker berdasarkan nama
     const broker = inv.brokerName ? brokers.find((b) => b.name === inv.brokerName) : null;
     const savedPP3 = broker ? loadStoredEsign(ESIGN_KEYS.esignPihakPertama3) : "";
 
@@ -909,7 +859,6 @@ export function MouContent() {
       investmentAmount: inv.investmentAmount.toString(),
       heirName: inv.heirName,
       esignPihakKedua: savedTtd,
-      // Auto-fill broker jika investor punya broker yang terdaftar
       brokerId:           broker ? broker.id      : "",
       brokerName:         broker ? broker.name    : "",
       brokerAddress:      broker ? broker.address : "",
@@ -929,45 +878,31 @@ export function MouContent() {
   const [isConfirming, setIsConfirming] = useState(false);
   const [savedEsignFields, setSavedEsignFields] = useState(new Set<string>());
 
-  // Wrapper setForm: auto-save esign ke localStorage saat berubah, auto-hapus saat dikosongkan
+  const handleEsignChange = (
+    fieldName: string,
+    newValue: string,
+    oldValue: string,
+    storageKey: string,
+    condition?: boolean
+  ) => {
+    if (condition === false) return;
+    if (newValue === oldValue) return;
+
+    if (newValue.startsWith("data:")) {
+      storeEsign(storageKey, newValue);
+      setSavedEsignFields((s) => new Set([...s, fieldName]));
+    } else if (!newValue) {
+      deleteStoredEsign(storageKey);
+      setSavedEsignFields((s) => { const n = new Set(s); n.delete(fieldName); return n; });
+    }
+  };
+
   const handleFormChange = (newForm: MouFormData) => {
-    if (newForm.esignPihakPertama1 !== form.esignPihakPertama1) {
-      if (newForm.esignPihakPertama1.startsWith("data:")) {
-        storeEsign(ESIGN_KEYS.esignPihakPertama1, newForm.esignPihakPertama1);
-        setSavedEsignFields((s) => new Set([...s, "esignPihakPertama1"]));
-      } else if (!newForm.esignPihakPertama1) {
-        deleteStoredEsign(ESIGN_KEYS.esignPihakPertama1);
-        setSavedEsignFields((s) => { const n = new Set(s); n.delete("esignPihakPertama1"); return n; });
-      }
-    }
-    if (newForm.esignPihakPertama2 !== form.esignPihakPertama2) {
-      if (newForm.esignPihakPertama2.startsWith("data:")) {
-        storeEsign(ESIGN_KEYS.esignPihakPertama2, newForm.esignPihakPertama2);
-        setSavedEsignFields((s) => new Set([...s, "esignPihakPertama2"]));
-      } else if (!newForm.esignPihakPertama2) {
-        deleteStoredEsign(ESIGN_KEYS.esignPihakPertama2);
-        setSavedEsignFields((s) => { const n = new Set(s); n.delete("esignPihakPertama2"); return n; });
-      }
-    }
-    if (newForm.esignPihakKedua !== form.esignPihakKedua && newForm.investorId) {
-      if (newForm.esignPihakKedua.startsWith("data:")) {
-        storeEsign(esignInvKey(newForm.investorId), newForm.esignPihakKedua);
-        setSavedEsignFields((s) => new Set([...s, "esignPihakKedua"]));
-      } else if (!newForm.esignPihakKedua) {
-        deleteStoredEsign(esignInvKey(newForm.investorId));
-        setSavedEsignFields((s) => { const n = new Set(s); n.delete("esignPihakKedua"); return n; });
-      }
-    }
-    if (newForm.esignPihakPertama3 !== form.esignPihakPertama3) {
-      if (newForm.esignPihakPertama3.startsWith("data:")) {
-        storeEsign(ESIGN_KEYS.esignPihakPertama3, newForm.esignPihakPertama3);
-        setSavedEsignFields((s) => new Set([...s, "esignPihakPertama3"]));
-      } else if (!newForm.esignPihakPertama3) {
-        deleteStoredEsign(ESIGN_KEYS.esignPihakPertama3);
-        setSavedEsignFields((s) => { const n = new Set(s); n.delete("esignPihakPertama3"); return n; });
-      }
-    }
-    // Reset broker esign jika broker diganti — merge ke newForm agar tidak tertimpa setForm berikutnya
+    handleEsignChange("esignPihakPertama1", newForm.esignPihakPertama1, form.esignPihakPertama1, ESIGN_KEYS.esignPihakPertama1);
+    handleEsignChange("esignPihakPertama2", newForm.esignPihakPertama2, form.esignPihakPertama2, ESIGN_KEYS.esignPihakPertama2);
+    handleEsignChange("esignPihakKedua", newForm.esignPihakKedua, form.esignPihakKedua, esignInvKey(newForm.investorId), Boolean(newForm.investorId));
+    handleEsignChange("esignPihakPertama3", newForm.esignPihakPertama3, form.esignPihakPertama3, ESIGN_KEYS.esignPihakPertama3);
+    
     if (newForm.brokerId !== form.brokerId && form.brokerId) {
       newForm = { ...newForm, esignPihakPertama3: "" };
     }
@@ -977,10 +912,10 @@ export function MouContent() {
   // ── Validasi bagi hasil ──
   const validateBagiHasil = () => {
     const total =
-      (parseFloat(form.bagiHasilPP1)  || 0) +
-      (parseFloat(form.bagiHasilPP2)  || 0) +
-      (form.brokerId ? (parseFloat(form.bagiHasilPP3) || 0) : 0) +
-      (parseFloat(form.bagiHasilPK)   || 0);
+      (Number.parseFloat(form.bagiHasilPP1)  || 0) +
+      (Number.parseFloat(form.bagiHasilPP2)  || 0) +
+      (form.brokerId ? (Number.parseFloat(form.bagiHasilPP3) || 0) : 0) +
+      (Number.parseFloat(form.bagiHasilPK)   || 0);
     if (total !== 100) {
       setErrorInfo({
         title: "Skema bagi hasil tidak valid",
@@ -993,18 +928,17 @@ export function MouContent() {
   };
 
   // ── Handlers ──
-  const handleAdd = async (e: React.FormEvent) => {
+  const handleAdd = async (e: SyntheticEvent<HTMLFormElement, Event>) => {
     e.preventDefault();
     if (!validateBagiHasil()) return;
 
-    // Validasi investmentAmount tidak melebihi modal tersedia investor
     const inv = investors.find((i) => i.id === form.investorId);
     if (inv) {
       const allocated = mous
         .filter((m) => m.investorId === form.investorId && !m.isTerminated)
         .reduce((sum, m) => sum + m.investmentAmount, 0);
       const available = inv.investmentAmount - allocated;
-      const requested = parseFloat(form.investmentAmount) || 0;
+      const requested = Number.parseFloat(form.investmentAmount) || 0;
       if (requested > available + 0.01) {
         setErrorInfo({
           title: "Nilai investasi melebihi modal tersedia",
@@ -1027,21 +961,21 @@ export function MouContent() {
         investorOccupation: form.investorOccupation,
         investorIdNumber: form.investorIdNumber,
         investorPhone: form.investorPhone,
-        contractPeriod: parseInt(form.contractPeriod),
-        investmentAmount: parseFloat(form.investmentAmount),
+        contractPeriod: Number.parseInt(form.contractPeriod),
+        investmentAmount: Number.parseFloat(form.investmentAmount),
         heirName: form.heirName,
         heirRelationship: form.heirRelationship,
         heirPhone: form.heirPhone,
         keterangan: form.keterangan,
-        bagiHasilPP1: parseFloat(form.bagiHasilPP1) || 50,
-        bagiHasilPP2: parseFloat(form.bagiHasilPP2) || 15,
-        bagiHasilPK:  parseFloat(form.bagiHasilPK)  || 35,
+        bagiHasilPP1: Number.parseFloat(form.bagiHasilPP1) || 50,
+        bagiHasilPP2: Number.parseFloat(form.bagiHasilPP2) || 15,
+        bagiHasilPK:  Number.parseFloat(form.bagiHasilPK)  || 35,
         brokerId:      form.brokerId,
         brokerName:    form.brokerName,
         brokerAddress: form.brokerAddress,
         brokerIdNumber: form.brokerIdNumber,
         brokerPhone:   form.brokerPhone,
-        bagiHasilPP3:  form.brokerId ? (parseFloat(form.bagiHasilPP3) || 0) : 0,
+        bagiHasilPP3:  form.brokerId ? (Number.parseFloat(form.bagiHasilPP3) || 0) : 0,
         esignPihakPertama1: form.esignPihakPertama1,
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
@@ -1057,21 +991,18 @@ export function MouContent() {
     }
   };
 
-  const handleEdit = async (e: React.FormEvent) => {
+  const handleEdit = async (e: SyntheticEvent<HTMLFormElement, Event>) => {
     e.preventDefault();
     if (!selected) return;
     if (!validateBagiHasil()) return;
 
-    // Validasi investmentAmount tidak melebihi modal tersedia investor.
-    // Alokasi dihitung dari semua PKS non-terminated MILIK INVESTOR INI,
-    // kecuali PKS yang sedang diedit (selected.id) agar nilainya sendiri tidak dihitung dua kali.
     const inv = investors.find((i) => i.id === selected.investorId);
     if (inv) {
       const allocated = mous
         .filter((m) => m.investorId === selected.investorId && !m.isTerminated && m.id !== selected.id)
         .reduce((sum, m) => sum + m.investmentAmount, 0);
       const available = inv.investmentAmount - allocated;
-      const requested = parseFloat(form.investmentAmount) || 0;
+      const requested = Number.parseFloat(form.investmentAmount) || 0;
       if (requested > available + 0.01) {
         setErrorInfo({
           title: "Nilai investasi melebihi modal tersedia",
@@ -1093,21 +1024,21 @@ export function MouContent() {
         investorOccupation: form.investorOccupation,
         investorIdNumber: form.investorIdNumber,
         investorPhone: form.investorPhone,
-        contractPeriod: parseInt(form.contractPeriod),
-        investmentAmount: parseFloat(form.investmentAmount),
+        contractPeriod: Number.parseInt(form.contractPeriod),
+        investmentAmount: Number.parseFloat(form.investmentAmount),
         heirName: form.heirName,
         heirRelationship: form.heirRelationship,
         heirPhone: form.heirPhone,
         keterangan: form.keterangan,
-        bagiHasilPP1: parseFloat(form.bagiHasilPP1) || 50,
-        bagiHasilPP2: parseFloat(form.bagiHasilPP2) || 15,
-        bagiHasilPK:  parseFloat(form.bagiHasilPK)  || 35,
+        bagiHasilPP1: Number.parseFloat(form.bagiHasilPP1) || 50,
+        bagiHasilPP2: Number.parseFloat(form.bagiHasilPP2) || 15,
+        bagiHasilPK:  Number.parseFloat(form.bagiHasilPK)  || 35,
         brokerId:      form.brokerId,
         brokerName:    form.brokerName,
         brokerAddress: form.brokerAddress,
         brokerIdNumber: form.brokerIdNumber,
         brokerPhone:   form.brokerPhone,
-        bagiHasilPP3:  form.brokerId ? (parseFloat(form.bagiHasilPP3) || 0) : 0,
+        bagiHasilPP3:  form.brokerId ? (Number.parseFloat(form.bagiHasilPP3) || 0) : 0,
         esignPihakPertama1: form.esignPihakPertama1,
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
@@ -1127,7 +1058,6 @@ export function MouContent() {
   const openEdit = (mou: MoU) => {
     setSelected(mou);
     setSavedEsignFields(new Set());
-    // Jika brokerId kosong tapi brokerName ada, coba resolve dari master data broker
     const resolvedBroker =
       !mou.brokerId && mou.brokerName
         ? brokers.find((b) => b.name === mou.brokerName) ?? null
@@ -1323,10 +1253,14 @@ export function MouContent() {
           <CardContent className="flex flex-col items-center justify-center py-14">
             <FileText className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-1">
-              {filter === "semua"      ? "Belum ada PKS" :
-               filter === "complete"  ? "Belum ada PKS yang selesai" :
-               filter === "terminated"? "Belum ada PKS yang terminated" :
-               "Belum ada PKS draft"}
+              {
+                (() => {
+                  if (filter === "semua") return "Belum ada PKS";
+                  if (filter === "complete") return "Belum ada PKS yang selesai";
+                  if (filter === "terminated") return "Belum ada PKS yang terminated";
+                  return "Belum ada PKS draft";
+                })()
+              }
             </h3>
             <p className="text-muted-foreground text-sm">
               {filter === "semua"
@@ -1393,16 +1327,34 @@ export function MouContent() {
                           {formatDate(endDate(mou))}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <Badge
-                            variant="secondary"
-                            className={
-                              status === "complete"   ? "bg-green-100 text-green-800 hover:bg-green-100" :
-                              status === "terminated" ? "bg-red-100 text-red-800 hover:bg-red-100" :
-                              "bg-muted text-muted-foreground hover:bg-muted"
+                          {(() => {
+                            let badgeClass: string;
+                            if (status === "complete") {
+                              badgeClass = "bg-green-100 text-green-800 hover:bg-green-100";
+                            } else if (status === "terminated") {
+                              badgeClass = "bg-red-100 text-red-800 hover:bg-red-100";
+                            } else {
+                              badgeClass = "bg-muted text-muted-foreground hover:bg-muted";
                             }
-                          >
-                            {status === "complete" ? "Complete" : status === "terminated" ? "Terminated" : "Draft"}
-                          </Badge>
+
+                            let badgeText: string;
+                            if (status === "complete") {
+                              badgeText = "Complete";
+                            } else if (status === "terminated") {
+                              badgeText = "Terminated";
+                            } else {
+                              badgeText = "Draft";
+                            }
+
+                            return (
+                              <Badge
+                                variant="secondary"
+                                className={badgeClass}
+                              >
+                                {badgeText}
+                              </Badge>
+                            );
+                          })()}
                         </td>
                         <td className="py-3 px-4">
                           <div className="flex items-center justify-center gap-1">
@@ -1500,20 +1452,20 @@ export function MouContent() {
                 {Array.from({ length: totalPages }, (_, i) => i + 1)
                   .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
                   .reduce<(number | "…")[]>((acc, p, i, arr) => {
-                    if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push("…");
+                    if (i > 0 && p - arr[i - 1] > 1) acc.push("…");
                     acc.push(p);
                     return acc;
                   }, [])
-                  .map((p, i) =>
+                  .map((p) =>
                     p === "…" ? (
-                      <span key={`ellipsis-${i}`} className="px-1 text-muted-foreground text-xs">…</span>
+                      <span key="ellipsis" className="px-1 text-muted-foreground text-xs">…</span>
                     ) : (
                       <Button
                         key={p}
                         variant={page === p ? "default" : "outline"}
                         size="sm"
                         className="w-8 h-8 p-0 text-xs"
-                        onClick={() => setPage(p as number)}
+                        onClick={() => setPage(p)}
                       >
                         {p}
                       </Button>
@@ -1722,11 +1674,11 @@ export function MouContent() {
                   onClick={handleSignedDocUpload}
                 >
                   <Upload className="h-4 w-4 mr-2" />
-                  {isUploading
-                    ? "Mengunggah…"
-                    : uploadDocTarget?.hasSignedDoc
-                    ? "Timpa & Upload Ulang"
-                    : "Upload & Aktifkan"}
+                  {(() => {
+                    if (isUploading) return "Mengunggah…";
+                    if (uploadDocTarget?.hasSignedDoc) return "Timpa & Upload Ulang";
+                    return "Upload & Aktifkan";
+                  })()}
                 </Button>
               </DialogFooter>
             </>
@@ -1785,11 +1737,9 @@ export function MouContent() {
               onClick={handleSaveTtd}
               disabled={isSavingTtd || (!ttdPreview && !ttdTarget?.esignPihakKedua)}
             >
-              {isSavingTtd
-                ? "Menyimpan..."
-                : !ttdPreview && ttdTarget?.esignPihakKedua
-                ? "Hapus Tanda Tangan"
-                : "Simpan Tanda Tangan"}
+              {isSavingTtd && "Menyimpan..."}
+              {!isSavingTtd && !ttdPreview && ttdTarget?.esignPihakKedua && "Hapus Tanda Tangan"}
+              {!isSavingTtd && !((!ttdPreview && ttdTarget?.esignPihakKedua)) && "Simpan Tanda Tangan"}
             </Button>
           </DialogFooter>
         </DialogContent>
