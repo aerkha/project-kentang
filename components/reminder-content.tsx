@@ -81,9 +81,8 @@ function diffDays(startStr: string, endStr: string): number {
 }
 
 function parsePeriodeDays(desc: string): number {
-  const re = /\d+/;
-  const m = re.exec(desc || "");
-  const n = m ? Number.parseInt(m[0], 10) : 30;
+  const m = desc?.match(/\d+/);
+  const n = m ? parseInt(m[0], 10) : 30;
   return n > 0 ? n : 30;
 }
 
@@ -329,135 +328,87 @@ type ProcessInternalEntityParams = {
   addPengeluaranFn: (p: any) => Promise<void>;
   updateTransaksiFn: (id: string, data: any) => Promise<void>;
   updateMouFn: (id: string, data: any) => Promise<void>;
+  updateInvestorFn: (id: string, data: any) => Promise<void>; // DITAMBAHKAN
   triggerAutorenewalFn: (id: string) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 };
 
-async function processBagiHasilItemInternal(
-  item: any,
-  today: string,
-  triggeredRenewals: Set<string>,
-  params: ProcessInternalEntityParams
-): Promise<void> {
-  const { entity, mous, investors, brokers, minbun, trader, cashflowTagRecordedFn, addPengeluaranFn, updateTransaksiFn, triggerAutorenewalFn, setDoneKeysFn } = params;
-  const isMinBun = item.keterangan === "MinBun";
-  const tag = isMinBun
-    ? `[Reminder] TRX ${item.trx.id} · MinBun`
-    : `[Internal-Profit:${entity.investorId}:${item.trx.id}]`;
-
-  if (!cashflowTagRecordedFn(tag)) {
-    await addPengeluaranFn({
-      date: today,
-      deskripsi: isMinBun ? `Bagi Hasil MinBun — TRX ${item.trx.id}` : `Profit Internal — ${entity.nama} — TRX ${item.trx.id}`,
-      debet: item.jumlah,
-      kredit: 0,
-      kategori: isMinBun ? "Fee MinBun" : "BagHas Modal MinBun",
-      catatan: tag,
-    });
-  }
-
-  const trxId = item.trx.id;
-  const { checks, bagiHasilDone } = computeBagiHasilStatus(item.trx, item.checkKey, mous, investors, brokers, minbun, trader);
-
-  await updateTransaksiFn(trxId, { bagiHasilChecks: checks, bagiHasilDone });
-  setDoneKeysFn((prev) => new Set(prev).add(`${trxId}__${item.checkKey}`));
-
-  if (item.trx.isAutorenewal && bagiHasilDone && !triggeredRenewals.has(trxId)) {
-    triggeredRenewals.add(trxId);
-    await triggerAutorenewalFn(trxId);
-  }
-}
-
-async function processPengembalianModalItemInternal(
-  item: any,
-  entity: ProcessedEntity,
-  today: string,
-  cashflowTagRecordedFn: (tag: string) => boolean,
-  addPengeluaranFn: (p: any) => Promise<void>,
-  updateMouFn: (id: string, data: any) => Promise<void>,
-  setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void
-): Promise<void> {
-  const tag = `[Internal-Return:${entity.investorId}:${item.mou.id}]`;
-  if (!cashflowTagRecordedFn(tag)) {
-    await addPengeluaranFn({
-      date: today,
-      deskripsi: `Pengembalian Modal Internal — ${entity.nama} — PKS ${item.mou.id}`,
-      debet: item.jumlah,
-      kredit: 0,
-      kategori: "Pengembalian Modal",
-      catatan: tag,
-    });
-  }
-  await updateMouFn(item.mou.id, { isTerminated: true });
-  setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
-}
-
 async function processInternalEntity({
-  entity,
-  mous,
-  investors,
-  brokers,
-  minbun,
-  trader,
-  cashflowTagRecordedFn,
-  addPengeluaranFn,
-  updateTransaksiFn,
-  updateMouFn,
-  triggerAutorenewalFn,
-  setDoneKeysFn,
+  entity, mous, investors, brokers, minbun, trader, cashflowTagRecordedFn, addPengeluaranFn,
+  updateTransaksiFn, updateMouFn, updateInvestorFn, triggerAutorenewalFn, setDoneKeysFn,
 }: ProcessInternalEntityParams) {
   const today = todayWibStr();
   const triggeredRenewals = new Set<string>();
 
   for (const item of entity.filteredItems) {
+    const isMinBun = item.keterangan === "MinBun";
+
     if (item.type === "Bagi Hasil" && item.trx) {
-      await processBagiHasilItemInternal(
-        item,
-        today,
-        triggeredRenewals,
-        {
-          entity,
-          mous,
-          investors,
-          brokers,
-          minbun,
-          trader,
-          cashflowTagRecordedFn,
-          addPengeluaranFn,
-          updateTransaksiFn,
-          updateMouFn,
-          triggerAutorenewalFn,
-          setDoneKeysFn,
-        }
-      );
-    } else if (item.type === "Pengembalian Modal" && item.mou) {
-      await processPengembalianModalItemInternal(
-        item,
-        entity,
-        today,
-        cashflowTagRecordedFn,
-        addPengeluaranFn,
-        updateMouFn,
-        setDoneKeysFn
-      );
+      const tag = isMinBun
+        ? `[Reminder] TRX ${item.trx.id} · MinBun`
+        : `[Internal-Profit:${entity.investorId}:${item.trx.id}]`;
+
+      if (!cashflowTagRecordedFn(tag)) {
+        await addPengeluaranFn({
+          date: today,
+          deskripsi: isMinBun ? `Bagi Hasil MinBun — TRX ${item.trx.id}` : `Profit Internal — ${entity.nama} — TRX ${item.trx.id}`,
+          debet: item.jumlah,
+          kredit: 0,
+          kategori: isMinBun ? "Fee MinBun" : "BagHas Modal MinBun",
+          catatan: tag,
+        });
+      }
+
+      const checks = { ...item.trx.bagiHasilChecks, [item.checkKey]: true };
+      const allRows = buildTransaksiRows(item.trx, mous, investors, brokers, minbun, trader);
+      
+      const externalRows = allRows.filter(r => r.keterangan !== "MinBun" && r.keterangan !== "Trader");
+      const bagiHasilDone = externalRows.length > 0 
+        ? externalRows.every((r) => checks[r.checkKey]) 
+        : allRows.every((r) => checks[r.checkKey]);
+
+      // PERBAIKAN: Ubah status transaksi jadi selesai agar modal tidak dianggap "terpakai"
+      const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
+      if (bagiHasilDone) updates.status = "selesai";
+
+      await updateTransaksiFn(item.trx.id, updates);
+      if (item.trx && item.trx.id) {
+        setDoneKeysFn((prev) => {
+          const s = new Set(prev);
+          s.add(`${item.trx!.id}__${item.checkKey}`);
+          return s;
+        });
+      }
+
+      if (item.trx.isAutorenewal && bagiHasilDone && !triggeredRenewals.has(item.trx.id)) {
+        triggeredRenewals.add(item.trx.id);
+        await triggerAutorenewalFn(item.trx.id);
+      }
+    } 
+    else if (item.type === "Pengembalian Modal" && item.mou) {
+      const tag = `[Internal-Return:${entity.investorId}:${item.mou.id}]`;
+      if (!cashflowTagRecordedFn(tag)) {
+        await addPengeluaranFn({
+          date: today,
+          deskripsi: `Pengembalian Modal Internal — ${entity.nama} — PKS ${item.mou.id}`,
+          debet: item.jumlah,
+          kredit: 0,
+          kategori: "Pengembalian Modal",
+          catatan: tag,
+        });
+      }
+      await updateMouFn(item.mou.id, { isTerminated: true });
+
+      // PERBAIKAN: Tarik modal dari profil investor (dikurangi nominal PKS)
+      const inv = investors.find(i => i.id === item.mou!.investorId);
+      if (inv) {
+        const newAmount = Math.max(0, inv.investmentAmount - item.mou!.investmentAmount);
+        await updateInvestorFn(inv.id, { investmentAmount: newAmount });
+      }
+
+      setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
     }
   }
-}
-
-// Helper to compute bagi hasil checks and completion status.
-function computeBagiHasilStatus(
-  trx: any,
-  checkKey: string,
-  mous: any,
-  investors: any,
-  brokers: any,
-  minbun: any,
-  trader: any
-) {
-  const checks: Record<string, boolean> = trx?.bagiHasilChecks ?? {};
-  checks[checkKey] = true;
-  const bagiHasilDone = Object.values(checks).every(Boolean);
-  return { checks, bagiHasilDone };
 }
 
 type ProcessUploadEntityParams = {
@@ -472,80 +423,74 @@ type ProcessUploadEntityParams = {
   uploadBuktiPengembalianFn?: (mouId: string, file: File) => Promise<string>;
   updateTransaksiFn: (id: string, data: any) => Promise<void>;
   updateMouFn: (id: string, data: any) => Promise<void>;
+  updateInvestorFn: (id: string, data: any) => Promise<void>; // DITAMBAHKAN
   triggerAutorenewalFn: (id: string) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 };
 
 async function processUploadEntity({
-  entity,
-  uploadFiles,
-  mous,
-  investors,
-  brokers,
-  minbun,
-  trader,
-  uploadBuktiTransaksiFn,
-  uploadBuktiPengembalianFn,
-  updateTransaksiFn,
-  updateMouFn,
-  triggerAutorenewalFn,
-  setDoneKeysFn,
+  entity, uploadFiles, mous, investors, brokers, minbun, trader,
+  uploadBuktiTransaksiFn, uploadBuktiPengembalianFn, updateTransaksiFn, updateMouFn,
+  updateInvestorFn, triggerAutorenewalFn, setDoneKeysFn,
 }: ProcessUploadEntityParams) {
-  // Helper to compute bagi hasil checks and completion status.
-  function computeBagiHasilStatus(
-    trx: any,
-    checkKey: string,
-    mous: any,
-    investors: any,
-    brokers: any,
-    minbun: any,
-    trader: any
-  ) {
-    // Default to existing checks or empty object
-    const checks: Record<string, boolean> = { ...trx?.bagiHasilChecks };
-    // mark this check as done
-    checks[checkKey] = true;
-    // consider done when all checks are truthy
-    const bagiHasilDone = Object.values(checks).every(Boolean);
-    return { checks, bagiHasilDone };
-  }
+  
+  const fileUrls: string[] = [];
+  const validFiles = uploadFiles.filter(Boolean);
+  const triggeredRenewals = new Set<string>();
 
-  async function uploadFile(item: any, validFiles: File[], fileUrls: string[]): Promise<void> {
-    const fileToUpload = validFiles[0]; // Will be cyclically selected by caller
-    if (!fileToUpload) return;
-
+  for (let i = 0; i < entity.filteredItems.length; i++) {
+    const item = entity.filteredItems[i];
+    const fileToUpload = validFiles[i % validFiles.length]; 
+    
     let url = "";
-    if (item.type === "Pengembalian Modal" && item.mou && uploadBuktiPengembalianFn) {
-      url = await uploadBuktiPengembalianFn(item.mou.id, fileToUpload);
-    } else if (item.trx) {
-      url = await uploadBuktiTransaksiFn(item.trx.id, item.keterangan, fileToUpload);
+    if (fileToUpload) {
+      if (item.type === "Pengembalian Modal" && item.mou && uploadBuktiPengembalianFn) {
+        url = await uploadBuktiPengembalianFn(item.mou.id, fileToUpload);
+      } else if (item.trx) {
+        url = await uploadBuktiTransaksiFn(item.trx.id, item.keterangan, fileToUpload);
+      }
+      if (url) fileUrls.push(url);
     }
-    if (url) fileUrls.push(url);
-  }
 
-  async function processBagiHasilItem(item: any, triggeredRenewals: Set<string>): Promise<void> {
-    if (item.type !== "Bagi Hasil" || !item.trx) return;
+    if (item.type === "Bagi Hasil" && item.trx) {
+      const trx = item.trx;
+      const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
+      const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+      
+      const externalRows = allRows.filter(r => r.keterangan !== "MinBun" && r.keterangan !== "Trader");
+      const bagiHasilDone = externalRows.length > 0 
+        ? externalRows.every((r) => checks[r.checkKey]) 
+        : allRows.every((r) => checks[r.checkKey]);
 
-    const { checks, bagiHasilDone } = computeBagiHasilStatus(item.trx, item.checkKey, mous, investors, brokers, minbun, trader);
-    await updateTransaksiFn(item.trx.id, { bagiHasilChecks: checks, bagiHasilDone });
-    setDoneKeysFn((prev) => new Set(prev).add(`${item.trx!.id}__${item.checkKey}`));
+      // PERBAIKAN: Ubah status transaksi jadi selesai
+      const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
+      if (bagiHasilDone) updates.status = "selesai";
 
-    if (item.trx.isAutorenewal && bagiHasilDone && !triggeredRenewals.has(item.trx.id)) {
-      triggeredRenewals.add(item.trx.id);
-      await triggerAutorenewalFn(item.trx.id);
+      await updateTransaksiFn(trx.id, updates);
+      setDoneKeysFn((prev) => new Set(prev).add(`${trx.id}__${item.checkKey}`));
+
+      if (trx.isAutorenewal && bagiHasilDone && !triggeredRenewals.has(trx.id)) {
+        triggeredRenewals.add(trx.id);
+        await triggerAutorenewalFn(trx.id);
+      }
+    } 
+    else if (item.type === "Pengembalian Modal" && item.mou) {
+      await updateMouFn(item.mou.id, { isTerminated: true });
+
+      // PERBAIKAN: Tarik modal dari profil investor
+      const inv = investors.find(i => i.id === item.mou!.investorId);
+      if (inv) {
+        const newAmount = Math.max(0, inv.investmentAmount - item.mou!.investmentAmount);
+        await updateInvestorFn(inv.id, { investmentAmount: newAmount });
+      }
+
+      setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
     }
   }
 
-  async function processPengembalianModalItem(item: any): Promise<void> {
-    if (item.type !== "Pengembalian Modal" || !item.mou) return;
-    await updateMouFn(item.mou.id, { isTerminated: true });
-    setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
-  }
-
-  async function notifyInvestor(fileUrls: string[]): Promise<void> {
-    if (!entity.investorId) return;
-
-    const combinedUrls = Array.from(new Set(fileUrls)).join(",");
+  const combinedUrls = Array.from(new Set(fileUrls)).join(",");
+  
+  if (entity.investorId) {
     await fetch("/api/notify-investor", {
       method: "POST",
       headers: {
@@ -561,26 +506,6 @@ async function processUploadEntity({
       }),
     }).catch((err) => console.error("Gagal panggil API WA:", err));
   }
-  
-  const fileUrls: string[] = [];
-  const validFiles = uploadFiles.filter(Boolean);
-  const triggeredRenewals = new Set<string>();
-
-  for (let i = 0; i < entity.filteredItems.length; i++) {
-    const item = entity.filteredItems[i];
-    const fileToUpload = validFiles[i % validFiles.length]; 
-    
-    if (fileToUpload) {
-      const fileUrlsTemp = [...fileUrls];
-      await uploadFile(item, [fileToUpload], fileUrlsTemp);
-      fileUrls.push(...fileUrlsTemp);
-    }
-
-    await processBagiHasilItem(item, triggeredRenewals);
-    await processPengembalianModalItem(item);
-  }
-
-  await notifyInvestor(fileUrls);
 }
 
 function getBulkActionTooltipText(showDone: boolean, isInternal: boolean) {
@@ -720,57 +645,14 @@ export function ReminderContent() {
   const { mous, updateMou } = mouContext;
   const uploadBuktiPengembalian = (mouContext as any).uploadBuktiPengembalian;
 
-  const { transaksis, updateTransaksi, uploadBuktiTransaksi } = useTransaksi();
-  const { investors }                                 = useInvestors();
+  const transaksiContext = useTransaksi();
+  const { transaksis, updateTransaksi, uploadBuktiTransaksi } = transaksiContext;
+  const triggerAutorenewal = (transaksiContext as any).triggerAutorenewal;
+  const { investors, updateInvestor }                 = useInvestors();
   const { brokers }                                   = useBrokers();
   const { pengeluarans, addPengeluaran }              = usePengeluaran();
   const { minbun, trader, updateMinbun, updateTrader } = useSettings();
   const { logs, isLoading: logsLoading, refresh: refreshLogs } = useReminderLogs();
-
-  // Trigger auto-renewal for a transaction
-  const triggerAutorenewal = async (transactionId: string) => {
-    try {
-      const trx = transaksis.find((t) => t.id === transactionId);
-      if (!trx?.isAutorenewal) {
-        console.warn("Transaction not found or auto-renewal not enabled:", transactionId);
-        return;
-      }
-
-      // Create new transaction with next cycle
-      const newTransaksi = {
-        ...trx,
-        id: undefined, // Let backend generate new ID
-        date: todayWibStr(),
-        // 'siklus' may not be defined on the Transaksi type, use a safe cast
-        siklus: (((trx as any).siklus) || 1) + 1,
-        bagiHasilDone: false,
-        bagiHasilChecks: {},
-      };
-
-      // Call API to create auto-renewed transaction
-      const response = await fetch("/api/transaksi", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${pb.authStore.token}`,
-        },
-        body: JSON.stringify(newTransaksi),
-      });
-
-      if (!response.ok) {
-        throw new Error("Gagal membuat transaksi auto-renewal");
-      }
-
-      const createdTrx = await response.json();
-      console.log("Auto-renewal created successfully:", createdTrx.id);
-      
-      // Refresh transaksis list
-      void updateTransaksi(transactionId, {});
-    } catch (error) {
-      console.error("Auto-renewal error:", error);
-      toast.error("Gagal membuat auto-renewal. Coba lagi.");
-    }
-  };
 
   const [isSendingReminder,   setIsSendingReminder]   = useState(false);
   const [toggling, setToggling]          = useState<string | null>(null);
@@ -953,11 +835,19 @@ export function ReminderContent() {
     try {
       for (const item of entity.filteredItems) {
         if (item.type === "Bagi Hasil" && item.trx) {
-          const checks = { ...item.trx.bagiHasilChecks, [item.checkKey]: false };
-          await updateTransaksi(item.trx.id, { bagiHasilChecks: checks, bagiHasilDone: false });
-          setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${item.trx!.id}__${item.checkKey}`); return s; });
+          const trx = item.trx;
+          const checkKey = item.checkKey;
+          const checks = { ...trx.bagiHasilChecks, [checkKey]: false };
+          // PERBAIKAN UNDO: Kembalikan status transaksi menjadi berjalan
+          await updateTransaksi(trx.id, { bagiHasilChecks: checks, bagiHasilDone: false, status: "berjalan" });
+          setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trx.id}__${checkKey}`); return s; });
         } else if (item.type === "Pengembalian Modal" && item.mou) {
           await updateMou(item.mou.id, { isTerminated: false });
+          // PERBAIKAN UNDO: Kembalikan saldo investor seperti semula
+          const inv = investors.find(i => i.id === item.mou!.investorId);
+          if (inv) {
+            await updateInvestor(inv.id, { investmentAmount: inv.investmentAmount + item.mou!.investmentAmount });
+          }
           setDoneKeys((prev) => { const s = new Set(prev); s.delete(item.checkKey); return s; });
         }
       }
@@ -987,6 +877,7 @@ export function ReminderContent() {
         addPengeluaranFn: addPengeluaran,
         updateTransaksiFn: updateTransaksi,
         updateMouFn: updateMou,
+        updateInvestorFn: updateInvestor,
         triggerAutorenewalFn: triggerAutorenewal,
         setDoneKeysFn: setDoneKeys,
       });
@@ -1043,6 +934,7 @@ export function ReminderContent() {
         uploadBuktiPengembalianFn: uploadBuktiPengembalian, 
         updateTransaksiFn: updateTransaksi,
         updateMouFn: updateMou,
+        updateInvestorFn: updateInvestor,
         triggerAutorenewalFn: triggerAutorenewal,
         setDoneKeysFn: setDoneKeys,
       });
@@ -1281,8 +1173,8 @@ export function ReminderContent() {
                   <div className="flex flex-col items-center text-center space-y-2 text-muted-foreground">
                     <Upload className="h-6 w-6 opacity-70" />
                     <div>
-                      <p className="text-sm font-medium">Upload bukti transfer</p>
-                      <p className="text-xs">(Bisa pilih beberapa sekaligus)</p>
+                      <p className="text-sm font-medium">Klik untuk tambah gambar/PDF</p>
+                      <p className="text-xs">Bisa pilih beberapa sekaligus</p>
                     </div>
                   </div>
                 </label>
@@ -1292,7 +1184,7 @@ export function ReminderContent() {
                     <p className="text-xs font-semibold text-muted-foreground mb-2">File Terpilih ({uploadFiles.length}):</p>
                     <div className="grid grid-cols-4 gap-2">
                       {uploadPreviews.map((preview, i) => (
-                        <div key={`${preview}-${i}`} className="relative group">
+                        <div key={`${uploadFiles[i]?.name ?? 'file'}-${uploadFiles[i]?.lastModified ?? i}`} className="relative group">
                           {preview.startsWith("blob:") ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={preview} alt="Preview" className="w-full h-16 object-cover rounded border bg-white" />

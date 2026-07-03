@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
 import pb from "./pocketbase";
 
 export const KATEGORI_OPTIONS = [
@@ -43,7 +43,7 @@ interface PengeluaranContextType {
 
 const PengeluaranContext = createContext<PengeluaranContextType | undefined>(undefined);
 
-const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
+const currentUserId = () => pb.authStore.record?.id ?? "";
 
 function isCustomIdConflict(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
@@ -77,8 +77,8 @@ function sortPengeluaran(a: Pengeluaran, b: Pengeluaran): number {
   const dateDiff = a.date.localeCompare(b.date);
   if (dateDiff !== 0) return dateDiff;
   // Bandingkan suffix numerik: "PGL-202505-009" → 9, "PGL-202505-010" → 10
-  const numA = parseInt(a.id.split("-").pop() ?? "0") || 0;
-  const numB = parseInt(b.id.split("-").pop() ?? "0") || 0;
+  const numA = Number.parseInt(a.id.split("-").pop() ?? "0") || 0;
+  const numB = Number.parseInt(b.id.split("-").pop() ?? "0") || 0;
   return numA - numB;
 }
 
@@ -91,8 +91,8 @@ async function generateCustomId(date: string): Promise<string> {
       fields: "customId",
     });
     const max = res.reduce((m, r) => {
-      const n = parseInt((r.customId as string).slice(prefix.length)) || 0;
-      return n > m ? n : m;
+      const n = Number.parseInt((r.customId as string).slice(prefix.length)) || 0;
+      return Math.max(n, m);
     }, 0);
     return `${prefix}${String(max + 1).padStart(3, "0")}`;
   } catch {
@@ -100,12 +100,12 @@ async function generateCustomId(date: string): Promise<string> {
   }
 }
 
-export function PengeluaranProvider({ children }: { children: ReactNode }) {
+export function PengeluaranProvider({ children }: { readonly children: ReactNode }) {
   const [pengeluarans, setPengeluarans] = useState<Pengeluaran[]>([]);
   const pbIdMapRef = useRef(new Map<string, string>());
   const map = pbIdMapRef.current;
 
-  const resolvePbId = async (customId: string): Promise<string | null> => {
+  const resolvePbId = useCallback(async (customId: string): Promise<string | null> => {
     const cached = map.get(customId);
     if (cached) return cached;
     try {
@@ -116,7 +116,7 @@ export function PengeluaranProvider({ children }: { children: ReactNode }) {
       map.set(customId, res.id);
       return res.id;
     } catch { return null; }
-  };
+  }, [map]);
 
   useEffect(() => {
     pb.collection("pengeluarans")
@@ -126,7 +126,7 @@ export function PengeluaranProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const addPengeluaran = async (p: Omit<Pengeluaran, "id">) => {
+  const addPengeluaran = useCallback(async (p: Omit<Pengeluaran, "id">) => {
     let customId = await generateCustomId(p.date);
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
@@ -153,9 +153,9 @@ export function PengeluaranProvider({ children }: { children: ReactNode }) {
         throw err;
       }
     }
-  };
+  }, [map]);
 
-  const updatePengeluaran = async (id: string, updates: Partial<Pengeluaran>) => {
+  const updatePengeluaran = useCallback(async (id: string, updates: Partial<Pengeluaran>) => {
     const pbId = await resolvePbId(id);
     if (!pbId) throw new Error(`Entri "${id}" tidak ditemukan.`);
     const record = await pb.collection("pengeluarans").update(pbId, {
@@ -168,20 +168,23 @@ export function PengeluaranProvider({ children }: { children: ReactNode }) {
         .map((p) => (p.id === id ? recordToPengeluaran(record, map) : p))
         .sort(sortPengeluaran),
     );
-  };
+  }, [map, resolvePbId]);
 
-  const deletePengeluaran = async (id: string) => {
+  const deletePengeluaran = useCallback(async (id: string) => {
     const pbId = await resolvePbId(id);
     if (!pbId) throw new Error(`Entri "${id}" tidak ditemukan.`);
     await pb.collection("pengeluarans").delete(pbId);
     map.delete(id);
     setPengeluarans((prev) => prev.filter((p) => p.id !== id));
-  };
+  }, [map, resolvePbId]);
+
+  const value = useMemo(
+    () => ({ pengeluarans, addPengeluaran, updatePengeluaran, deletePengeluaran }),
+    [pengeluarans, addPengeluaran, updatePengeluaran, deletePengeluaran],
+  );
 
   return (
-    <PengeluaranContext.Provider
-      value={{ pengeluarans, addPengeluaran, updatePengeluaran, deletePengeluaran }}
-    >
+    <PengeluaranContext.Provider value={value}>
       {children}
     </PengeluaranContext.Provider>
   );
