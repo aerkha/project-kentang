@@ -419,7 +419,7 @@ async function processInternalProfitItem({
   today,
 }: ProcessInternalProfitItemParams) {
   const isMinBun = item.keterangan === "MinBun";
-  if (!item.trx) return; // guard: ensure trx is present
+  if (!item.trx) return; 
   const trx = item.trx;
   const trxId = trx.id;
   const tag = isMinBun
@@ -877,74 +877,6 @@ export function ReminderContent() {
     });
   };
 
-  // 1. Ringkasan (Summary Metrics) - Dinamis berdasarkan Tab (Pending/Selesai)
-  const summary = useMemo(() => {
-    let investor = 0, traderAmt = 0, minbunAmt = 0, broker = 0, modalToReturn = 0, ownerAmt = 0;
-    let totalTasks = 0, doneTasks = 0;
-
-    transaksis.forEach((trx) => {
-      const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
-      const calc = calcTransaksi(trx);
-      
-      let trxFullyDone = true;
-
-      rows.forEach((r) => {
-        totalTasks++;
-        const isDone = !!trx.bagiHasilChecks?.[r.checkKey] || doneKeys.has(`${trx.id}__${r.checkKey}`);
-        if (isDone) {
-          doneTasks++;
-        } else {
-          trxFullyDone = false;
-        }
-
-        // Tampilkan nominal berdasarkan tab yang sedang aktif
-        if (isDone === showDone) {
-          if (r.keterangan === "Investor") investor += r.jumlah;
-          else if (r.keterangan === "Trader") traderAmt += r.jumlah;
-          else if (r.keterangan === "MinBun") minbunAmt += r.jumlah;
-          else if (r.keterangan === "Broker") broker += r.jumlah;
-        }
-      });
-
-      // Owner profit dihitung berdasarkan status transaksi keseluruhan
-      // Jika di tab Pending: tampilkan jika transaksi belum selesai sepenuhnya
-      // Jika di tab Selesai: tampilkan jika transaksi sudah selesai sepenuhnya
-      const includeOwner = showDone ? trxFullyDone : !trxFullyDone;
-
-      if (calc.profit > 0 && includeOwner) {
-        const totalDistributed = rows.reduce((sum, r) => sum + r.jumlah, 0);
-        ownerAmt += (calc.profit - totalDistributed);
-      }
-    });
-
-    mous.forEach((mou) => {
-      const isDone = mou.isTerminated || doneKeys.has(`MOU__${mou.id}`);
-      const sisa = sisaHariPks(mou);
-      
-      if (isDone || sisa <= 30) {
-        totalTasks++;
-        if (isDone) doneTasks++;
-        
-        // Sesuaikan dengan tab aktif
-        if (isDone === showDone) {
-          modalToReturn += mou.investmentAmount;
-        }
-      }
-    });
-
-    const totalProfitBagiHasil = investor + traderAmt + minbunAmt + broker + ownerAmt;
-
-    return { 
-      investor, trader: traderAmt, minbun: minbunAmt, broker, owner: ownerAmt, 
-      modalToReturn, totalTasks, doneTasks, totalProfitBagiHasil
-    };
-  }, [transaksis, mous, investors, brokers, minbun, trader, doneKeys, showDone]);
-
-  // Helper untuk mengubah ke persentase (Contoh: 35.0%)
-  const toPct = (val: number) => summary.totalProfitBagiHasil > 0 
-    ? `${Number(((val / summary.totalProfitBagiHasil) * 100).toFixed(1))}%` 
-    : "0%";
-
   // 2. Data Entity (Bulk Data)
   const displayEntities = useMemo(() => {
     const map = new Map<string, ProcessedEntity & { items: EntitySummaryItem[] }>();
@@ -1011,6 +943,74 @@ export function ReminderContent() {
     
     return result;
   }, [transaksis, mous, investors, brokers, minbun, trader, doneKeys, showDone, internalInvestorIds]);
+
+  // 1. Ringkasan (Summary Metrics) - Berdasarkan data yang TAMPIL SAJA di displayEntities
+  const summary = useMemo(() => {
+    let investor = 0, traderAmt = 0, minbunAmt = 0, broker = 0, modalToReturn = 0;
+    
+    displayEntities.forEach((ent) => {
+      ent.filteredItems.forEach((item) => {
+        if (item.type === "Pengembalian Modal") {
+          modalToReturn += item.jumlah;
+        } else if (item.type === "Bagi Hasil") {
+          if (item.keterangan === "Investor") investor += item.jumlah;
+          else if (item.keterangan === "Trader") traderAmt += item.jumlah;
+          else if (item.keterangan === "MinBun") minbunAmt += item.jumlah;
+          else if (item.keterangan === "Broker") broker += item.jumlah;
+        }
+      });
+    });
+
+    // Kalkulasi Owner Profit murni dari kumpulan ID Transaksi yang saat ini muncul di tabel
+    let ownerAmt = 0;
+    const processedTrxIds = new Set<string>();
+
+    const processOwnerProfit = (item: any) => {
+      if (item.type === "Bagi Hasil" && item.trx && !processedTrxIds.has(item.trx.id)) {
+        processedTrxIds.add(item.trx.id);
+        const calc = calcTransaksi(item.trx);
+        if (calc.profit > 0) {
+          const allRows = buildTransaksiRows(item.trx, mous, investors, brokers, minbun, trader);
+          const totalDistributed = allRows.reduce((sum, r) => sum + r.jumlah, 0);
+          ownerAmt += (calc.profit - totalDistributed);
+        }
+      }
+    };
+
+    displayEntities.forEach((ent) => {
+      ent.filteredItems.forEach(processOwnerProfit);
+    });
+
+    const totalProfitBagiHasil = investor + traderAmt + minbunAmt + broker + ownerAmt;
+
+    // totalTasks & doneTasks untuk header indikator
+    let totalTasks = 0, doneTasks = 0;
+    transaksis.forEach((trx) => {
+      const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+      rows.forEach((r) => {
+        totalTasks++;
+        if (!!trx.bagiHasilChecks?.[r.checkKey] || doneKeys.has(`${trx.id}__${r.checkKey}`)) doneTasks++;
+      });
+    });
+    mous.forEach((mou) => {
+      const isDone = mou.isTerminated || doneKeys.has(`MOU__${mou.id}`);
+      const sisa = sisaHariPks(mou);
+      if (isDone || sisa <= 30) {
+        totalTasks++;
+        if (isDone) doneTasks++;
+      }
+    });
+
+    return { 
+      investor, trader: traderAmt, minbun: minbunAmt, broker, owner: ownerAmt, 
+      modalToReturn, totalTasks, doneTasks, totalProfitBagiHasil
+    };
+  }, [displayEntities, transaksis, mous, investors, brokers, minbun, trader, doneKeys]);
+
+  // Helper untuk mengubah ke persentase
+  const toPct = (val: number) => summary.totalProfitBagiHasil > 0 
+    ? `${Number(((val / summary.totalProfitBagiHasil) * 100).toFixed(1))}%` 
+    : "0%";
 
   // Handlers Aksi
   const handleActionClick = (entity: ProcessedEntity) => {
@@ -1191,7 +1191,7 @@ export function ReminderContent() {
         </p>
       </div>
 
-      {/* Summary cards - Sekarang Dinamis Mengikuti Tab (Pending / Selesai) */}
+      {/* Summary cards - Secara Dinamis Mengikuti Data Tabel Dibawahnya */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -1210,6 +1210,7 @@ export function ReminderContent() {
             <Banknote className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
+            {/* Modal dipertahankan dalam nominal (formatShort) karena bukan irisan profit */}
             <div className="text-2xl font-bold text-rose-600">{formatShort(summary.modalToReturn)}</div>
             <p className="text-xs text-muted-foreground">{formatCurrency(summary.modalToReturn)}</p>
           </CardContent>

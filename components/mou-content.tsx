@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type SyntheticEvent } from "react";
+import { useState, type SyntheticEvent } from "react";
 import { toast } from "sonner";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
@@ -50,14 +50,9 @@ function addDays(dateStr: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
-// ─────────────────────────────────────────────
-// localStorage helpers untuk simpan e-signature
-// ─────────────────────────────────────────────
-
 const ESIGN_KEYS = {
   esignPihakPertama1: "pks_esign_pp1",
   esignPihakPertama2: "pks_esign_pp2",
-  esignPihakPertama3: "pks_esign_pp3",
 } as const;
 
 function esignInvKey(investorId: string): string {
@@ -75,10 +70,6 @@ function storeEsign(key: string, dataUrl: string): void {
 function deleteStoredEsign(key: string): void {
   try { localStorage.removeItem(key); } catch {}
 }
-
-// ─────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────
 
 interface MouFormData {
   date: string;
@@ -106,8 +97,7 @@ interface MouFormData {
   brokerAddress: string;
   brokerIdNumber: string;
   brokerPhone: string;
-  bagiHasilPP3: string;
-  esignPihakPertama3: string;
+  bagiHasilPP3: string; // << DIKEMBALIKAN
 }
 
 const initialForm: MouFormData = {
@@ -136,13 +126,8 @@ const initialForm: MouFormData = {
   brokerAddress: "",
   brokerIdNumber: "",
   brokerPhone: "",
-  bagiHasilPP3: "0",
-  esignPihakPertama3: "",
+  bagiHasilPP3: "0", // << DIKEMBALIKAN
 };
-
-// ─────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────
 
 function formatDate(s: string) {
   if (!s) return "-";
@@ -172,51 +157,6 @@ function durationMonths(mou: MoU) {
   const days = Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86_400_000);
   return Math.max(1, Math.round(days / 30));
 }
-
-// ─────────────────────────────────────────────
-// KeteranganCombobox
-// ─────────────────────────────────────────────
-
-function KeteranganCombobox({
-  value,
-  onChange,
-  suggestions,
-}: Readonly<{
-  value: string;
-  onChange: (v: string) => void;
-  suggestions: string[];
-}>) {
-  const [query, setQuery] = useState(value);
-
-  useEffect(() => { setQuery(value); }, [value]);
-
-  return (
-    <div className="relative">
-      <input
-        list="mou-suggestions-list"
-        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        placeholder="Catatan tambahan (opsional)"
-        value={query}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          onChange(e.target.value);
-        }}
-        autoComplete="off"
-      />
-      {suggestions.length > 0 && (
-        <datalist id="mou-suggestions-list">
-          {suggestions.map((s) => (
-            <option key={s} value={s} />
-          ))}
-        </datalist>
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Form component — module level (stable ref)
-// ─────────────────────────────────────────────
 
 interface FormProps {
   readonly formData: MouFormData;
@@ -496,9 +436,9 @@ function MouFormFields({
           {(() => {
             const pp1   = Number.parseFloat(formData.bagiHasilPP1)  || 0;
             const pp2   = Number.parseFloat(formData.bagiHasilPP2)  || 0;
-            const pp3   = Number.parseFloat(formData.bagiHasilPP3)  || 0;
+            const pp3   = formData.brokerId ? (Number.parseFloat(formData.bagiHasilPP3) || 0) : 0; // << DIKEMBALIKAN
             const pk    = Number.parseFloat(formData.bagiHasilPK)   || 0;
-            const total = pp1 + pp2 + (formData.brokerId ? pp3 : 0) + pk;
+            const total = pp1 + pp2 + pp3 + pk; // << DIKEMBALIKAN
             const valid = total === 100;
             return (
               <div className="space-y-3">
@@ -556,7 +496,7 @@ function MouFormFields({
           })()}
         </div>
 
-        {/* ── Broker (Pihak Pertama III) ── */}
+        {/* ── Broker (Pihak Pertama III) Opsional ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Broker / Pihak Pertama III (Opsional)
@@ -571,7 +511,6 @@ function MouFormFields({
                     ...formData,
                     brokerId: "", brokerName: "", brokerAddress: "",
                     brokerIdNumber: "", brokerPhone: "", bagiHasilPP3: "0",
-                    esignPihakPertama3: "",
                   });
                 } else {
                   onBrokerSelect(val);
@@ -588,8 +527,10 @@ function MouFormFields({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-[11px] text-muted-foreground">Pilih dari master data broker</p>
+            <p className="text-[11px] text-muted-foreground">Pilih dari master data broker untuk referensi di PKS.</p>
           </div>
+          
+          {/* Kolom Persentase Broker Dikembalikan */}
           {formData.brokerId && (
             <div className="space-y-1.5">
               <Label htmlFor="mou-bh-pp3" className="text-xs">
@@ -623,6 +564,7 @@ function MouFormFields({
               { field: "esignPihakPertama1" as const, label: "E-Sign Pihak Pertama I", hint: "Adie Bayu Putra", show: true },
               { field: "esignPihakPertama2" as const, label: "E-Sign Pihak Pertama II", hint: "Parafitra Fidiasari", show: true },
               { field: "esignPihakKedua"    as const, label: "E-Sign Pihak Kedua (Investor)", hint: formData.investorName || "Investor", show: true },
+              // esignPihakPertama3 sepenuhnya dihapus dari UI
             ] as const
           ).filter(({ show }) => show).map(({ field, label, hint }) => (
             <div key={field} className="space-y-1.5">
@@ -662,7 +604,6 @@ function MouFormFields({
                     if (!file) return;
                     if (file.size > 200 * 1024) {
                       e.target.value = "";
-                      // alert ringan — tidak perlu dialog penuh untuk validasi lokal
                       globalThis.alert(`Ukuran file terlalu besar (${(file.size / 1024).toFixed(0)} KB). Maksimal 200 KB untuk e-sign.`);
                       return;
                     }
@@ -697,9 +638,6 @@ function MouFormFields({
 
 type Filter = "semua" | "draft" | "complete" | "terminated";
 
-// Disable cognitive complexity warning for this large component
-// Sonar rule: S3776 (cognitive complexity)
-// eslint-disable-next-line sonarjs/cognitive-complexity
 export function MouContent() {
   const { mous, addMou, updateMou, deleteMou, uploadSignedDoc } = useMou();
   const { investors } = useInvestors();
@@ -824,7 +762,6 @@ export function MouContent() {
   const handleBrokerSelect = (brokerId: string) => {
     const broker = brokers.find((b) => b.id === brokerId);
     if (!broker) return;
-    const savedPP3 = loadStoredEsign(ESIGN_KEYS.esignPihakPertama3);
     setForm((prev) => ({
       ...prev,
       brokerId: broker.id,
@@ -832,11 +769,7 @@ export function MouContent() {
       brokerAddress: broker.address,
       brokerIdNumber: broker.idNumber,
       brokerPhone: broker.phone,
-      esignPihakPertama3: savedPP3,
     }));
-    if (savedPP3) {
-      setSavedEsignFields((s) => new Set([...s, "esignPihakPertama3"]));
-    }
   };
 
   // ── Investor auto-fill ──
@@ -846,7 +779,6 @@ export function MouContent() {
 
     const savedTtd = loadStoredEsign(esignInvKey(investorId));
     const broker = inv.brokerName ? brokers.find((b) => b.name === inv.brokerName) : null;
-    const savedPP3 = broker ? loadStoredEsign(ESIGN_KEYS.esignPihakPertama3) : "";
 
     setForm((prev) => ({
       ...prev,
@@ -864,13 +796,11 @@ export function MouContent() {
       brokerAddress:      broker ? broker.address : "",
       brokerIdNumber:     broker ? broker.idNumber : "",
       brokerPhone:        broker ? broker.phone   : "",
-      bagiHasilPP3:       broker ? prev.bagiHasilPP3 : "0",
-      esignPihakPertama3: broker ? savedPP3 : "",
+      bagiHasilPP3:       broker ? prev.bagiHasilPP3 : "0", // << PP3 ditarik normal
     }));
 
     const newSaved = new Set<string>();
     if (savedTtd) newSaved.add("esignPihakKedua");
-    if (broker && savedPP3) newSaved.add("esignPihakPertama3");
     setSavedEsignFields(newSaved);
   };
 
@@ -901,11 +831,7 @@ export function MouContent() {
     handleEsignChange("esignPihakPertama1", newForm.esignPihakPertama1, form.esignPihakPertama1, ESIGN_KEYS.esignPihakPertama1);
     handleEsignChange("esignPihakPertama2", newForm.esignPihakPertama2, form.esignPihakPertama2, ESIGN_KEYS.esignPihakPertama2);
     handleEsignChange("esignPihakKedua", newForm.esignPihakKedua, form.esignPihakKedua, esignInvKey(newForm.investorId), Boolean(newForm.investorId));
-    handleEsignChange("esignPihakPertama3", newForm.esignPihakPertama3, form.esignPihakPertama3, ESIGN_KEYS.esignPihakPertama3);
     
-    if (newForm.brokerId !== form.brokerId && form.brokerId) {
-      newForm = { ...newForm, esignPihakPertama3: "" };
-    }
     setForm(newForm);
   };
 
@@ -914,7 +840,7 @@ export function MouContent() {
     const total =
       (Number.parseFloat(form.bagiHasilPP1)  || 0) +
       (Number.parseFloat(form.bagiHasilPP2)  || 0) +
-      (form.brokerId ? (Number.parseFloat(form.bagiHasilPP3) || 0) : 0) +
+      (form.brokerId ? (Number.parseFloat(form.bagiHasilPP3) || 0) : 0) + // << VALIDASI PP3 DIKEMBALIKAN
       (Number.parseFloat(form.bagiHasilPK)   || 0);
     if (total !== 100) {
       setErrorInfo({
@@ -975,11 +901,10 @@ export function MouContent() {
         brokerAddress: form.brokerAddress,
         brokerIdNumber: form.brokerIdNumber,
         brokerPhone:   form.brokerPhone,
-        bagiHasilPP3:  form.brokerId ? (Number.parseFloat(form.bagiHasilPP3) || 0) : 0,
+        bagiHasilPP3:  form.brokerId ? (Number.parseFloat(form.bagiHasilPP3) || 0) : 0, // << PAYLOAD PP3 DIKEMBALIKAN
         esignPihakPertama1: form.esignPihakPertama1,
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
-        esignPihakPertama3: form.esignPihakPertama3,
       });
       toast.success("PKS berhasil disimpan");
       setForm(initialForm);
@@ -1038,11 +963,10 @@ export function MouContent() {
         brokerAddress: form.brokerAddress,
         brokerIdNumber: form.brokerIdNumber,
         brokerPhone:   form.brokerPhone,
-        bagiHasilPP3:  form.brokerId ? (Number.parseFloat(form.bagiHasilPP3) || 0) : 0,
+        bagiHasilPP3:  form.brokerId ? (Number.parseFloat(form.bagiHasilPP3) || 0) : 0, // << PAYLOAD PP3 DIKEMBALIKAN
         esignPihakPertama1: form.esignPihakPertama1,
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
-        esignPihakPertama3: form.esignPihakPertama3,
       });
       toast.success("PKS berhasil diperbarui");
       setForm(initialForm);
@@ -1088,8 +1012,7 @@ export function MouContent() {
       brokerAddress:  resolvedBroker ? resolvedBroker.address  : (mou.brokerAddress ?? ""),
       brokerIdNumber: resolvedBroker ? resolvedBroker.idNumber : (mou.brokerIdNumber ?? ""),
       brokerPhone:    resolvedBroker ? resolvedBroker.phone    : (mou.brokerPhone   ?? ""),
-      bagiHasilPP3:  String(mou.bagiHasilPP3 ?? 0),
-      esignPihakPertama3: mou.esignPihakPertama3 ?? "",
+      bagiHasilPP3:   String(mou.bagiHasilPP3 ?? 0), // << STATE PP3 DIKEMBALIKAN
     });
     setIsEditOpen(true);
   };
@@ -1188,12 +1111,10 @@ export function MouContent() {
           if (open) {
             const pp1 = loadStoredEsign(ESIGN_KEYS.esignPihakPertama1);
             const pp2 = loadStoredEsign(ESIGN_KEYS.esignPihakPertama2);
-            const pp3 = loadStoredEsign(ESIGN_KEYS.esignPihakPertama3);
             const saved = new Set<string>();
             const updates: Partial<MouFormData> = {};
             if (pp1) { updates.esignPihakPertama1 = pp1; saved.add("esignPihakPertama1"); }
             if (pp2) { updates.esignPihakPertama2 = pp2; saved.add("esignPihakPertama2"); }
-            if (pp3) { updates.esignPihakPertama3 = pp3; saved.add("esignPihakPertama3"); }
             if (Object.keys(updates).length) setForm((f) => ({ ...f, ...updates }));
             setSavedEsignFields(saved);
           } else {
