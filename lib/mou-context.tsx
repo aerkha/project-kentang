@@ -34,6 +34,7 @@ export interface MoU {
   buktiBroker?:  string;
   buktiTrader?:  string;
   buktiMinBun?:  string;
+  buktiPengembalian?: string;
   esignPihakPertama1?: string;
   esignPihakPertama2?: string;
   esignPihakKedua?: string;
@@ -91,6 +92,19 @@ function pbFileUrl(pbRecordId: string, fieldValue: unknown): string {
     ? (fieldValue[0] as string) || ""
     : (fieldValue as string) || "";
   return filename ? `${PB_BASE}/api/files/mous/${pbRecordId}/${filename}` : "";
+}
+
+/** Resolve custom ID (MOU-XXXX) to PocketBase record ID. Returns null if not found. */
+export async function resolvePbId(customId: string): Promise<string | null> {
+  try {
+    const res = await pb.collection("mous").getFirstListItem(
+      `customId = "${customId}"`,
+      { fields: "id" },
+    );
+    return res.id;
+  } catch {
+    return null;
+  }
 }
 
 function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): MoU {
@@ -414,22 +428,26 @@ export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
 }
 
 export function useMou() {
-  const uploadBuktiPengembalian = async (mouId: string, file: File): Promise<string> => {
-    try {
-      const formData = new FormData();
-      formData.append("buktiPengembalianModal", file);
-
-      const record = await pb.collection("mous").update(mouId, formData);
-      
-      // Kembalikan URL gambar agar bisa dikirim via WA
-      return pbFileUrl(record.id, record.buktiPengembalianModal);
-    } catch (error) {
-      console.error("Gagal upload bukti pengembalian modal:", error);
-      throw error;
-    }
-  };
   const ctx = useContext(MouContext);
   if (!ctx) throw new Error("useMou must be used within a MouProvider");
+
+  const uploadBuktiPengembalian = async (id: string, file: File): Promise<string> => {
+    // 1. Ubah custom ID (MOU-XXXX) menjadi ID 15 karakter asli PocketBase
+    const pbId = await resolvePbId(id); 
+    if (!pbId) throw new Error(`MOU "${id}" tidak ditemukan.`);
+    
+    // 2. Siapkan file untuk dikirim
+    const fd = new FormData();
+    fd.append("buktiPengembalian", file); // *Pastikan "buktiPengembalian" adalah nama field yang benar di PocketBase Anda
+    
+    // 3. Update menggunakan ID PocketBase asli (Bukan lagi MOU-XXXX)
+    const record = await pb.collection("mous").update(pbId, fd);
+    
+    const url = pbFileUrl(pbId, record.buktiPengembalian);
+    await ctx.updateMou(id, { buktiPengembalian: url });
+    return url;
+  };
+
   return {
     ...ctx,
     uploadBuktiPengembalian,
