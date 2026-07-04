@@ -411,17 +411,41 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
   };
 
   const uploadBuktiTransaksi = async (id: string, keterangan: string, file: File): Promise<string> => {
+    // 1. Dapatkan ID asli 15 karakter dari PocketBase
     const pbId = await resolvePbId(id);
     if (!pbId) throw new Error(`Transaksi "${id}" tidak ditemukan.`);
-    const fieldName = BUKTI_FIELD_TRX[keterangan];
+    
+    // 2. Petakan keterangan ke nama kolom (Mencegah error BUKTI_FIELD)
+    const fieldMap: Record<string, string> = {
+      Investor: "buktiInvestor",
+      Broker: "buktiBroker",
+      Trader: "buktiTrader",
+      MinBun: "buktiMinBun",
+    };
+    const fieldName = fieldMap[keterangan];
     if (!fieldName) throw new Error(`Keterangan "${keterangan}" tidak dikenali.`);
+    
+    // 3. Upload file ke server
     const fd = new FormData();
     fd.append(fieldName, file);
     const record = await pb.collection("transaksis").update(pbId, fd);
-    const url = pbFileUrlTrx(pbId, record[fieldName]);
+    
+    // 4. Rangkai URL gambar menggunakan ID asli PocketBase
+    const PB_BASE = process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
+    const filename = record[fieldName];
+    const url = filename ? `${PB_BASE}/api/files/transaksis/${pbId}/${filename}` : "";
+    
+    // 5. Perbarui tampilan di layar (Mencegah error transaksisRef)
     setTransaksis((prev) =>
-      prev.map((t) => t.id === id ? { ...t, [fieldName]: url } : t),
+      prev.map((t) => {
+        if (t.id === id) {
+          // Suntikkan URL gambar baru ke dalam data transaksi yang pas
+          return { ...t, [fieldName]: url };
+        }
+        return t;
+      })
     );
+    
     return url;
   };
 

@@ -97,6 +97,9 @@ function sisaHari(t: { date: string; description: string }): number {
 }
 
 function endDatePks(mou: MoU) {
+  if (mou.endDate) {
+    return mou.endDate.slice(0, 10);
+  }
   const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
   const totalDays = (mou.contractPeriod || 30) * (mou.siklus || 1);
   return new Date(Date.UTC(y, m - 1, d + totalDays)).toISOString().slice(0, 10);
