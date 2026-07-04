@@ -345,16 +345,33 @@ type ProcessInternalEntityParams = {
   updateInvestorFn: (id: string, data: any) => Promise<void>;
   triggerAutorenewalFn: (id: string) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
+  uploadFiles: File[];
+  uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>;
+  uploadBuktiPengembalianFn?: (mouId: string, file: File) => Promise<string>;
 };
 
 async function processInternalEntity({
   entity, mous, investors, brokers, minbun, trader, cashflowTagRecordedFn, addPengeluaranFn,
   updateTransaksiFn, updateMouFn, updateInvestorFn, triggerAutorenewalFn, setDoneKeysFn,
+  uploadFiles, uploadBuktiTransaksiFn, uploadBuktiPengembalianFn
 }: ProcessInternalEntityParams) {
   const today = todayWibStr();
   const triggeredRenewals = new Set<string>();
+  const validFiles = uploadFiles.filter(Boolean);
 
-  for (const item of entity.filteredItems) {
+  for (let i = 0; i < entity.filteredItems.length; i++) {
+    const item = entity.filteredItems[i];
+
+    // Proses Upload Bukti Internal jika file dilampirkan
+    const fileToUpload = validFiles[i % validFiles.length];
+    if (fileToUpload) {
+      if (item.type === "Bagi Hasil" && item.trx) {
+        await uploadBuktiTransaksiFn(item.trx.id, item.keterangan, fileToUpload);
+      } else if (item.type === "Pengembalian Modal" && item.mou && uploadBuktiPengembalianFn) {
+        await uploadBuktiPengembalianFn(item.mou.id, fileToUpload);
+      }
+    }
+
     if (item.type === "Bagi Hasil" && item.trx) {
       await processInternalProfitItem({
         item,
@@ -442,13 +459,14 @@ async function processInternalProfitItem({
 
   const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
   const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
-  const externalRows = allRows.filter((r) => r.keterangan !== "MinBun" && r.keterangan !== "Trader");
-  const bagiHasilDone = externalRows.length > 0
-    ? externalRows.every((r) => checks[r.checkKey])
-    : allRows.every((r) => checks[r.checkKey]);
+  
+  // Tunggu SEMUA pihak (Investor, Broker, Trader, Minbun) tercentang
+  const bagiHasilDone = allRows.every((r) => checks[r.checkKey]);
 
   const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
-  if (bagiHasilDone) updates.status = "selesai";
+  if (bagiHasilDone) {
+    updates.status = trx.isAutorenewal ? "perbarui" : "selesai";
+  }
 
   await updateTransaksiFn(trxId, updates);
   setDoneKeysFn((prev) => new Set(prev).add(`${trxId}__${item.checkKey}`));
@@ -577,13 +595,12 @@ async function processBagiHasilItem({
 }) {
   const checks = { ...item.trx.bagiHasilChecks, [item.checkKey]: true };
   const allRows = buildTransaksiRows(item.trx, mous, investors, brokers, minbun, trader);
-  const externalRows = allRows.filter((r) => r.keterangan !== "MinBun" && r.keterangan !== "Trader");
-  const bagiHasilDone = externalRows.length > 0
-    ? externalRows.every((r) => checks[r.checkKey])
-    : allRows.every((r) => checks[r.checkKey]);
+  const bagiHasilDone = allRows.every((r) => checks[r.checkKey]);
 
   const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
-  if (bagiHasilDone) updates.status = "selesai";
+  if (bagiHasilDone) {
+    updates.status = item.trx.isAutorenewal ? "perbarui" : "selesai";
+  }
 
   await updateTransaksiFn(item.trx.id, updates);
   setDoneKeysFn((prev) => new Set(prev).add(`${item.trx.id}__${item.checkKey}`));
@@ -696,7 +713,7 @@ async function processUploadEntity({
 
 function getBulkActionTooltipText(showDone: boolean, isInternal: boolean) {
   if (showDone) return "Batalkan pelunasan";
-  if (isInternal) return "Catat ke Arus Kas (Tanpa Bukti)";
+  if (isInternal) return "Catat ke Arus Kas & Upload Bukti";
   return "Upload Bukti & Tandai Selesai";
 }
 
@@ -848,6 +865,8 @@ export function ReminderContent() {
 
   // State dialog konfirmasi internal
   const [internalTarget,  setInternalTarget]  = useState<ProcessedEntity | null>(null);
+  const [internalUploadFiles, setInternalUploadFiles]   = useState<File[]>([]);
+  const [internalUploadPreviews, setInternalUploadPreviews] = useState<string[]>([]);
   const [isConfirmingInt, setIsConfirmingInt] = useState(false);
 
   // State dialog upload transfer massal (>50jt multi file)
@@ -964,29 +983,25 @@ export function ReminderContent() {
       });
     });
 
-    // Kalkulasi Owner Profit murni dari kumpulan ID Transaksi yang saat ini muncul di tabel
     let ownerAmt = 0;
     const processedTrxIds = new Set<string>();
 
-    const processOwnerProfit = (item: any) => {
-      if (item.type === "Bagi Hasil" && item.trx && !processedTrxIds.has(item.trx.id)) {
-        processedTrxIds.add(item.trx.id);
-        const calc = calcTransaksi(item.trx);
-        if (calc.profit > 0) {
-          const allRows = buildTransaksiRows(item.trx, mous, investors, brokers, minbun, trader);
-          const totalDistributed = allRows.reduce((sum, r) => sum + r.jumlah, 0);
-          ownerAmt += (calc.profit - totalDistributed);
-        }
-      }
-    };
-
     displayEntities.forEach((ent) => {
-      ent.filteredItems.forEach(processOwnerProfit);
+      ent.filteredItems.forEach((item) => {
+        if (item.type === "Bagi Hasil" && item.trx && !processedTrxIds.has(item.trx.id)) {
+          processedTrxIds.add(item.trx.id);
+          const calc = calcTransaksi(item.trx);
+          if (calc.profit > 0) {
+            const allRows = buildTransaksiRows(item.trx, mous, investors, brokers, minbun, trader);
+            const totalDistributed = allRows.reduce((sum, r) => sum + r.jumlah, 0);
+            ownerAmt += (calc.profit - totalDistributed);
+          }
+        }
+      });
     });
 
     const totalProfitBagiHasil = investor + traderAmt + minbunAmt + broker + ownerAmt;
 
-    // totalTasks & doneTasks untuk header indikator
     let totalTasks = 0, doneTasks = 0;
     transaksis.forEach((trx) => {
       const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
@@ -1010,12 +1025,10 @@ export function ReminderContent() {
     };
   }, [displayEntities, transaksis, mous, investors, brokers, minbun, trader, doneKeys]);
 
-  // Helper untuk mengubah ke persentase
   const toPct = (val: number) => summary.totalProfitBagiHasil > 0 
     ? `${Number(((val / summary.totalProfitBagiHasil) * 100).toFixed(1))}%` 
     : "0%";
 
-  // Handlers Aksi
   const handleActionClick = (entity: ProcessedEntity) => {
     if (showDone) {
       void handleUndoBulk(entity);
@@ -1040,9 +1053,9 @@ export function ReminderContent() {
           setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trx.id}__${item.checkKey}`); return s; });
         } else if (item.type === "Pengembalian Modal" && item.mou) {
           await updateMou(item.mou.id, { isTerminated: false });
-          const inv = investors.find(i => i.id === item.mou.investorId);
+          const inv = investors.find(i => i.id === item.mou!.investorId);
           if (inv) {
-            await updateInvestor(inv.id, { investmentAmount: inv.investmentAmount + item.mou.investmentAmount });
+            await updateInvestor(inv.id, { investmentAmount: inv.investmentAmount + item.mou!.investmentAmount });
           }
           setDoneKeys((prev) => { const s = new Set(prev); s.delete(item.checkKey); return s; });
         }
@@ -1056,6 +1069,32 @@ export function ReminderContent() {
   };
 
   const cashflowTagRecorded = (tag: string) => pengeluarans.some((p) => p.catatan === tag);
+
+  // --- Handlers Upload Internal ---
+  const handleInternalFileChangeMulti = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files);
+      setInternalUploadFiles((prev) => [...prev, ...newFiles]);
+      
+      const newPreviews = newFiles.map(f => {
+        if (f.type.startsWith("image/")) return URL.createObjectURL(f);
+        return "📄 Dokumen PDF";
+      });
+      setInternalUploadPreviews((prev) => [...prev, ...newPreviews]);
+    }
+    e.target.value = '';
+  };
+
+  const removeInternalUploadFile = (idx: number) => {
+    setInternalUploadFiles(prev => prev.filter((_, i) => i !== idx));
+    setInternalUploadPreviews(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const clearInternalUploadDialog = () => {
+    setInternalTarget(null);
+    setInternalUploadFiles([]);
+    setInternalUploadPreviews([]);
+  };
 
   const handleConfirmInternal = async () => {
     if (!internalTarget) return;
@@ -1076,10 +1115,13 @@ export function ReminderContent() {
         updateInvestorFn: updateInvestor,
         triggerAutorenewalFn: triggerAutorenewal,
         setDoneKeysFn: setDoneKeys,
+        uploadFiles: internalUploadFiles,
+        uploadBuktiTransaksiFn: uploadBuktiTransaksi,
+        uploadBuktiPengembalianFn: uploadBuktiPengembalian,
       });
 
-      toast.success(`Pembayaran internal untuk ${internalTarget.nama} dicatat ke Arus Kas.`);
-      setInternalTarget(null);
+      toast.success(`Pembayaran internal untuk ${internalTarget.nama} dicatat ke Arus Kas & Bukti tersimpan.`);
+      clearInternalUploadDialog();
     } catch {
       toast.error("Gagal mencatat. Coba lagi.");
     } finally {
@@ -1088,6 +1130,7 @@ export function ReminderContent() {
     }
   };
 
+  // --- Handlers Upload Eksternal ---
   const handleFileChangeMulti = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const newFiles = Array.from(e.target.files);
@@ -1194,7 +1237,7 @@ export function ReminderContent() {
         </p>
       </div>
 
-      {/* Summary cards - Secara Dinamis Mengikuti Data Tabel Dibawahnya */}
+      {/* Summary cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -1335,7 +1378,7 @@ export function ReminderContent() {
         </CardContent>
       </Card>
 
-      {/* ── Dialog Upload Transfer Massal ── */}
+      {/* ── Dialog Upload Transfer Massal (EKSTERNAL) ── */}
       <Dialog open={!!uploadTarget} onOpenChange={(o) => !o && clearUploadDialog()}>
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
@@ -1393,6 +1436,7 @@ export function ReminderContent() {
                             onClick={() => removeUploadFile(i)} 
                             className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                             title="Hapus file"
+                            type="button"
                           >
                             <XCircle className="h-4 w-4" />
                           </button>
@@ -1414,9 +1458,9 @@ export function ReminderContent() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Dialog Konfirmasi Internal ── */}
-      <Dialog open={!!internalTarget} onOpenChange={(open) => { if (!open) setInternalTarget(null); }}>
-        <DialogContent className="sm:max-w-[420px]">
+      {/* ── Dialog Konfirmasi Internal (DENGAN UPLOAD BUKTI) ── */}
+      <Dialog open={!!internalTarget} onOpenChange={(open) => { if (!open) clearInternalUploadDialog(); }}>
+        <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-primary" />
@@ -1455,13 +1499,58 @@ export function ReminderContent() {
                   <span className="text-green-600">{formatCurrency(internalTarget.totalAmount)}</span>
                 </div>
               </div>
+
+              {/* FITUR BARU: UPLOAD BUKTI UNTUK INTERNAL */}
+              <div className="space-y-2">
+                <Label>Bukti Transfer <span className="text-muted-foreground font-normal">(Opsional)</span></Label>
+                
+                <label className="flex flex-col items-center justify-center w-full border-2 border-dashed rounded-lg cursor-pointer transition-colors px-4 py-5 border-border hover:border-primary/50 hover:bg-muted/30">
+                  <input type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleInternalFileChangeMulti} />
+                  <div className="flex flex-col items-center text-center space-y-2 text-muted-foreground">
+                    <Upload className="h-6 w-6 opacity-70" />
+                    <div>
+                      <p className="text-sm font-medium">Klik untuk tambah gambar/PDF</p>
+                      <p className="text-xs">Bisa pilih beberapa sekaligus</p>
+                    </div>
+                  </div>
+                </label>
+
+                {internalUploadPreviews.length > 0 && (
+                  <div className="mt-3 bg-muted/20 p-2 rounded-lg border">
+                    <p className="text-xs font-semibold text-muted-foreground mb-2">File Terpilih ({internalUploadFiles.length}):</p>
+                    <div className="grid grid-cols-4 gap-2">
+                      {internalUploadPreviews.map((preview, i) => (
+                        <div key={`${preview}-${i}`} className="relative group">
+                          {preview.startsWith("blob:") ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={preview} alt="Preview" className="w-full h-16 object-cover rounded border bg-white" />
+                          ) : (
+                            <div className="w-full h-16 rounded border bg-white flex items-center justify-center text-[10px] font-medium text-center p-1">
+                              {preview}
+                            </div>
+                          )}
+                          <button 
+                            onClick={() => removeInternalUploadFile(i)} 
+                            className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Hapus file"
+                            type="button"
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
             </div>
           )}
 
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setInternalTarget(null)} disabled={isConfirmingInt}>Batal</Button>
+            <Button variant="outline" onClick={() => clearInternalUploadDialog()} disabled={isConfirmingInt}>Batal</Button>
             <Button onClick={handleConfirmInternal} disabled={isConfirmingInt}>
-              {isConfirmingInt ? "Menyimpan…" : "Catat ke Kas"}
+              {isConfirmingInt ? "Menyimpan…" : "Catat ke Kas & Selesaikan"}
             </Button>
           </DialogFooter>
         </DialogContent>
