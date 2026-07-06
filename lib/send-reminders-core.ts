@@ -77,9 +77,14 @@ function sisaHariTrx(t: { date: string; description: string }): number {
 
 // Helper untuk PKS (Pengembalian Modal)
 function endDatePks(mou: any) {
-  const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
+  // 1. Prioritaskan Tanggal Berakhir (endDate) asli dari input PKS
+  if (mou.endDate) {
+    return mou.endDate.substring(0, 10);
+  }
+  // 2. Fallback cadangan
+  const [y, m, d] = mou.date.substring(0, 10).split("-").map(Number);
   const totalDays = (mou.contractPeriod || 30) * (mou.siklus || 1);
-  return new Date(Date.UTC(y, m - 1, d + totalDays)).toISOString().slice(0, 10);
+  return new Date(Date.UTC(y, m - 1, d + totalDays)).toISOString().substring(0, 10);
 }
 
 // ─── Core Logic Autorenewal Transaksi ─────────────────────────────────────────

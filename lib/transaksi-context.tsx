@@ -56,8 +56,8 @@ export interface Transaksi {
   id: string;             
   date: string;
   description: string;
-  endDate?: string;            // <-- DITAMBAHKAN
-  isAutorenewal?: boolean;     // <-- DITAMBAHKAN
+  endDate?: string;
+  isAutorenewal?: boolean;
   hpp: number;
   kebutuhanModal: number;
   investorEntries: TransaksiInvestorEntry[];
@@ -106,6 +106,7 @@ interface TransaksiContextType {
   deleteTransaksi: (id: string) => Promise<void>;
   syncInvestorInfo: (investorId: string, investorName: string, investorBrokerName: string) => Promise<void>;
   uploadBuktiTransaksi: (id: string, keterangan: string, file: File) => Promise<string>;
+  triggerAutorenewal: (oldTrxId: string) => Promise<void>; // <-- DITAMBAHKAN
 }
 
 const TransaksiContext = createContext<TransaksiContextType | undefined>(undefined);
@@ -186,7 +187,6 @@ function isCustomIdConflict(err: unknown): boolean {
   return data?.data?.customId?.code === "validation_not_unique";
 }
 
-// <-- GENERATOR ID BARU: Mendukung huruf (A) jika isAutorenewal dicentang
 async function generateCustomId(isAutorenewal: boolean = false): Promise<string> {
   try {
     const res = await pb.collection("transaksis").getFullList({ fields: "customId" });
@@ -243,6 +243,12 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
   const pbIdMapRef = useRef(new Map<string, string>());
   const map = pbIdMapRef.current;
 
+  // Ref untuk menghindari stale closure saat autorenewal berjalan di background
+  const transaksisRef = useRef<Transaksi[]>([]);
+  useEffect(() => {
+    transaksisRef.current = transaksis;
+  }, [transaksis]);
+
   const resolvePbId = async (customId: string): Promise<string | null> => {
     const cached = map.get(customId);
     if (cached) return cached;
@@ -279,8 +285,6 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
           }
           entryList.push(recordToInvestorEntry(r));
         }
-      } else {
-        console.warn("[transaksi] transaksi_investors belum tersedia:", invResult.reason);
       }
 
       setTransaksis(
@@ -411,11 +415,9 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
   };
 
   const uploadBuktiTransaksi = async (id: string, keterangan: string, file: File): Promise<string> => {
-    // 1. Dapatkan ID asli 15 karakter dari PocketBase
     const pbId = await resolvePbId(id);
     if (!pbId) throw new Error(`Transaksi "${id}" tidak ditemukan.`);
     
-    // 2. Petakan keterangan ke nama kolom (Mencegah error BUKTI_FIELD)
     const fieldMap: Record<string, string> = {
       Investor: "buktiInvestor",
       Broker: "buktiBroker",
@@ -425,21 +427,16 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
     const fieldName = fieldMap[keterangan];
     if (!fieldName) throw new Error(`Keterangan "${keterangan}" tidak dikenali.`);
     
-    // 3. Upload file ke server
     const fd = new FormData();
     fd.append(fieldName, file);
     const record = await pb.collection("transaksis").update(pbId, fd);
     
-    // 4. Rangkai URL gambar menggunakan ID asli PocketBase
-    const PB_BASE = process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
     const filename = record[fieldName];
     const url = filename ? `${PB_BASE}/api/files/transaksis/${pbId}/${filename}` : "";
     
-    // 5. Perbarui tampilan di layar (Mencegah error transaksisRef)
     setTransaksis((prev) =>
       prev.map((t) => {
         if (t.id === id) {
-          // Suntikkan URL gambar baru ke dalam data transaksi yang pas
           return { ...t, [fieldName]: url };
         }
         return t;
@@ -449,7 +446,67 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
     return url;
   };
 
-  const contextValue = useMemo(() => ({ transaksis, addTransaksi, updateTransaksi, deleteTransaksi, syncInvestorInfo, uploadBuktiTransaksi }), [transaksis, addTransaksi, updateTransaksi, deleteTransaksi, syncInvestorInfo, uploadBuktiTransaksi]);
+  // ── LOGIKA AUTORENEWAL (ALPHABET INCREMENT) ──
+  const triggerAutorenewal = async (oldTrxId: string) => {
+    const oldTrx = transaksisRef.current.find((t) => t.id === oldTrxId);
+    if (!oldTrx) return;
+
+    // 1. Kenaikan Abjad untuk ID (TRX-0005A -> TRX-0005B)
+    let newCustomId = "";
+    const match = oldTrx.id.match(/^(TRX-\d+)([A-Z]?)$/);
+    if (match) {
+      const base = match[1];
+      const letter = match[2];
+      const nextLetter = letter ? String.fromCharCode(letter.charCodeAt(0) + 1) : "A";
+      newCustomId = base + nextLetter;
+    } else {
+      newCustomId = `${oldTrx.id}A`;
+    }
+
+    // 2. Hitung Tanggal Mulai Baru
+    const daysMatch = oldTrx.description.match(/\d+/);
+    const days = daysMatch ? parseInt(daysMatch[0], 10) : 30;
+    const [y, m, d] = oldTrx.date.slice(0, 10).split("-").map(Number);
+    const newDateMs = Date.UTC(y, m - 1, d + days);
+    const newDateStr = new Date(newDateMs).toISOString().slice(0, 10);
+
+    // 3. Batalkan jika melebihi Tanggal Berakhir (endDate)
+    if (oldTrx.endDate && newDateStr > oldTrx.endDate) {
+      console.log(`Autorenewal dihentikan: ${newDateStr} melebihi batas endDate ${oldTrx.endDate}`);
+      return;
+    }
+
+    // 4. Buat transaksi baru di database
+    try {
+      const record = await pb.collection("transaksis").create({
+        customId: newCustomId,
+        createdBy: currentUserId(),
+        updatedBy: currentUserId(),
+        date: newDateStr,
+        description: oldTrx.description,
+        endDate: oldTrx.endDate || "",
+        isAutorenewal: true,
+        hpp: oldTrx.hpp,
+        kebutuhanModal: oldTrx.kebutuhanModal,
+        ongkirPerKg: oldTrx.ongkirPerKg,
+        hargaJual: 0, // Harga jual otomatis Rp 0 agar profit belum terhitung
+        status: "berjalan",
+        catatanAkhir: "",
+      });
+
+      // 5. Salin data investor
+      await createInvestorEntries(record.id, oldTrx.investorEntries);
+
+      // 6. Tampilkan di layar
+      const newTrx = recordToTransaksi(record, map, oldTrx.investorEntries);
+      transaksisRef.current = [...transaksisRef.current, newTrx];
+      setTransaksis(transaksisRef.current);
+    } catch (error) {
+      console.error("Gagal menjalankan autorenewal:", error);
+    }
+  };
+
+  const contextValue = useMemo(() => ({ transaksis, addTransaksi, updateTransaksi, deleteTransaksi, syncInvestorInfo, uploadBuktiTransaksi, triggerAutorenewal }), [transaksis, addTransaksi, updateTransaksi, deleteTransaksi, syncInvestorInfo, uploadBuktiTransaksi, triggerAutorenewal]);
 
   return (
     <TransaksiContext.Provider value={contextValue}>
