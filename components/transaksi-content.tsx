@@ -6,6 +6,7 @@ import { ErrorDialog } from "@/components/ui/error-dialog";
 import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
 import { useTransaksi, calcTransaksi, effectiveStatus, isInvestorActive, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
+import { useBrokers } from "@/lib/brokers-context";
 import { useMou, type MoU } from "@/lib/mou-context";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
@@ -652,6 +653,7 @@ export default function TransaksiContent() {
   const { investors }  = useInvestors();
   const { mous, updateMou, deleteMou } = useMou();
   const { user, isInvestor } = useAuth();
+  const { brokers } = useBrokers();
   
   const isAdmin   = user?.role === "admin";
   const perm      = usePermissions();
@@ -671,13 +673,15 @@ export default function TransaksiContent() {
   const [finalizeNote, setFinalizeNote]       = useState("");
   const [errorInfo, setErrorInfo]             = useState<PbErrorInfo | null>(null);
   const [form, setForm]                       = useState<TrxFormData>(initialForm());
+
+  const isBroker = user?.role === "broker";
+  const currentBroker = brokers.find(b => b.id === user?.brokerId);
   
-  const visibleTransaksis = useMemo(() => {
-    if (!isInvestor || !user?.investorId) return transaksis;
-    return transaksis.filter((t) =>
-      t.investorEntries.some((e) => e.investorId === user.investorId)
-    );
-  }, [transaksis, isInvestor, user?.investorId]);
+  const visibleTransaksis = isInvestor && user?.investorId
+    ? transaksis.filter((t) => t.investorEntries.some((e) => e.investorId === user.investorId))
+    : isBroker && currentBroker
+    ? transaksis.filter((t) => t.investorEntries.some((e) => e.investorBrokerName === currentBroker.name))
+    : transaksis;
 
   const metrics = useMemo(() => {
     let totalModal = 0, totalIncome = 0, totalProfit = 0;

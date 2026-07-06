@@ -719,10 +719,14 @@ export function MouContent() {
 
   const ITEMS_PER_PAGE = 20;
 
+  const isBroker = user?.role === "broker";
+  const currentBroker = brokers.find((b) => b.id === user?.brokerId);
+
   const visibleMous = isInvestor && user?.investorId
     ? mous.filter((m) => m.investorId === user.investorId)
+    : isBroker && currentBroker
+    ? mous.filter((m) => m.brokerId === currentBroker.id)
     : mous;
-
   // ── Filter ──
   const filtered = visibleMous.filter((m) => {
     if (filter === "semua") return true;

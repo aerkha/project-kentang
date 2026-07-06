@@ -8,7 +8,8 @@ interface User {
   username:   string;
   name:       string;
   role:       string;
-  investorId: string; // customId investor (e.g. "INV-0001"), diisi hanya untuk role "investor"
+  investorId: string;
+  brokerId?: string;
 }
 
 interface AuthContextType {
@@ -19,6 +20,7 @@ interface AuthContextType {
   isAdmin:    boolean;
   isOwner:    boolean;
   isInvestor: boolean;
+  isBroker: boolean;
   canEdit:    boolean; // admin atau owner
 }
 
@@ -91,10 +93,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isAdmin    = user?.role === "admin";
   const isOwner    = user?.role === "owner";
   const isInvestor = user?.role === "investor";
+  const isBroker = user?.role === "broker";
   const canEdit    = isAdmin || isOwner;
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, isAdmin, isOwner, isInvestor, canEdit }}>
+    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, isAdmin, isOwner, isInvestor, isBroker, canEdit }}>
       {children}
     </AuthContext.Provider>
   );

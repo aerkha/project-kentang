@@ -22,6 +22,7 @@ export interface RolePermissions {
   user:     RolePermission;
   owner:    RolePermission;
   investor: RolePermission;
+  broker: RolePermission;
 }
 
 interface SettingsContextType {
@@ -43,6 +44,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RolePermissions = {
   user:     { create: true,  edit: true,  delete: false, print: true  },
   owner:    { create: true,  edit: true,  delete: false, print: true  },
   investor: { create: false, edit: false, delete: false, print: true  },
+  broker:   { create: false, edit: false, delete: false, print: true },
 };
 
 // ── Context ──────────────────────────────────────────────────────────────────
@@ -111,6 +113,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             user:     { ...DEFAULT_ROLE_PERMISSIONS.user,     ...parsed.user     },
             owner:    { ...DEFAULT_ROLE_PERMISSIONS.owner,    ...parsed.owner    },
             investor: { ...DEFAULT_ROLE_PERMISSIONS.investor, ...parsed.investor },
+            broker:   { ...DEFAULT_ROLE_PERMISSIONS.broker,   ...parsed.broker   },
           });
         } catch { /* ignore */ }
       }

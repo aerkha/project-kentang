@@ -1037,8 +1037,13 @@ export function InvestorsContent() {
   const canEdit   = isAdmin || perm.edit;
   const canCreate = isAdmin || perm.create;
   const canDelete = isAdmin || perm.delete;
+
+  const isBroker = user?.role === "broker";
+  const currentBroker = brokers.find(b => b.id === user?.brokerId);
   const visibleInvestors = isInvestor && user?.investorId
     ? investors.filter((inv) => inv.id === user.investorId)
+    : isBroker && currentBroker
+    ? investors.filter((inv) => inv.brokerName === currentBroker.name)
     : investors;
 
   // Status aktif diturunkan dari transaksi — satu sumber kebenaran (PKS hanya formalitas).

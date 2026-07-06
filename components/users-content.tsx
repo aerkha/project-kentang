@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import pb from "@/lib/pocketbase";
 import { useInvestors } from "@/lib/investors-context";
+import { useBrokers } from "@/lib/brokers-context"; // <-- DITAMBAHKAN
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, Users, ShieldCheck, User, AlertCircle, Crown, TrendingUp, ShieldAlert, Check, X as XIcon } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, ShieldCheck, AlertCircle, Crown, TrendingUp, ShieldAlert, Check, X as XIcon, Briefcase } from "lucide-react";
 import { useSettings, type RolePermissions, DEFAULT_ROLE_PERMISSIONS } from "@/lib/settings-context";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
@@ -41,6 +42,7 @@ interface AppUser {
   name:       string;
   role:       string;
   investorId: string;
+  brokerId:   string; // <-- DITAMBAHKAN
   verified:   boolean;
   created:    string;
 }
@@ -50,6 +52,7 @@ interface UserFormData {
   email:           string;
   role:            string;
   investorId:      string;
+  brokerId:        string; // <-- DITAMBAHKAN
   oldPassword:     string;
   password:        string;
   passwordConfirm: string;
@@ -74,13 +77,14 @@ function recordToUser(r: Record<string, unknown>): AppUser {
     name:       (r.name      as string) || "",
     role:       (r.role      as string) || "user",
     investorId: (r.investorId as string) || "",
+    brokerId:   (r.brokerId   as string) || "", // <-- DITAMBAHKAN
     verified:   (r.verified  as boolean) || false,
     created:    r.created    as string,
   };
 }
 
 const emptyForm = (): UserFormData => ({
-  name: "", email: "", role: "user", investorId: "",
+  name: "", email: "", role: "user", investorId: "", brokerId: "",
   oldPassword: "", password: "", passwordConfirm: "", changePassword: false,
 });
 
@@ -89,6 +93,7 @@ const ROLE_LABELS: Record<string, string> = {
   user:     "User",
   owner:    "Owner",
   investor: "Investor",
+  broker:   "Broker", // <-- DITAMBAHKAN
 };
 
 // ─────────────────────────────────────────────
@@ -106,6 +111,7 @@ const CONFIGURABLE_ROLES: { key: keyof RolePermissions; label: string; color: st
   { key: "user",     label: "User",     color: "text-blue-600"   },
   { key: "owner",    label: "Owner",    color: "text-purple-600" },
   { key: "investor", label: "Investor", color: "text-green-600"  },
+  { key: "broker",   label: "Broker",   color: "text-amber-600"  }, // <-- DITAMBAHKAN
 ];
 
 function PermissionsPanel({
@@ -121,20 +127,18 @@ function PermissionsPanel({
 }) {
   return (
     <div className="space-y-6">
-      {/* Info admin */}
       <Card className="border-dashed">
         <CardContent className="pt-4 pb-4">
           <div className="flex items-start gap-3">
             <ShieldCheck className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-medium">Admin selalu memiliki akses penuh</p>
-              <p className="text-xs text-muted-foreground">Hak akses di bawah hanya berlaku untuk role User, Owner, dan Investor.</p>
+              <p className="text-xs text-muted-foreground">Hak akses di bawah hanya berlaku untuk role User, Owner, Investor, dan Broker.</p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Grid permission */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Konfigurasi Hak Akses per Role</CardTitle>
@@ -144,7 +148,7 @@ function PermissionsPanel({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground w-1/2">Hak Akses</th>
+                  <th className="text-left py-3 px-4 font-medium text-muted-foreground w-[40%]">Hak Akses</th>
                   {CONFIGURABLE_ROLES.map((r) => (
                     <th key={r.key} className={`text-center py-3 px-4 font-semibold ${r.color}`}>{r.label}</th>
                   ))}
@@ -161,7 +165,7 @@ function PermissionsPanel({
                       <td key={r.key} className="py-3 px-4 text-center">
                         <div className="flex justify-center">
                           <Switch
-                            checked={permissions[r.key][perm.key]}
+                            checked={permissions[r.key]?.[perm.key] ?? false}
                             onCheckedChange={() => onToggle(r.key, perm.key)}
                             aria-label={`${r.label} - ${perm.label}`}
                           />
@@ -176,8 +180,7 @@ function PermissionsPanel({
         </CardContent>
       </Card>
 
-      {/* Ringkasan per role */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         {CONFIGURABLE_ROLES.map((r) => (
           <Card key={r.key}>
             <CardHeader className="pb-2">
@@ -187,7 +190,7 @@ function PermissionsPanel({
               {PERM_LABELS.map((perm) => (
                 <div key={perm.key} className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">{perm.label}</span>
-                  {permissions[r.key][perm.key]
+                  {permissions[r.key]?.[perm.key]
                     ? <Check className="h-3.5 w-3.5 text-green-500" />
                     : <XIcon className="h-3.5 w-3.5 text-muted-foreground/40" />
                   }
@@ -198,7 +201,6 @@ function PermissionsPanel({
         ))}
       </div>
 
-      {/* Aksi */}
       <div className="flex items-center gap-3">
         <Button onClick={onSave} disabled={!isDirty || isSaving}>
           {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
@@ -226,6 +228,7 @@ function PermissionsPanel({
 
 export function UsersContent() {
   const { investors } = useInvestors();
+  const { brokers }   = useBrokers(); // <-- DITAMBAHKAN
 
   const [users,       setUsers]       = useState<AppUser[]>([]);
   const [loading,     setLoading]     = useState(true);
@@ -295,16 +298,15 @@ export function UsersContent() {
     }
   };
 
-  // ── Metrics ──
   const metrics = useMemo(() => ({
     total:    users.length,
     admins:   users.filter((u) => u.role === "admin").length,
     owners:   users.filter((u) => u.role === "owner").length,
     investors: users.filter((u) => u.role === "investor").length,
+    brokers:  users.filter((u) => u.role === "broker").length, // <-- DITAMBAHKAN
     regular:  users.filter((u) => u.role === "user").length,
   }), [users]);
 
-  // ── Tambah user ──
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError("");
@@ -320,6 +322,7 @@ export function UsersContent() {
         name:            form.name,
         role:            form.role,
         investorId:      form.role === "investor" ? form.investorId : "",
+        brokerId:        form.role === "broker" ? form.brokerId : "", // <-- DITAMBAHKAN
         password:        form.password,
         passwordConfirm: form.passwordConfirm,
       });
@@ -339,10 +342,9 @@ export function UsersContent() {
     }
   };
 
-  // ── Edit user ──
   const openEdit = (u: AppUser) => {
     setSelected(u);
-    setForm({ ...emptyForm(), name: u.name, email: u.email, role: u.role, investorId: u.investorId });
+    setForm({ ...emptyForm(), name: u.name, email: u.email, role: u.role, investorId: u.investorId, brokerId: u.brokerId });
     setFormError("");
     setIsEditOpen(true);
   };
@@ -371,6 +373,7 @@ export function UsersContent() {
         name:       form.name,
         role:       form.role,
         investorId: form.role === "investor" ? form.investorId : "",
+        brokerId:   form.role === "broker" ? form.brokerId : "", // <-- DITAMBAHKAN
       };
       if (form.changePassword && form.password) {
         payload.oldPassword     = form.oldPassword;
@@ -391,7 +394,6 @@ export function UsersContent() {
     }
   };
 
-  // ── Hapus user ──
   const confirmDelete = async () => {
     if (!selected) return;
     try {
@@ -405,10 +407,6 @@ export function UsersContent() {
     }
   };
 
-  // ─────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20 text-muted-foreground">
@@ -420,7 +418,6 @@ export function UsersContent() {
   return (
     <div className="space-y-6">
 
-      {/* ── Header ── */}
       <div>
         <h1 className="text-2xl font-bold text-foreground">Manajemen User</h1>
         <p className="text-muted-foreground">Kelola akun pengguna dan hak akses aplikasi MinBun ERP</p>
@@ -432,7 +429,6 @@ export function UsersContent() {
           <TabsTrigger value="hak-akses"><ShieldAlert className="w-4 h-4 mr-2" />Hak Akses</TabsTrigger>
         </TabsList>
 
-        {/* ══ TAB: PENGGUNA ══ */}
         <TabsContent value="pengguna" className="space-y-6 mt-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div />
@@ -491,13 +487,14 @@ export function UsersContent() {
                 <Label className="text-xs">
                   Role <span className="text-destructive">*</span>
                 </Label>
-                <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v, investorId: "" }))}>
+                <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v, investorId: "", brokerId: "" }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="user">User — input data</SelectItem>
                     <SelectItem value="admin">Admin — akses penuh</SelectItem>
                     <SelectItem value="owner">Owner — lihat &amp; edit semua</SelectItem>
                     <SelectItem value="investor">Investor — portal investor</SelectItem>
+                    <SelectItem value="broker">Broker — portal broker</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -532,6 +529,41 @@ export function UsersContent() {
                   </Select>
                   <p className="text-[11px] text-muted-foreground">
                     Pilih investor yang terhubung ke akun ini
+                  </p>
+                </div>
+              )}
+
+              {/* DITAMBAHKAN: Pilihan khusus untuk role Broker */}
+              {form.role === "broker" && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">
+                    Broker <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    value={form.brokerId}
+                    onValueChange={(v) => setForm((f) => ({ ...f, brokerId: v }))}
+                    required
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Pilih broker…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {brokers.length === 0 ? (
+                        <div className="py-4 text-center text-xs text-muted-foreground">
+                          Belum ada data broker
+                        </div>
+                      ) : (
+                        brokers.map((brk) => (
+                          <SelectItem key={brk.id} value={brk.id}>
+                            <span className="font-mono text-xs text-muted-foreground mr-2">{brk.id}</span>
+                            {brk.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Pilih broker yang terhubung ke akun ini
                   </p>
                 </div>
               )}
@@ -576,8 +608,7 @@ export function UsersContent() {
         </Dialog>
       </div>
 
-      {/* ── Metrics ── */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total User</CardTitle>
@@ -585,7 +616,6 @@ export function UsersContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{metrics.total}</div>
-            <p className="text-xs text-muted-foreground">akun terdaftar</p>
           </CardContent>
         </Card>
 
@@ -596,7 +626,6 @@ export function UsersContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{metrics.admins}</div>
-            <p className="text-xs text-muted-foreground">akses penuh</p>
           </CardContent>
         </Card>
 
@@ -607,7 +636,6 @@ export function UsersContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{metrics.owners}</div>
-            <p className="text-xs text-muted-foreground">lihat & edit data</p>
           </CardContent>
         </Card>
 
@@ -618,12 +646,20 @@ export function UsersContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{metrics.investors}</div>
-            <p className="text-xs text-muted-foreground">portal investor</p>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Broker</CardTitle>
+            <Briefcase className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{metrics.brokers}</div>
           </CardContent>
         </Card>
       </div>
 
-      {/* ── Fetch error ── */}
       {fetchError && (
         <div className="flex items-start gap-2 p-4 text-sm text-destructive bg-destructive/10 rounded-lg">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -631,7 +667,6 @@ export function UsersContent() {
         </div>
       )}
 
-      {/* ── Tabel ── */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Daftar Akun</CardTitle>
@@ -669,8 +704,7 @@ export function UsersContent() {
                       <td className="py-3 px-4 text-center">
                         <Badge variant={
                           u.role === "admin" ? "default" :
-                          u.role === "owner" ? "outline" :
-                          u.role === "investor" ? "secondary" : "secondary"
+                          u.role === "owner" ? "outline" : "secondary"
                         }>
                           {ROLE_LABELS[u.role] ?? u.role}
                         </Badge>
@@ -706,7 +740,6 @@ export function UsersContent() {
         </CardContent>
       </Card>
 
-      {/* ── Edit Dialog ── */}
       <Dialog
         open={isEditOpen}
         onOpenChange={(open) => {
@@ -749,13 +782,14 @@ export function UsersContent() {
 
             <div className="space-y-1.5">
               <Label className="text-xs">Role</Label>
-              <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v, investorId: "" }))}>
+              <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v, investorId: "", brokerId: "" }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="user">User — input data</SelectItem>
                   <SelectItem value="admin">Admin — akses penuh</SelectItem>
                   <SelectItem value="owner">Owner — lihat &amp; edit semua</SelectItem>
                   <SelectItem value="investor">Investor — portal investor</SelectItem>
+                  <SelectItem value="broker">Broker — portal broker</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -785,13 +819,37 @@ export function UsersContent() {
                     )}
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  Investor yang terhubung ke akun ini
-                </p>
               </div>
             )}
 
-            {/* Ganti password (opsional) */}
+            {form.role === "broker" && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Broker</Label>
+                <Select
+                  value={form.brokerId}
+                  onValueChange={(v) => setForm((f) => ({ ...f, brokerId: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih broker…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {brokers.length === 0 ? (
+                      <div className="py-4 text-center text-xs text-muted-foreground">
+                        Belum ada data broker
+                      </div>
+                    ) : (
+                      brokers.map((brk) => (
+                        <SelectItem key={brk.id} value={brk.id}>
+                          <span className="font-mono text-xs text-muted-foreground mr-2">{brk.id}</span>
+                          {brk.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="space-y-3 border-t pt-3">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -868,9 +926,8 @@ export function UsersContent() {
         </DialogContent>
       </Dialog>
 
-        </TabsContent>{/* end pengguna */}
+        </TabsContent>
 
-        {/* ══ TAB: HAK AKSES ══ */}
         <TabsContent value="hak-akses" className="space-y-6 mt-6">
           <PermissionsPanel
             permissions={currentPermissions}
@@ -885,7 +942,6 @@ export function UsersContent() {
 
       </Tabs>
 
-      {/* ── Delete Dialog ── */}
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
@@ -903,7 +959,6 @@ export function UsersContent() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Error dialog ── */}
       <ErrorDialog
         open={!!errorInfo}
         onClose={() => setErrorInfo(null)}
