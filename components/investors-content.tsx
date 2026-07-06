@@ -110,9 +110,20 @@ const initialBrokerForm: BrokerFormData = {
 };
 
 // ─────────────────────────────────────────────
-// Form components (defined at module level to
-// keep a stable reference — avoids unmount on
-// every parent re-render which would lose focus)
+// Helpers
+// ─────────────────────────────────────────────
+
+function generateRandomPassword(length = 8) {
+  const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#";
+  let retVal = "";
+  for (let i = 0, n = charset.length; i < length; ++i) {
+    retVal += charset.charAt(Math.floor(Math.random() * n));
+  }
+  return retVal;
+}
+
+// ─────────────────────────────────────────────
+// Form components
 // ─────────────────────────────────────────────
 
 interface InvestorFormProps {
@@ -242,14 +253,11 @@ function InvestorImportPanel({ existingIds, existingKtps, onUpdateInvestor, onRe
     setIsImporting(true);
     setStep("result");
     const usedInSession = new Set<string>(existingIds);
-    // No KTP: cek terhadap KESELURUHAN data di database (fetch segar agar
-    // menangkap record yang ditambahkan setelah halaman dimuat) + lacak KTP
-    // yang dipakai selama sesi import ini untuk cegah duplikat antar-baris.
     const usedKtps = new Set<string>(existingKtps);
     try {
       const dbRecords = await pb.collection("investors").getFullList({ fields: "idNumber" });
       dbRecords.forEach((r) => { const k = (r.idNumber as string)?.trim(); if (k) usedKtps.add(k); });
-    } catch { /* gagal fetch — fallback ke data yang sudah ada di memori */ }
+    } catch { /* fallback */ }
 
     for (let i = 0; i < rows.length; i++) {
       const { row, dupWarning } = rows[i];
@@ -266,7 +274,6 @@ function InvestorImportPanel({ existingIds, existingKtps, onUpdateInvestor, onRe
       try {
         const flag = row.isMinBun ? "MB" : row.isTami ? "TM" : "D";
         let customId = row.customId || await generateCustomId(flag);
-        // Pastikan ID yang di-generate juga tidak konflik dengan batch ini
         while (usedInSession.has(customId)) {
           customId = await generateCustomId(flag);
         }
@@ -1068,8 +1075,6 @@ export function InvestorsContent() {
     });
 
   // ── Dana terpakai per investor (transaksi aktif: modal belum kembali) ──
-  // Sejalan dengan definisi investor aktif: berjalan + bermasalah (perbarui = legacy
-  // berjalan). Transaksi bermasalah pun modalnya masih terpakai.
   const investorDanaMap = useMemo(() => {
     const map = new Map<string, number>();
     transaksis.forEach((t) => {
@@ -1100,8 +1105,6 @@ export function InvestorsContent() {
       if (c.totalInvestasi === 0) return;
       t.investorEntries.forEach((entry) => {
         const ratio = entry.nilaiInvestasi / c.totalInvestasi;
-        // PK% dari PKS investor lewat helper bersama investorPkPct — konsisten
-        // dengan dashboard. Masa aktif PKS tidak relevan (PKS = formalitas).
         const pkPct = investorPkPct(entry.investorId, mous) / 100;
         const bh    = c.profit > 0 ? c.profit * pkPct * ratio : 0;
         map.set(entry.investorId, (map.get(entry.investorId) ?? 0) + bh);
@@ -1226,14 +1229,12 @@ export function InvestorsContent() {
       return;
     }
 
-    // Tentukan default bagi hasil berdasarkan prefix investor ID
     const isDirect = investor.id.startsWith("INV-D-");
     const isTm     = investor.id.startsWith("INV-TM-");
     const defaultPP1 = isDirect ? 60 : 50;
     const defaultPP2 = isDirect ? 0  : 15;
     const defaultPK  = isDirect ? 40 : 35;
 
-    // Load e-sign PP I & PP II dari localStorage (sama seperti form buat PKS manual)
     const loadEsign = (key: string) => { try { return localStorage.getItem(key) ?? ""; } catch { return ""; } };
     const esignPP1 = loadEsign("pks_esign_pp1");
     const esignPP2 = isDirect ? "" : loadEsign(isTm ? "pks_esign_pp2_tm" : "pks_esign_pp2");
@@ -1323,7 +1324,8 @@ export function InvestorsContent() {
         isTami: investorForm.isTami,
         isDirect: investorForm.isDirect,
       });
-      // Hanya investor Internal (MinBun sendiri) yang langsung catat modal ke cashflow
+
+      // 1. Sinkronisasi Cash Flow
       if (investorForm.isInternal) {
         const today = todayWibStr();
         await addPengeluaran({
@@ -1335,7 +1337,8 @@ export function InvestorsContent() {
           catatan: makeInternalRef(newId),
         });
       }
-      // Upload bukti transfer jika ada
+
+      // 2. Upload bukti transfer
       let buktiUrl = "";
       if (addInvestorFile) {
         try {
@@ -1344,7 +1347,47 @@ export function InvestorsContent() {
         } catch { /* upload gagal — lanjut tanpa bukti */ }
       }
 
-      // Notifikasi ke owner (fire-and-forget)
+      // 3. Buat Akun User Otomatis (Background)
+      const randomPass = generateRandomPassword(8);
+      // Buat email fallback jika kosong, karena PocketBase butuh email.
+      const accountEmail = investorForm.email || `${investorForm.phone.replace(/[^0-9]/g, "")}@investor.local`;
+      
+      try {
+        await pb.collection("users").create({
+          email: accountEmail,
+          emailVisibility: true,
+          password: randomPass,
+          passwordConfirm: randomPass,
+          name: investorForm.name,
+          role: "investor",
+          investorId: newId,
+          verified: true, // Mem-bypass verifikasi default
+        });
+
+        // 4. Kirim notifikasi kredensial ke WA/Email investor
+        fetch("/api/send-credentials", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${pb.authStore.token}`,
+          },
+          body: JSON.stringify({
+            type: "new_account",
+            name: investorForm.name,
+            email: accountEmail,
+            phone: investorForm.phone,
+            password: randomPass,
+            role: "investor",
+          }),
+        }).catch((err) => console.error("Gagal panggil API send-credentials:", err));
+
+        toast.success(`Akun login otomatis dibuat! (Pass: ${randomPass})`);
+      } catch (err) {
+        console.error("Gagal membuat akun otomatis:", err);
+        toast.error("Data investor tersimpan, namun gagal membuat akun login (Email/No.HP mungkin sudah dipakai).");
+      }
+
+      // 5. Notifikasi ke owner
       notifyOwner("new_investor", newId, investorForm.name, parseFloat(investorForm.investmentAmount) || 0, {
         buktiUrl,
         flags: activeFlags(investorForm),
@@ -1386,7 +1429,6 @@ export function InvestorsContent() {
         isDirect: investorForm.isDirect,
       });
 
-      // Sinkronkan nama & broker yang ter-denormalisasi di entry transaksi
       if (
         selectedInvestor.name !== investorForm.name ||
         selectedInvestor.brokerName !== investorForm.brokerName
@@ -1394,21 +1436,18 @@ export function InvestorsContent() {
         await syncInvestorInfo(selectedInvestor.id, investorForm.name, investorForm.brokerName);
       }
 
-      // Sinkronisasi cash flow — hanya untuk investor Internal (MinBun sendiri)
       const wasInternal = selectedInvestor.isInternal === true;
       const nowInternal = investorForm.isInternal;
       const ref = makeInternalRef(selectedInvestor.id);
       const existingEntry = pengeluarans.find((p) => p.catatan === ref);
 
       if (wasInternal && nowInternal) {
-        // Masih internal — update nilai modal jika berubah
         if (existingEntry) {
           await updatePengeluaran(existingEntry.id, {
             deskripsi: `Modal Internal — ${investorForm.name}`,
             kredit: parseFloat(investorForm.investmentAmount) || 0,
           });
         } else {
-          // Entry hilang, buat ulang
           const today = todayWibStr();
           await addPengeluaran({
             date: today,
@@ -1420,7 +1459,6 @@ export function InvestorsContent() {
           });
         }
       } else if (!wasInternal && nowInternal) {
-        // Baru ditandai internal — buat entri modal baru
         const today = todayWibStr();
         await addPengeluaran({
           date: today,
@@ -1431,7 +1469,6 @@ export function InvestorsContent() {
           catatan: ref,
         });
       } else if (wasInternal && !nowInternal) {
-        // Flag dicabut — hapus entri cash flow terkait
         if (existingEntry) {
           await deletePengeluaran(existingEntry.id);
         }
@@ -1488,14 +1525,12 @@ export function InvestorsContent() {
       const newAmount = topUpInvestor.investmentAmount + nominal;
       await updateInvestor(topUpInvestor.id, { investmentAmount: newAmount });
 
-      // Catat ke riwayat modal
       await addEntry(topUpInvestor.id, {
         amount: nominal,
         date:   todayWibStr(),
         type:   "topup",
       });
 
-      // Sinkronkan entri cash flow internal jika investor internal
       if (topUpInvestor.isInternal) {
         const ref = makeInternalRef(topUpInvestor.id);
         const existingEntry = pengeluarans.find((p) => p.catatan === ref);
@@ -1513,7 +1548,6 @@ export function InvestorsContent() {
         }
       }
 
-      // Upload bukti transfer jika ada
       let buktiUrl = "";
       if (topUpFile) {
         try {
@@ -1522,7 +1556,6 @@ export function InvestorsContent() {
         } catch { /* upload gagal — lanjut tanpa bukti */ }
       }
 
-      // Notifikasi ke owner (fire-and-forget)
       notifyOwner("top_up", topUpInvestor.id, topUpInvestor.name, nominal, {
         totalAmount: newAmount,
         buktiUrl,
@@ -1546,7 +1579,6 @@ export function InvestorsContent() {
   };
 
   const handleDeleteInvestorClick = (investor: Investor) => {
-    // Cek apakah investor masih punya MoU
     const hasMou = mous.some((m) => m.investorId === investor.id);
     if (hasMou) {
       setErrorInfo({
@@ -1560,7 +1592,6 @@ export function InvestorsContent() {
       });
       return;
     }
-    // Cek apakah investor masih tercatat di transaksi
     const hasTransaksi = transaksis.some((t) =>
       t.investorEntries.some((e) => e.investorId === investor.id)
     );
@@ -1582,8 +1613,6 @@ export function InvestorsContent() {
 
   const handleDeleteInvestorConfirm = async () => {
     if (!selectedInvestor || isSaving) return;
-    // Snapshot ID sebelum operasi async dimulai — mencegah stale closure
-    // jika re-render mengubah selectedInvestor di tengah jalan.
     const targetId = selectedInvestor.id;
     setIsSaving(true);
     try {
@@ -1624,6 +1653,53 @@ export function InvestorsContent() {
         accountNumber: brokerForm.accountNumber,
         phone: brokerForm.phone,
       });
+
+      // ── Buat Akun Otomatis untuk Broker ──
+      const randomPass = generateRandomPassword(8);
+      const accountEmail = brokerForm.email || `${brokerForm.phone.replace(/[^0-9]/g, "")}@broker.local`;
+      
+      try {
+        // Cari broker customId terbaru berdasarkan name & phone agar bisa di-link
+        const brkRecords = await pb.collection("brokers").getList(1, 1, {
+          filter: `name="${brokerForm.name}" && phone="${brokerForm.phone}"`,
+          sort: "-created"
+        });
+        const actualBrokerId = brkRecords.items.length > 0 ? (brkRecords.items[0].customId || brkRecords.items[0].id) : "";
+
+        await pb.collection("users").create({
+          email: accountEmail,
+          emailVisibility: true,
+          password: randomPass,
+          passwordConfirm: randomPass,
+          name: brokerForm.name,
+          role: "broker",
+          brokerId: actualBrokerId,
+          verified: true,
+        });
+
+        // Notifikasi Kredensial via WA/Email
+        fetch("/api/send-credentials", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${pb.authStore.token}`,
+          },
+          body: JSON.stringify({
+            type: "new_account",
+            name: brokerForm.name,
+            email: accountEmail,
+            phone: brokerForm.phone,
+            password: randomPass,
+            role: "broker",
+          }),
+        }).catch((err) => console.error("Gagal memanggil API send-credentials:", err));
+
+        toast.success(`Akun broker otomatis dibuat. (Pass: ${randomPass})`);
+      } catch (err) {
+        console.error("Gagal membuat akun otomatis broker:", err);
+        toast.error("Broker tersimpan, namun gagal membuat akun (Email/No HP mungkin terdaftar).");
+      }
+
       toast.success("Broker berhasil ditambahkan");
       setBrokerForm(initialBrokerForm);
       setIsAddBrokerOpen(false);
@@ -1871,8 +1947,6 @@ export function InvestorsContent() {
             const bagHasil      = investorPnlMap.get(investor.id) ?? 0;
             const danaTermakai  = investorDanaMap.get(investor.id) ?? 0;
             const mouAllocated  = mouAllocatedMap.get(investor.id) ?? 0;
-            // Modal benar-benar tersedia = total − max(terpakai transaksi, terikat PKS)
-            // karena PKS aktif yang belum masuk transaksi pun sudah "dipakai".
             const committed     = Math.max(danaTermakai, mouAllocated);
             const danaSisa      = Math.max(0, investor.investmentAmount - committed);
             const modalTersedia = Math.max(0, investor.investmentAmount - mouAllocated);
@@ -1881,8 +1955,6 @@ export function InvestorsContent() {
               : "0.0";
             const isActive = activeIds.has(investor.id);
 
-            // Status aktif murni dari transaksi. Draft PKS hanya label antara saat
-            // belum ada transaksi berjalan/bermasalah untuk investor ini.
             const investorMous = mous.filter((m) => m.investorId === investor.id);
             const hasDraftMou = investorMous.some((m) => getMouStatus(m) === "draft");
             const investorBadge = isActive
