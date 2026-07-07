@@ -129,7 +129,7 @@ function generateRandomPassword(length = 8) {
 interface InvestorFormProps {
   formData: InvestorFormData;
   setFormData: (data: InvestorFormData) => void;
-  onSubmit: (e: React.FormEvent) => void;
+  onSubmit: (e: React.FormEvent<HTMLFormElement>) => Promise<void> | void;
   submitLabel: string;
   previewId: string;
   brokers: Broker[];
@@ -1297,7 +1297,7 @@ export function InvestorsContent() {
 
   // ── Investor handlers ──
 
-  const handleAddInvestor = async (e: React.SubmitEvent) => {
+  const handleAddInvestor = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!investorForm.isMinBun && !investorForm.isTami && !investorForm.isDirect) {
       setErrorInfo({ title: "Tipe investor wajib dipilih", fields: [{ field: "flag", code: "required", message: "Pilih salah satu tipe: MinBun, Tami, atau Direct." }], raw: "" });
