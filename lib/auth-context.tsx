@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { useRouter } from "next/navigation"; // <-- TAMBAHAN: Untuk mengarahkan halaman
 import pb from "./pocketbase";
 import { TreeLoader } from "@/components/ui/tree-loader";
 
@@ -9,7 +10,7 @@ interface User {
   name:       string;
   role:       string;
   investorId: string;
-  brokerId?: string;
+  brokerId?:  string;
 }
 
 interface AuthContextType {
@@ -20,7 +21,7 @@ interface AuthContextType {
   isAdmin:    boolean;
   isOwner:    boolean;
   isInvestor: boolean;
-  isBroker: boolean;
+  isBroker:   boolean;
   canEdit:    boolean; // admin atau owner
 }
 
@@ -32,12 +33,14 @@ function modelToUser(model: Record<string, string>): User {
     name:       model.name       || model.username || model.email || "",
     role:       model.role       || "user",
     investorId: model.investorId || "",
+    brokerId:   model.brokerId   || "", // <-- PERBAIKAN: Menyimpan data brokerId ke memori
   };
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]         = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter(); // <-- TAMBAHAN: Inisialisasi router
 
   useEffect(() => {
     // Dengarkan perubahan auth (login / logout / token expired)
@@ -70,7 +73,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
       const auth = await pb.collection("users").authWithPassword(username, password);
-      setUser(modelToUser(auth.record as Record<string, string>));
+      const loggedInUser = modelToUser(auth.record as Record<string, string>);
+      setUser(loggedInUser);
+
+      // ── LOGIKA REDIRECT SETELAH LOGIN BERHASIL ──
+      if (loggedInUser.role === "investor" || loggedInUser.role === "broker") {
+        router.push("/dashboard"); // Langsung masuk ke Transaksi / Dashboard utama
+      } else {
+        router.push("/portal"); // Admin, User, dan Owner diarahkan ke halaman Portal 4 Kartu
+      }
+
       return true;
     } catch {
       return false;
@@ -80,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     pb.authStore.clear();
     setUser(null);
+    router.push("/login"); // Memastikan saat logout otomatis dikembalikan ke form login
   };
 
   if (isLoading) {
@@ -93,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isAdmin    = user?.role === "admin";
   const isOwner    = user?.role === "owner";
   const isInvestor = user?.role === "investor";
-  const isBroker = user?.role === "broker";
+  const isBroker   = user?.role === "broker";
   const canEdit    = isAdmin || isOwner;
 
   return (
