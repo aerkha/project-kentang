@@ -1297,7 +1297,7 @@ export function InvestorsContent() {
 
   // ── Investor handlers ──
 
-  const handleAddInvestor = async (e: React.FormEvent) => {
+  const handleAddInvestor = async (e: React.SubmitEvent) => {
     e.preventDefault();
     if (!investorForm.isMinBun && !investorForm.isTami && !investorForm.isDirect) {
       setErrorInfo({ title: "Tipe investor wajib dipilih", fields: [{ field: "flag", code: "required", message: "Pilih salah satu tipe: MinBun, Tami, atau Direct." }], raw: "" });
@@ -1361,7 +1361,7 @@ export function InvestorsContent() {
           name: investorForm.name,
           role: "investor",
           investorId: newId,
-          verified: true, // Mem-bypass verifikasi default
+          brokerId: "",
         });
 
         // 4. Kirim notifikasi kredensial ke WA/Email investor
@@ -1659,7 +1659,6 @@ export function InvestorsContent() {
       const accountEmail = brokerForm.email || `${brokerForm.phone.replace(/[^0-9]/g, "")}@broker.local`;
       
       try {
-        // Cari broker customId terbaru berdasarkan name & phone agar bisa di-link
         const brkRecords = await pb.collection("brokers").getList(1, 1, {
           filter: `name="${brokerForm.name}" && phone="${brokerForm.phone}"`,
           sort: "-created"
@@ -1673,8 +1672,8 @@ export function InvestorsContent() {
           passwordConfirm: randomPass,
           name: brokerForm.name,
           role: "broker",
+          investorId: "",
           brokerId: actualBrokerId,
-          verified: true,
         });
 
         // Notifikasi Kredensial via WA/Email
