@@ -21,6 +21,8 @@ interface InventoryContextType {
   addPembelian: (data: Partial<InvPembelian>) => Promise<void>;
   addSortir: (data: Partial<InvSortir>) => Promise<void>;
   addPengiriman: (data: Partial<InvPengiriman>) => Promise<void>;
+  addBandar: (data: Partial<MasterBandar>) => Promise<void>;
+  addBuyer: (data: Partial<MasterBuyer>) => Promise<void>;
   generatePembelianId: (bandarKode: string, date: string) => string;
   generatePengirimanId: (buyerKode: string, date: string) => string;
 }
@@ -39,8 +41,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     const fetchData = async () => {
       try {
         const [resBandar, resBuyer, resPembelian, resSortir, resPengiriman] = await Promise.all([
-          pb.collection("master_bandar").getFullList(),
-          pb.collection("master_buyer").getFullList(),
+          pb.collection("master_bandar").getFullList({ sort: "nama" }),
+          pb.collection("master_buyer").getFullList({ sort: "nama" }),
           pb.collection("inv_pembelian").getFullList({ sort: "-tanggal" }),
           pb.collection("inv_sortir").getFullList({ sort: "-tanggal_sortir" }),
           pb.collection("inv_pengiriman").getFullList({ sort: "-tanggal" }),
@@ -60,19 +62,10 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     fetchData();
   }, []);
 
-  // RUMUS STOK DINAMIS (Total Masuk Sortir - Total Keluar Pengiriman)
   const currentStock = useMemo(() => {
     let gradeA = 0, gradeB = 0, gradeC = 0, baby = 0, reject = 0;
-    
-    sortirs.forEach(s => {
-      gradeA += s.grade_a; gradeB += s.grade_b; gradeC += s.grade_c; 
-      baby += s.grade_baby; reject += s.grade_reject;
-    });
-
-    pengirimans.forEach(p => {
-      gradeA -= p.qty_grade_a; gradeB -= p.qty_grade_b; gradeC -= p.qty_grade_c; baby -= p.qty_grade_baby;
-    });
-
+    sortirs.forEach(s => { gradeA += s.grade_a; gradeB += s.grade_b; gradeC += s.grade_c; baby += s.grade_baby; reject += s.grade_reject; });
+    pengirimans.forEach(p => { gradeA -= p.qty_grade_a; gradeB -= p.qty_grade_b; gradeC -= p.qty_grade_c; baby -= p.qty_grade_baby; });
     return { gradeA, gradeB, gradeC, baby, reject };
   }, [sortirs, pengirimans]);
 
@@ -93,28 +86,38 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     setPengirimans(prev => [record as unknown as InvPengiriman, ...prev]);
   };
 
-  // GENERATOR ID BATCH
+  // ── TAMBAHAN FUNGSI BARU ──
+  const addBandar = async (data: Partial<MasterBandar>) => {
+    const record = await pb.collection("master_bandar").create(data);
+    setBandars(prev => [...prev, record as unknown as MasterBandar].sort((a, b) => a.nama.localeCompare(b.nama)));
+  };
+
+  const addBuyer = async (data: Partial<MasterBuyer>) => {
+    const record = await pb.collection("master_buyer").create(data);
+    setBuyers(prev => [...prev, record as unknown as MasterBuyer].sort((a, b) => a.nama.localeCompare(b.nama)));
+  };
+
   const formatYYMMDD = (dateStr: string) => {
     const d = new Date(dateStr);
-    return d.toISOString().slice(2, 10).replace(/-/g, ""); // "260714"
+    return d.toISOString().slice(2, 10).replace(/-/g, ""); 
   };
 
   const generatePembelianId = (bandarKode: string, date: string) => {
-    const yymmdd = formatYYMMDD(date);
-    const prefix = `PB-${yymmdd}-${bandarKode}-`;
-    const count = pembelians.filter(p => p.batch_id.startsWith(prefix)).length;
-    return `${prefix}${String(count + 1).padStart(3, "0")}`;
+    const count = pembelians.filter(p => p.batch_id.startsWith(`PB-${formatYYMMDD(date)}-${bandarKode}-`)).length;
+    return `PB-${formatYYMMDD(date)}-${bandarKode}-${String(count + 1).padStart(3, "0")}`;
   };
 
   const generatePengirimanId = (buyerKode: string, date: string) => {
-    const yymmdd = formatYYMMDD(date);
-    const prefix = `DL-${yymmdd}-${buyerKode}-`;
-    const count = pengirimans.filter(p => p.batch_id.startsWith(prefix)).length;
-    return `${prefix}${String(count + 1).padStart(3, "0")}`;
+    const count = pengirimans.filter(p => p.batch_id.startsWith(`DL-${formatYYMMDD(date)}-${buyerKode}-`)).length;
+    return `DL-${formatYYMMDD(date)}-${buyerKode}-${String(count + 1).padStart(3, "0")}`;
   };
 
   return (
-    <InventoryContext.Provider value={{ bandars, buyers, pembelians, sortirs, pengirimans, currentStock, isLoading, addPembelian, addSortir, addPengiriman, generatePembelianId, generatePengirimanId }}>
+    <InventoryContext.Provider value={{ 
+      bandars, buyers, pembelians, sortirs, pengirimans, currentStock, isLoading, 
+      addPembelian, addSortir, addPengiriman, addBandar, addBuyer, // <-- Jangan lupa diekspor
+      generatePembelianId, generatePengirimanId 
+    }}>
       {children}
     </InventoryContext.Provider>
   );

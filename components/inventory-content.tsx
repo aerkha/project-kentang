@@ -11,30 +11,56 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { PackageSearch, CheckSquare, Send, Plus, ArrowDownToLine, Scale, ArrowUpRight } from "lucide-react";
+import { PackageSearch, Truck, CheckSquare, Send, Plus, ArrowDownToLine, Scale, ArrowUpRight, Database, Users, Building2 } from "lucide-react";
 
 const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n)} Kg`;
 
 export function InventoryContent() {
   const { 
     bandars, buyers, pembelians, sortirs, pengirimans, currentStock, isLoading, 
-    addPembelian, addSortir, addPengiriman, generatePembelianId, generatePengirimanId 
+    addPembelian, addSortir, addPengiriman, addBandar, addBuyer,
+    generatePembelianId, generatePengirimanId 
   } = useInventory();
 
   // Dialog States
   const [isPembelianOpen, setIsPembelianOpen] = useState(false);
   const [isSortirOpen, setIsSortirOpen] = useState(false);
   const [isPengirimanOpen, setIsPengirimanOpen] = useState(false);
+  const [isBandarOpen, setIsBandarOpen] = useState(false);
+  const [isBuyerOpen, setIsBuyerOpen] = useState(false);
 
   // Form States
   const defaultDate = todayWibStr().slice(0, 10);
   const [formPb, setFormPb] = useState({ tanggal: defaultDate, bandar: "", tonase_lapangan: "", tonase_gudang: "", harga_per_kg: "" });
   const [formSortir, setFormSortir] = useState({ pembelian_id: "", tanggal_sortir: defaultDate, grade_a: "", grade_b: "", grade_c: "", grade_baby: "", grade_reject: "" });
   const [formDl, setFormDl] = useState({ tanggal: defaultDate, buyer: "", qty_grade_a: "", qty_grade_b: "", qty_grade_c: "", qty_grade_baby: "" });
+  const [formBandar, setFormBandar] = useState({ kode: "", nama: "", telepon: "", alamat: "" });
+  const [formBuyer, setFormBuyer] = useState({ kode: "", nama: "", kategori: "Pasar Induk", telepon: "", alamat: "" });
 
   if (isLoading) return <div className="text-center py-20 animate-pulse text-muted-foreground">Memuat data gudang...</div>;
 
-  // ── HANDLERS ──
+  // ── HANDLERS MASTER DATA ──
+  const handleSimpanBandar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await addBandar({ ...formBandar, kode: formBandar.kode.toUpperCase() });
+      toast.success("Bandar berhasil ditambahkan!");
+      setIsBandarOpen(false);
+      setFormBandar({ kode: "", nama: "", telepon: "", alamat: "" });
+    } catch (err) { toast.error("Gagal menyimpan Bandar. Pastikan Kode belum dipakai."); }
+  };
+
+  const handleSimpanBuyer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await addBuyer({ ...formBuyer, kode: formBuyer.kode.toUpperCase() });
+      toast.success("Buyer berhasil ditambahkan!");
+      setIsBuyerOpen(false);
+      setFormBuyer({ kode: "", nama: "", kategori: "Pasar Induk", telepon: "", alamat: "" });
+    } catch (err) { toast.error("Gagal menyimpan Buyer. Pastikan Kode belum dipakai."); }
+  };
+
+  // ── HANDLERS TRANSAKSI GUDANG ──
   const handleSimpanPembelian = async (e: React.FormEvent) => {
     e.preventDefault();
     const bandar = bandars.find(b => b.id === formPb.bandar);
@@ -47,15 +73,9 @@ export function InventoryContent() {
 
     try {
       await addPembelian({
-        batch_id: batchId,
-        tanggal: formPb.tanggal + " 00:00:00",
-        bandar: bandar.id,
-        tonase_lapangan: tonaseL,
-        tonase_gudang: tonaseG,
-        harga_per_kg: harga,
-        total_harga: tonaseL * harga, // Owner bayar berdasar laporan lapangan
-        tujuan: "Gudang (Sortir)",
-        status: "Menunggu Sortir"
+        batch_id: batchId, tanggal: formPb.tanggal + " 00:00:00", bandar: bandar.id,
+        tonase_lapangan: tonaseL, tonase_gudang: tonaseG, harga_per_kg: harga,
+        total_harga: tonaseL * harga, tujuan: "Gudang (Sortir)", status: "Menunggu Sortir"
       });
       toast.success(`Berhasil mencatat batch ${batchId}`);
       setIsPembelianOpen(false);
@@ -67,20 +87,15 @@ export function InventoryContent() {
     const pb = pembelians.find(p => p.id === formSortir.pembelian_id);
     if (!pb) return toast.error("Pilih Batch Pembelian");
 
-    const a = parseFloat(formSortir.grade_a) || 0;
-    const b = parseFloat(formSortir.grade_b) || 0;
-    const c = parseFloat(formSortir.grade_c) || 0;
-    const baby = parseFloat(formSortir.grade_baby) || 0;
+    const a = parseFloat(formSortir.grade_a) || 0; const b = parseFloat(formSortir.grade_b) || 0;
+    const c = parseFloat(formSortir.grade_c) || 0; const baby = parseFloat(formSortir.grade_baby) || 0;
     const reject = parseFloat(formSortir.grade_reject) || 0;
-    const totalSortir = a + b + c + baby + reject;
-    const susut = pb.tonase_gudang - totalSortir; // Hitung otomatis
+    const susut = pb.tonase_gudang - (a + b + c + baby + reject);
 
     try {
       await addSortir({
-        pembelian_id: pb.id,
-        tanggal_sortir: formSortir.tanggal_sortir + " 00:00:00",
-        grade_a: a, grade_b: b, grade_c: c, grade_baby: baby, grade_reject: reject,
-        susut: susut,
+        pembelian_id: pb.id, tanggal_sortir: formSortir.tanggal_sortir + " 00:00:00",
+        grade_a: a, grade_b: b, grade_c: c, grade_baby: baby, grade_reject: reject, susut: susut,
       });
       toast.success("Hasil sortir berhasil dicatat, stok gudang bertambah.");
       setIsSortirOpen(false);
@@ -92,12 +107,9 @@ export function InventoryContent() {
     const buyer = buyers.find(b => b.id === formDl.buyer);
     if (!buyer) return toast.error("Pilih Buyer");
 
-    const a = parseFloat(formDl.qty_grade_a) || 0;
-    const b = parseFloat(formDl.qty_grade_b) || 0;
-    const c = parseFloat(formDl.qty_grade_c) || 0;
-    const baby = parseFloat(formDl.qty_grade_baby) || 0;
+    const a = parseFloat(formDl.qty_grade_a) || 0; const b = parseFloat(formDl.qty_grade_b) || 0;
+    const c = parseFloat(formDl.qty_grade_c) || 0; const baby = parseFloat(formDl.qty_grade_baby) || 0;
 
-    // Validasi Sisa Stok
     if (a > currentStock.gradeA || b > currentStock.gradeB || c > currentStock.gradeC || baby > currentStock.baby) {
       return toast.error("Gagal: Jumlah pengiriman melebihi sisa stok di gudang!");
     }
@@ -105,11 +117,8 @@ export function InventoryContent() {
     const batchId = generatePengirimanId(buyer.kode, formDl.tanggal);
     try {
       await addPengiriman({
-        batch_id: batchId,
-        tanggal: formDl.tanggal + " 00:00:00",
-        buyer: buyer.id,
-        qty_grade_a: a, qty_grade_b: b, qty_grade_c: c, qty_grade_baby: baby,
-        status: "Dalam Perjalanan"
+        batch_id: batchId, tanggal: formDl.tanggal + " 00:00:00", buyer: buyer.id,
+        qty_grade_a: a, qty_grade_b: b, qty_grade_c: c, qty_grade_baby: baby, status: "Dalam Perjalanan"
       });
       toast.success(`Pengiriman ${batchId} berhasil dibuat, stok berkurang.`);
       setIsPengirimanOpen(false);
@@ -130,11 +139,13 @@ export function InventoryContent() {
       </div>
 
       <Tabs defaultValue="stok" className="space-y-6">
-        <TabsList className="bg-muted/50 p-1">
+        {/* Tambahan Tab Master Data di ujung */}
+        <TabsList className="bg-muted/50 p-1 flex-wrap h-auto">
           <TabsTrigger value="stok"><PackageSearch className="h-4 w-4 mr-2" /> Stok Tersedia</TabsTrigger>
           <TabsTrigger value="pembelian"><ArrowDownToLine className="h-4 w-4 mr-2" /> Barang Masuk</TabsTrigger>
           <TabsTrigger value="sortir"><CheckSquare className="h-4 w-4 mr-2" /> Proses Sortir</TabsTrigger>
           <TabsTrigger value="pengiriman"><ArrowUpRight className="h-4 w-4 mr-2" /> Pengiriman</TabsTrigger>
+          <TabsTrigger value="master"><Database className="h-4 w-4 mr-2" /> Master Data</TabsTrigger>
         </TabsList>
 
         {/* ── TAB 1: STOK TERSEDIA ── */}
@@ -231,6 +242,51 @@ export function InventoryContent() {
             </table>
           </Card>
         </TabsContent>
+
+        {/* ── TAB 5: MASTER DATA (BARU) ── */}
+        <TabsContent value="master" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            {/* Tabel Master Bandar */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-lg flex items-center gap-2"><Users className="w-5 h-5"/> Daftar Bandar</CardTitle>
+                <Button size="sm" onClick={() => setIsBandarOpen(true)}><Plus className="h-4 w-4 mr-1"/> Tambah</Button>
+              </CardHeader>
+              <CardContent>
+                <table className="w-full text-sm text-left mt-2">
+                  <thead className="bg-muted/50 border-b"><tr><th className="p-2">Kode</th><th className="p-2">Nama Bandar</th><th className="p-2">Telepon</th></tr></thead>
+                  <tbody>
+                    {bandars.map(b => (
+                      <tr key={b.id} className="border-b"><td className="p-2 font-mono">{b.kode}</td><td className="p-2 font-semibold">{b.nama}</td><td className="p-2">{b.telepon || "-"}</td></tr>
+                    ))}
+                    {bandars.length === 0 && <tr><td colSpan={3} className="p-4 text-center text-muted-foreground">Belum ada data bandar</td></tr>}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+
+            {/* Tabel Master Buyer */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-lg flex items-center gap-2"><Building2 className="w-5 h-5"/> Daftar Buyer</CardTitle>
+                <Button size="sm" onClick={() => setIsBuyerOpen(true)}><Plus className="h-4 w-4 mr-1"/> Tambah</Button>
+              </CardHeader>
+              <CardContent>
+                <table className="w-full text-sm text-left mt-2">
+                  <thead className="bg-muted/50 border-b"><tr><th className="p-2">Kode</th><th className="p-2">Nama Buyer</th><th className="p-2">Kategori</th></tr></thead>
+                  <tbody>
+                    {buyers.map(b => (
+                      <tr key={b.id} className="border-b"><td className="p-2 font-mono">{b.kode}</td><td className="p-2 font-semibold">{b.nama}</td><td className="p-2">{b.kategori}</td></tr>
+                    ))}
+                    {buyers.length === 0 && <tr><td colSpan={3} className="p-4 text-center text-muted-foreground">Belum ada data buyer</td></tr>}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+
+          </div>
+        </TabsContent>
       </Tabs>
 
       {/* ── DIALOG FORMS ── */}
@@ -263,7 +319,7 @@ export function InventoryContent() {
           <form onSubmit={handleSimpanSortir} className="space-y-4">
             <div className="space-y-1"><Label>Pilih Batch yang Belum Disortir</Label>
               <Select value={formSortir.pembelian_id} onValueChange={v=>setFormSortir({...formSortir, pembelian_id: v})} required>
-                <SelectTrigger><SelectValue placeholder="Pilih Batch Pembelian (PB-...)" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Pilih Batch Pembelian" /></SelectTrigger>
                 <SelectContent>{unSortedPembelians.map(p => <SelectItem key={p.id} value={p.id}>{p.batch_id} — {formatKg(p.tonase_gudang)}</SelectItem>)}</SelectContent>
               </Select>
             </div>
@@ -299,6 +355,49 @@ export function InventoryContent() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* 4. Form Tambah Bandar */}
+      <Dialog open={isBandarOpen} onOpenChange={setIsBandarOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Tambah Data Bandar Baru</DialogTitle></DialogHeader>
+          <form onSubmit={handleSimpanBandar} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1"><Label>Kode (Misal: UJG)</Label><Input value={formBandar.kode} onChange={e=>setFormBandar({...formBandar, kode: e.target.value})} maxLength={4} required placeholder="Maks 4 Huruf" className="uppercase"/></div>
+              <div className="space-y-1"><Label>Nama Bandar</Label><Input value={formBandar.nama} onChange={e=>setFormBandar({...formBandar, nama: e.target.value})} required/></div>
+              <div className="col-span-2 space-y-1"><Label>No. Telepon / WA (Opsional)</Label><Input type="tel" value={formBandar.telepon} onChange={e=>setFormBandar({...formBandar, telepon: e.target.value})}/></div>
+              <div className="col-span-2 space-y-1"><Label>Alamat (Opsional)</Label><Input value={formBandar.alamat} onChange={e=>setFormBandar({...formBandar, alamat: e.target.value})}/></div>
+            </div>
+            <DialogFooter><Button type="submit">Simpan Bandar</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* 5. Form Tambah Buyer */}
+      <Dialog open={isBuyerOpen} onOpenChange={setIsBuyerOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Tambah Data Buyer Baru</DialogTitle></DialogHeader>
+          <form onSubmit={handleSimpanBuyer} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1"><Label>Kode (Misal: LTM)</Label><Input value={formBuyer.kode} onChange={e=>setFormBuyer({...formBuyer, kode: e.target.value})} maxLength={6} required placeholder="Maks 6 Huruf" className="uppercase"/></div>
+              <div className="space-y-1"><Label>Kategori Buyer</Label>
+                <Select value={formBuyer.kategori} onValueChange={v=>setFormBuyer({...formBuyer, kategori: v})} required>
+                  <SelectTrigger><SelectValue placeholder="Pilih Kategori" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Pasar Induk">Pasar Induk</SelectItem>
+                    <SelectItem value="Modern Trade">Modern Trade / Supermarket</SelectItem>
+                    <SelectItem value="Ekspor">Ekspor</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-2 space-y-1"><Label>Nama Buyer / Perusahaan</Label><Input value={formBuyer.nama} onChange={e=>setFormBuyer({...formBuyer, nama: e.target.value})} required/></div>
+              <div className="col-span-2 space-y-1"><Label>No. Telepon (Opsional)</Label><Input type="tel" value={formBuyer.telepon} onChange={e=>setFormBuyer({...formBuyer, telepon: e.target.value})}/></div>
+              <div className="col-span-2 space-y-1"><Label>Alamat (Opsional)</Label><Input value={formBuyer.alamat} onChange={e=>setFormBuyer({...formBuyer, alamat: e.target.value})}/></div>
+            </div>
+            <DialogFooter><Button type="submit">Simpan Buyer</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }
