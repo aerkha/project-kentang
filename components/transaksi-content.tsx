@@ -1045,7 +1045,7 @@ export default function TransaksiContent() {
                         </td>
                         <td className="py-3 px-4 text-muted-foreground max-w-[140px]">
                           <div className="truncate">{t.description || "—"}</div>
-                          {baseStatus === "berjalan" && (() => {
+                          {displayStatus === "berjalan" && (() => {
                             const s = sisaHari(t);
                             return (
                               <div className={`text-[10px] ${getSisaHariColor(s)}`}>
