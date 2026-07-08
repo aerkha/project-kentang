@@ -29,7 +29,7 @@ export default function PortalPage() {
   const modules = [
     {
       id: "transaksi",
-      title: "Transaksi & Operasional",
+      title: "Pengelolaan Investasi",
       description: "Dashboard analitik, kelola investor, broker, PKS, catatan transaksi, dan reminder harian.",
       icon: Receipt,
       href: "/dashboard",
@@ -39,8 +39,8 @@ export default function PortalPage() {
     },
     {
       id: "gudang",
-      title: "Gudang & Logistik",
-      description: "Penerimaan barang dari petani, manajemen stok, dan pengiriman barang ke pelanggan.",
+      title: "Gudang & Operasional",
+      description: "Penerimaan barang, manajemen stok, dan pengiriman barang.",
       icon: PackageSearch,
       href: "/dashboard/inventory",
       color: "text-emerald-600",
@@ -50,7 +50,7 @@ export default function PortalPage() {
     {
       id: "keuangan",
       title: "Keuangan",
-      description: "Pencatatan arus kas (cash flow), pemasukan, dan pengeluaran dana operasional MinBun.",
+      description: "Pencatatan arus kas dana operasional MinBun.",
       icon: Wallet,
       href: "/dashboard/cash-flow",
       color: "text-orange-600",
@@ -59,7 +59,7 @@ export default function PortalPage() {
     },
     {
       id: "it",
-      title: "IT & Sistem",
+      title: "IT & Admin",
       description: "Manajemen akun pengguna, konfigurasi hak akses, dan pengaturan utama sistem (RBAC).",
       icon: ShieldAlert,
       href: "/dashboard/users",

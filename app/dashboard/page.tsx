@@ -1,20 +1,7 @@
-"use client";
+import { InventoryContent } from "@/components/inventory-content";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth-context";
-import { DashboardContent } from "@/components/dashboard-content";
+export const metadata = { title: "Manajemen Stok | MinBun ERP" };
 
-export default function DashboardPage() {
-  const { user } = useAuth();
-  const router   = useRouter();
-
-  useEffect(() => {
-    if (user && user.role !== "admin") {
-      router.replace("/dashboard/modal");
-    }
-  }, [user, router]);
-
-  if (!user || user.role !== "admin") return null;
-  return <DashboardContent />;
+export default function InventoryPage() {
+  return <InventoryContent />;
 }

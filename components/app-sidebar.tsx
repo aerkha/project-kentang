@@ -10,6 +10,9 @@ import {
   Sprout, Users, BarChart3, LogOut, User, FileText, Receipt, 
   UserCog, Menu, X, Wallet, Bell, PackageSearch, ArrowLeft
 } from "lucide-react";
+import { 
+  Database, ArrowDownToLine, CheckSquare, ArrowUpRight
+} from "lucide-react";
 
 export function AppSidebar() {
   const pathname  = usePathname();
@@ -38,7 +41,11 @@ export function AppSidebar() {
   if (activeModule === "gudang") {
     moduleTitle = "Gudang & Logistik";
     currentMenus = [
-      { name: "Manajemen Stok", href: "/dashboard/inventory", icon: PackageSearch, show: true },
+      { name: "Manajemen Stok", href: "/dashboard/inventory",             icon: PackageSearch,   show: true },
+      { name: "Master Data",    href: "/dashboard/inventory/master-data", icon: Database,        show: true },
+      { name: "Barang Masuk",   href: "/dashboard/inventory/pembelian",   icon: ArrowDownToLine, show: true },
+      { name: "Proses Sortir",  href: "/dashboard/inventory/sortir",      icon: CheckSquare,     show: true },
+      { name: "Pengiriman",     href: "/dashboard/inventory/pengiriman",  icon: ArrowUpRight,    show: true },
     ];
   } else if (activeModule === "keuangan") {
     moduleTitle = "Keuangan";
@@ -126,7 +133,9 @@ export function AppSidebar() {
             <div className="space-y-1">
               {currentMenus.map((item) => {
                 if (!item.show) return null;
-                const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                const isActive = 
+                  pathname === item.href || 
+                  (item.href !== "/dashboard" && item.href !== "/dashboard/inventory" && pathname.startsWith(item.href));
                 
                 return (
                   <Link
