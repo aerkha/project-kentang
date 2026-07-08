@@ -16,7 +16,11 @@ const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n)} Kg`
 export default function SortirPage() {
   const { sortirs, pembelians, addSortir, isLoading } = useInventory();
   const [isOpen, setIsOpen] = useState(false);
-  const [form, setForm] = useState({ pembelian_id: "", tanggal_sortir: todayWibStr().slice(0, 10), grade_a: "", grade_b: "", grade_c: "", grade_baby: "", grade_reject: "" });
+  const [form, setForm] = useState({ 
+    pembelian_id: "", 
+    tanggal_sortir: todayWibStr().slice(0, 10), 
+    grade_a: "", grade_b: "", grade_c: "", grade_baby: "", grade_reject: "" 
+  });
 
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
   const unSorted = pembelians.filter(p => p.status !== "Selesai");
@@ -26,15 +30,23 @@ export default function SortirPage() {
     const pb = pembelians.find(p => p.id === form.pembelian_id);
     if (!pb) return;
     try {
-      const a = parseFloat(form.grade_a)||0; const b = parseFloat(form.grade_b)||0; const c = parseFloat(form.grade_c)||0;
-      const baby = parseFloat(form.grade_baby)||0; const reject = parseFloat(form.grade_reject)||0;
+      const a = parseFloat(form.grade_a) || 0; 
+      const b = parseFloat(form.grade_b) || 0; 
+      const c = parseFloat(form.grade_c) || 0;
+      const baby = parseFloat(form.grade_baby) || 0; 
+      const reject = parseFloat(form.grade_reject) || 0;
+      
       await addSortir({
-        pembelian_id: pb.id, tanggal_sortir: form.tanggal_sortir + " 00:00:00",
+        pembelian_id: pb.id, 
+        tanggal_sortir: form.tanggal_sortir + " 00:00:00",
         grade_a: a, grade_b: b, grade_c: c, grade_baby: baby, grade_reject: reject,
-        susut: pb.tonase_gudang - (a+b+c+baby+reject),
+        susut: pb.tonase_gudang - (a + b + c + baby + reject),
       });
-      toast.success("Sortir dicatat!"); setIsOpen(false);
-    } catch { toast.error("Gagal mencatat"); }
+      toast.success("Sortir dicatat!"); 
+      setIsOpen(false);
+    } catch { 
+      toast.error("Gagal mencatat"); 
+    }
   };
 
   return (
@@ -49,19 +61,44 @@ export default function SortirPage() {
 
       <Card>
         <CardContent className="p-0">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-muted/50 border-b"><tr><th className="p-4">Tgl Sortir</th><th className="p-4">Sumber Batch</th><th className="p-4">Grade A</th><th className="p-4">Grade B</th><th className="p-4 text-red-600">Susut</th></tr></thead>
-            <tbody>
-              {sortirs.map(s => (
-                <tr key={s.id} className="border-b"><td className="p-4">{s.tanggal_sortir.slice(0,10)}</td><td className="p-4 font-mono text-xs">{pembelians.find(p=>p.id===s.pembelian_id)?.batch_id}</td><td className="p-4">{formatKg(s.grade_a)}</td><td className="p-4">{formatKg(s.grade_b)}</td><td className="p-4 font-medium text-red-600">{formatKg(s.susut)}</td></tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left whitespace-nowrap">
+              <thead className="bg-muted/50 border-b">
+                <tr>
+                  <th className="p-4">Tgl Sortir</th>
+                  <th className="p-4">Sumber Batch</th>
+                  <th className="p-4">Grade A</th>
+                  <th className="p-4">Grade B</th>
+                  <th className="p-4">Grade C</th>
+                  <th className="p-4">Baby</th>
+                  <th className="p-4">Reject</th>
+                  <th className="p-4 text-red-600">Susut</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortirs.map(s => (
+                  <tr key={s.id} className="border-b">
+                    <td className="p-4">{s.tanggal_sortir.slice(0,10)}</td>
+                    <td className="p-4 font-mono text-xs">{pembelians.find(p=>p.id===s.pembelian_id)?.batch_id}</td>
+                    <td className="p-4">{formatKg(s.grade_a)}</td>
+                    <td className="p-4">{formatKg(s.grade_b)}</td>
+                    <td className="p-4">{formatKg(s.grade_c)}</td>
+                    <td className="p-4">{formatKg(s.grade_baby)}</td>
+                    <td className="p-4">{formatKg(s.grade_reject)}</td>
+                    <td className="p-4 font-medium text-red-600">{formatKg(s.susut)}</td>
+                  </tr>
+                ))}
+                {sortirs.length === 0 && (
+                  <tr><td colSpan={8} className="p-6 text-center text-muted-foreground">Belum ada data sortir</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>Catat Hasil Sortir & Grade</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1"><Label>Batch Belum Sortir</Label>
@@ -70,12 +107,15 @@ export default function SortirPage() {
                 <SelectContent>{unSorted.map(p => <SelectItem key={p.id} value={p.id}>{p.batch_id} — {formatKg(p.tonase_gudang)}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <div className="space-y-1"><Label>Grade A (Kg)</Label><Input type="number" value={form.grade_a} onChange={e=>setForm({...form, grade_a: e.target.value})}/></div>
               <div className="space-y-1"><Label>Grade B (Kg)</Label><Input type="number" value={form.grade_b} onChange={e=>setForm({...form, grade_b: e.target.value})}/></div>
               <div className="space-y-1"><Label>Grade C (Kg)</Label><Input type="number" value={form.grade_c} onChange={e=>setForm({...form, grade_c: e.target.value})}/></div>
               <div className="space-y-1"><Label>Baby (Kg)</Label><Input type="number" value={form.grade_baby} onChange={e=>setForm({...form, grade_baby: e.target.value})}/></div>
+              <div className="space-y-1"><Label>Reject / Buang (Kg)</Label><Input type="number" value={form.grade_reject} onChange={e=>setForm({...form, grade_reject: e.target.value})}/></div>
             </div>
+            
             <DialogFooter><Button type="submit" className="bg-amber-600 hover:bg-amber-700">Simpan Sortir</Button></DialogFooter>
           </form>
         </DialogContent>
