@@ -11,12 +11,19 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { ArrowUpRight, Send } from "lucide-react";
 import { toast } from "sonner";
 
-const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n)} Kg`;
+const formatKg = (n: number) => {
+  if (!n || n === 0) return "-";
+  return `${new Intl.NumberFormat("id-ID").format(n)} Kg`;
+};
 
 export default function PengirimanPage() {
   const { buyers, pengirimans, currentStock, addPengiriman, generatePengirimanId, isLoading } = useInventory();
   const [isOpen, setIsOpen] = useState(false);
-  const [form, setForm] = useState({ tanggal: todayWibStr().slice(0, 10), buyer: "", qty_grade_a: "", qty_grade_b: "", qty_grade_c: "", qty_grade_baby: "" });
+  const [form, setForm] = useState({ 
+    tanggal: todayWibStr().slice(0, 10), 
+    buyer: "", 
+    qty_grade_a: "", qty_grade_b: "", qty_grade_c: "", qty_grade_baby: "" 
+  });
 
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
 
@@ -25,18 +32,32 @@ export default function PengirimanPage() {
     const buyer = buyers.find(b => b.id === form.buyer);
     if (!buyer) return;
     
-    const a = parseFloat(form.qty_grade_a)||0; const b = parseFloat(form.qty_grade_b)||0; 
-    const c = parseFloat(form.qty_grade_c)||0; const baby = parseFloat(form.qty_grade_baby)||0;
-    if (a>currentStock.gradeA || b>currentStock.gradeB || c>currentStock.gradeC || baby>currentStock.baby) return toast.error("Melebihi Stok Gudang!");
+    const a = parseFloat(form.qty_grade_a) || 0; 
+    const b = parseFloat(form.qty_grade_b) || 0; 
+    const c = parseFloat(form.qty_grade_c) || 0; 
+    const baby = parseFloat(form.qty_grade_baby) || 0;
+    
+    if (a > currentStock.gradeA || b > currentStock.gradeB || c > currentStock.gradeC || baby > currentStock.baby) {
+      return toast.error("Gagal: Melebihi sisa stok di Gudang!");
+    }
 
     try {
       await addPengiriman({
         batch_id: generatePengirimanId(buyer.kode, form.tanggal),
-        tanggal: form.tanggal + " 00:00:00", buyer: buyer.id,
-        qty_grade_a: a, qty_grade_b: b, qty_grade_c: c, qty_grade_baby: baby, status: "Dalam Perjalanan"
+        tanggal: form.tanggal + " 00:00:00", 
+        buyer: buyer.id,
+        qty_grade_a: a, 
+        qty_grade_b: b, 
+        qty_grade_c: c, 
+        qty_grade_baby: baby, 
+        status: "Dalam Perjalanan"
       });
-      toast.success("Pengiriman dibuat!"); setIsOpen(false);
-    } catch { toast.error("Gagal mencatat"); }
+      toast.success("Pengiriman berhasil dibuat!"); 
+      setIsOpen(false);
+      setForm({ ...form, qty_grade_a: "", qty_grade_b: "", qty_grade_c: "", qty_grade_baby: "" });
+    } catch { 
+      toast.error("Gagal mencatat pengiriman"); 
+    }
   };
 
   return (
@@ -44,26 +65,55 @@ export default function PengirimanPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><ArrowUpRight className="h-6 w-6 text-emerald-600"/> Pengiriman</h1>
-          <p className="text-sm text-muted-foreground mt-1">Pembuatan Delivery Batch ke Buyer.</p>
+          <p className="text-sm text-muted-foreground mt-1">Pembuatan Delivery Batch (Surat Jalan) ke Buyer.</p>
         </div>
         <Button onClick={() => setIsOpen(true)} className="bg-emerald-600 hover:bg-emerald-700"><Send className="h-4 w-4 mr-2"/> Buat Pengiriman</Button>
       </div>
 
       <Card>
         <CardContent className="p-0">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-muted/50 border-b"><tr><th className="p-4">ID Delivery</th><th className="p-4">Tanggal</th><th className="p-4">Buyer Tujuan</th><th className="p-4">Total Grade A</th><th className="p-4">Status</th></tr></thead>
-            <tbody>
-              {pengirimans.map(p => (
-                <tr key={p.id} className="border-b"><td className="p-4 font-mono text-emerald-600">{p.batch_id}</td><td className="p-4">{p.tanggal.slice(0,10)}</td><td className="p-4 font-semibold">{buyers.find(b => b.id === p.buyer)?.nama}</td><td className="p-4">{formatKg(p.qty_grade_a)}</td><td className="p-4 text-blue-600 font-medium">{p.status}</td></tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left whitespace-nowrap">
+              <thead className="bg-muted/50 border-b">
+                <tr>
+                  <th className="p-4">ID Delivery</th>
+                  <th className="p-4">Tanggal</th>
+                  <th className="p-4">Buyer Tujuan</th>
+                  <th className="p-4">Grade A</th>
+                  <th className="p-4">Grade B</th>
+                  <th className="p-4">Grade C</th>
+                  <th className="p-4">Baby</th>
+                  <th className="p-4">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pengirimans.map(p => (
+                  <tr key={p.id} className="border-b hover:bg-muted/30">
+                    <td className="p-4 font-mono text-emerald-600 font-medium">{p.batch_id}</td>
+                    <td className="p-4">{p.tanggal.slice(0,10)}</td>
+                    <td className="p-4 font-semibold">{buyers.find(b => b.id === p.buyer)?.nama}</td>
+                    <td className="p-4">{formatKg(p.qty_grade_a)}</td>
+                    <td className="p-4">{formatKg(p.qty_grade_b)}</td>
+                    <td className="p-4">{formatKg(p.qty_grade_c)}</td>
+                    <td className="p-4">{formatKg(p.qty_grade_baby)}</td>
+                    <td className="p-4">
+                      <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded-full text-xs font-medium">
+                        {p.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {pengirimans.length === 0 && (
+                  <tr><td colSpan={8} className="p-6 text-center text-muted-foreground">Belum ada riwayat pengiriman</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>Buat Surat Jalan (Delivery)</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -74,9 +124,18 @@ export default function PengirimanPage() {
                   <SelectContent>{buyers.map(b => <SelectItem key={b.id} value={b.id}>{b.nama}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1"><Label>Kirim Grade A (Max: {currentStock.gradeA})</Label><Input type="number" value={form.qty_grade_a} onChange={e=>setForm({...form, qty_grade_a: e.target.value})}/></div>
-              <div className="space-y-1"><Label>Kirim Grade B (Max: {currentStock.gradeB})</Label><Input type="number" value={form.qty_grade_b} onChange={e=>setForm({...form, qty_grade_b: e.target.value})}/></div>
             </div>
+            
+            <div className="p-3 bg-muted/40 rounded-md border border-border mt-2 space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-2">Kuantitas Pengiriman (Kosongkan jika tidak ada)</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="space-y-1"><Label>Grade A (Max: {currentStock.gradeA})</Label><Input type="number" value={form.qty_grade_a} onChange={e=>setForm({...form, qty_grade_a: e.target.value})} placeholder="0"/></div>
+                <div className="space-y-1"><Label>Grade B (Max: {currentStock.gradeB})</Label><Input type="number" value={form.qty_grade_b} onChange={e=>setForm({...form, qty_grade_b: e.target.value})} placeholder="0"/></div>
+                <div className="space-y-1"><Label>Grade C (Max: {currentStock.gradeC})</Label><Input type="number" value={form.qty_grade_c} onChange={e=>setForm({...form, qty_grade_c: e.target.value})} placeholder="0"/></div>
+                <div className="space-y-1"><Label>Baby (Max: {currentStock.baby})</Label><Input type="number" value={form.qty_grade_baby} onChange={e=>setForm({...form, qty_grade_baby: e.target.value})} placeholder="0"/></div>
+              </div>
+            </div>
+
             <DialogFooter><Button type="submit" className="bg-emerald-600 hover:bg-emerald-700">Buat Pengiriman</Button></DialogFooter>
           </form>
         </DialogContent>
