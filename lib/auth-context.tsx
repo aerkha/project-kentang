@@ -92,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     pb.authStore.clear();
     setUser(null);
-    router.push("/login"); // Memastikan saat logout otomatis dikembalikan ke form login
+    router.push("/"); // Memastikan saat logout otomatis dikembalikan ke form login
   };
 
   if (isLoading) {
