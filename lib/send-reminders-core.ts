@@ -92,14 +92,26 @@ function endDatePks(mou: any) {
 // Generate the next customId for an autorenewal clone.
 // If the old id already ends with "-autorenew-N" increment N, otherwise append "-autorenew-1".
 function nextAutorenewalCustomId(oldId: string): string {
-  if (!oldId) return "autorenew-1";
-  const m = /(.*)-autorenew-(\d+)$/.exec(oldId);
-  if (m) {
-    const base = m[1];
-    const n = Number(m[2]) + 1;
-    return `${base}-autorenew-${n}`;
-  }
-  return `${oldId}-autorenew-1`;
+  if (!oldId) return "TRX-0000A"; // Fallback aman jika kosong
+
+  // Memisahkan "TRX-0004" dan huruf di belakangnya (misal "A")
+  const match = oldId.match(/(TRX-\d+)([A-Z]*)/i);
+  
+  // Jika formatnya sama sekali tidak dikenali
+  if (!match) return oldId + "A"; 
+  
+  const base = match[1];   // Menangkap bagian "TRX-0004"
+  const suffix = match[2]; // Menangkap bagian huruf "A", "B", dsb. (jika ada)
+  
+  // Jika transaksi awal belum punya huruf (termasuk jika ID lamanya masih mengandung "-autorenew-1")
+  if (!suffix) return base + "A";
+  
+  // Naikkan huruf terakhir (A -> B, B -> C, dst)
+  const lastChar = suffix.slice(-1);
+  const nextChar = String.fromCharCode(lastChar.charCodeAt(0) + 1);
+  const newSuffix = suffix.slice(0, -1) + nextChar;
+  
+  return base + newSuffix;
 }
 
 async function processAutorenewals(pb: PocketBase) {
