@@ -23,7 +23,7 @@ export default function SortirPage() {
   });
 
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
-  const unSorted = pembelians.filter(p => p.status !== "Selesai");
+  const unSorted = pembelians.filter(p => p.status === "Menunggu Sortir");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
