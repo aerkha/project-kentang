@@ -24,6 +24,7 @@ export default function PembelianPage() {
   const [form, setForm] = useState({ 
     tanggal: todayWibStr().slice(0, 10), 
     bandar: "", 
+    tujuan: "Gudang (Sortir)", // <-- Default tujuan
     tonase_lapangan: "", 
     tonase_gudang: "", 
     harga_per_kg: "" 
@@ -31,7 +32,6 @@ export default function PembelianPage() {
 
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
 
-  // Hitung preview total harga (Berdasarkan laporan tonase lapangan sesuai diagram bisnis)
   const previewTonaseL = parseFloat(form.tonase_lapangan) || 0;
   const previewHarga = parseFloat(form.harga_per_kg) || 0;
   const previewTotal = previewTonaseL * previewHarga;
@@ -45,23 +45,24 @@ export default function PembelianPage() {
       const batchId = generatePembelianId(bandar.kode, form.tanggal);
       const tonaseG = parseFloat(form.tonase_gudang) || 0;
 
+      // LOGIKA STATUS OTOMATIS BERDASARKAN TUJUAN
+      const autoStatus = form.tujuan === "Gudang (Sortir)" ? "Menunggu Sortir" : "Langsung Kirim";
+
       const dataToSubmit: Record<string, any> = {
         batch_id: batchId,
         tanggal: form.tanggal + " 00:00:00",
         bandar: bandar.id,
+        tujuan: form.tujuan,
+        status: autoStatus, 
         tonase_lapangan: previewTonaseL,
         tonase_gudang: tonaseG,
         harga_per_kg: previewHarga,
         total_harga: previewTotal,
-        tujuan: "Gudang (Sortir)",
-        status: "Menunggu Sortir" // <-- Pastikan teks ini ada di opsi database!
       };
 
       if (fileTf) {
         const formData = new FormData();
-        for (const key in dataToSubmit) {
-          formData.append(key, dataToSubmit[key]);
-        }
+        for (const key in dataToSubmit) { formData.append(key, dataToSubmit[key]); }
         formData.append("bukti_transfer", fileTf);
         await addPembelian(formData as any);
       } else {
@@ -72,20 +73,9 @@ export default function PembelianPage() {
       setIsOpen(false);
       setFileTf(null);
       setForm({ ...form, tonase_lapangan: "", tonase_gudang: "", harga_per_kg: "" });
-      
     } catch (err: any) { 
-      // 👇 TAMBAHKAN PENANGKAP ERROR DETAIL INI 👇
-      console.error("Error dari PocketBase:", err.response?.data);
-      
-      let errorMsg = "Gagal mencatat barang masuk.";
-      if (err.response?.data) {
-        // Mengambil pesan error pertama dari kolom yang bermasalah
-        const firstErrorKey = Object.keys(err.response.data)[0];
-        if (firstErrorKey) {
-          errorMsg = `Error di kolom '${firstErrorKey}': ${err.response.data[firstErrorKey].message}`;
-        }
-      }
-      toast.error(errorMsg); 
+      console.error(err);
+      toast.error("Gagal mencatat barang masuk. Cek pengaturan status di PocketBase."); 
     }
   };
 
@@ -94,7 +84,7 @@ export default function PembelianPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><ArrowDownToLine className="h-6 w-6 text-primary"/> Barang Masuk</h1>
-          <p className="text-sm text-muted-foreground mt-1">Penerimaan kentang dari Bandar dan pencatatan pembayaran.</p>
+          <p className="text-sm text-muted-foreground mt-1">Penerimaan barang dari Bandar.</p>
         </div>
         <Button onClick={() => setIsOpen(true)}><Plus className="h-4 w-4 mr-2"/> Terima Barang</Button>
       </div>
@@ -109,49 +99,35 @@ export default function PembelianPage() {
                   <th className="p-4">Tanggal</th>
                   <th className="p-4">Bandar</th>
                   <th className="p-4">Tonase Gudang</th>
-                  <th className="p-4">Harga / Kg</th>
-                  <th className="p-4">Total Harga</th>
                   <th className="p-4 text-center">Bukti TF</th>
                   <th className="p-4">Status</th>
+                  <th className="p-4">Tujuan</th>
                 </tr>
               </thead>
               <tbody>
                 {pembelians.map(p => {
-                  const pAny = p as any; // Akses fleksibel untuk kolom file (bukti_transfer)
+                  const pAny = p as any;
                   return (
                     <tr key={p.id} className="border-b hover:bg-muted/30">
                       <td className="p-4 font-mono text-primary font-medium">{p.batch_id}</td>
                       <td className="p-4">{p.tanggal.slice(0,10)}</td>
                       <td className="p-4 font-semibold">{bandars.find(b => b.id === p.bandar)?.nama}</td>
+                      <td className="p-4">{p.tujuan}</td>
                       <td className="p-4 font-semibold">{formatKg(p.tonase_gudang)}</td>
-                      <td className="p-4 text-muted-foreground">{formatRp(p.harga_per_kg)}</td>
-                      <td className="p-4 font-semibold">{formatRp(p.total_harga)}</td>
                       <td className="p-4 text-center">
                         {pAny.bukti_transfer ? (
-                          <a 
-                            href={pb.files.getUrl(p, pAny.bukti_transfer)} 
-                            target="_blank" 
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline bg-blue-50 px-2 py-1 rounded"
-                          >
-                            <ReceiptText className="w-3 h-3" /> Lihat
-                          </a>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
+                          <a href={pb.files.getUrl(p, pAny.bukti_transfer)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline bg-blue-50 px-2 py-1 rounded"><ReceiptText className="w-3 h-3" /> Lihat</a>
+                        ) : <span className="text-muted-foreground">-</span>}
                       </td>
                       <td className="p-4">
-                        {p.status === "Selesai" ? 
-                          <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-medium">Disortir</span> : 
-                          <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded-full text-xs font-medium">Menunggu</span>
-                        }
+                        {/* Lencana Status Multi-Warna */}
+                        {p.status === "Selesai" ? <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-medium">Selesai (Disortir)</span> : 
+                         p.status === "Langsung Kirim" ? <span className="bg-purple-100 text-purple-700 px-2 py-1 rounded-full text-xs font-medium">Terkirim (Psr Induk)</span> :
+                         <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded-full text-xs font-medium">Menunggu Sortir</span>}
                       </td>
                     </tr>
                   )
                 })}
-                {pembelians.length === 0 && (
-                  <tr><td colSpan={8} className="p-6 text-center text-muted-foreground">Belum ada catatan barang masuk</td></tr>
-                )}
               </tbody>
             </table>
           </div>
@@ -170,6 +146,20 @@ export default function PembelianPage() {
                   <SelectContent>{bandars.map(b=><SelectItem key={b.id} value={b.id}>{b.nama}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
+
+              {/* DROPDOWN TUJUAN BARANG (GUDANG ATAU PASAR) */}
+              <div className="col-span-2 space-y-1 bg-muted/30 p-3 rounded-md border border-border">
+                <Label>Tujuan Penempatan Barang</Label>
+                <Select value={form.tujuan} onValueChange={v=>setForm({...form, tujuan: v})} required>
+                  <SelectTrigger><SelectValue placeholder="Pilih Tujuan"/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Gudang (Sortir)">Masuk Gudang (Proses Sortir & Cuci)</SelectItem>
+                    <SelectItem value="Pasar Induk">Langsung Kirim (Ke Pasar Induk)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground mt-1">Jika memilih Langsung Kirim, barang tidak akan masuk ke antrean Sortir.</p>
+              </div>
+
               <div className="space-y-1"><Label>Tonase Info Lapangan (Kg)</Label><Input type="number" value={form.tonase_lapangan} onChange={e=>setForm({...form, tonase_lapangan: e.target.value})} required/></div>
               <div className="space-y-1"><Label>Tonase Timbang Gudang (Kg)</Label><Input type="number" value={form.tonase_gudang} onChange={e=>setForm({...form, tonase_gudang: e.target.value})} required/></div>
               
@@ -184,7 +174,6 @@ export default function PembelianPage() {
               <div className="col-span-2 space-y-1">
                 <Label>Unggah Bukti Transfer (Opsional)</Label>
                 <Input type="file" accept="image/*,.pdf" onChange={e => setFileTf(e.target.files?.[0] || null)} />
-                <p className="text-[10px] text-muted-foreground mt-1">Format yang didukung: JPG, PNG, PDF.</p>
               </div>
             </div>
             <DialogFooter><Button type="submit">Catat & Simpan</Button></DialogFooter>
