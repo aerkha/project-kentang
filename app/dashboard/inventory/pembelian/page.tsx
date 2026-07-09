@@ -45,7 +45,6 @@ export default function PembelianPage() {
       const batchId = generatePembelianId(bandar.kode, form.tanggal);
       const tonaseG = parseFloat(form.tonase_gudang) || 0;
 
-      // Persiapkan data. Jika ada file, PocketBase butuh tipe objek khusus (FormData)
       const dataToSubmit: Record<string, any> = {
         batch_id: batchId,
         tanggal: form.tanggal + " 00:00:00",
@@ -55,11 +54,10 @@ export default function PembelianPage() {
         harga_per_kg: previewHarga,
         total_harga: previewTotal,
         tujuan: "Gudang (Sortir)",
-        status: "Menunggu Sortir"
+        status: "Menunggu Sortir" // <-- Pastikan teks ini ada di opsi database!
       };
 
       if (fileTf) {
-        // Jika ada file bukti transfer, gunakan FormData
         const formData = new FormData();
         for (const key in dataToSubmit) {
           formData.append(key, dataToSubmit[key]);
@@ -67,16 +65,27 @@ export default function PembelianPage() {
         formData.append("bukti_transfer", fileTf);
         await addPembelian(formData as any);
       } else {
-        // Jika tidak ada file, kirim JSON biasa
         await addPembelian(dataToSubmit);
       }
 
       toast.success("Barang masuk berhasil dicatat!"); 
       setIsOpen(false);
       setFileTf(null);
-      setForm({ ...form, tonase_lapangan: "", tonase_gudang: "", harga_per_kg: "" }); // Reset isi
-    } catch { 
-      toast.error("Gagal mencatat barang masuk."); 
+      setForm({ ...form, tonase_lapangan: "", tonase_gudang: "", harga_per_kg: "" });
+      
+    } catch (err: any) { 
+      // 👇 TAMBAHKAN PENANGKAP ERROR DETAIL INI 👇
+      console.error("Error dari PocketBase:", err.response?.data);
+      
+      let errorMsg = "Gagal mencatat barang masuk.";
+      if (err.response?.data) {
+        // Mengambil pesan error pertama dari kolom yang bermasalah
+        const firstErrorKey = Object.keys(err.response.data)[0];
+        if (firstErrorKey) {
+          errorMsg = `Error di kolom '${firstErrorKey}': ${err.response.data[firstErrorKey].message}`;
+        }
+      }
+      toast.error(errorMsg); 
     }
   };
 
