@@ -1,4 +1,4 @@
-import { InventoryContent } from "@/components/inventory-content";
+import { DashboardContent } from "@/components/dashboard-content";
 
 export const metadata = { 
   title: "Dashboard Analitik | MinBun ERP" 
@@ -12,14 +12,7 @@ export default function DashboardPage() {
         <p className="text-muted-foreground mt-1">Ringkasan performa dan operasional MinBun.</p>
       </div>
       
-      {/* Catatan: Jika sebelumnya Anda memiliki komponen grafik 
-        (misalnya <DashboardContent />), silakan import dan masukkan kembali di sini.
-      */}
-      <div className="p-12 text-center bg-muted/20 rounded-xl border-2 border-dashed border-muted">
-        <p className="text-muted-foreground">
-          Halaman Dashboard Utama. Anda bisa menambahkan grafik atau metrik ringkasan di sini nanti.
-        </p>
-      </div>
+      <DashboardContent />
     </div>
   );
 }
