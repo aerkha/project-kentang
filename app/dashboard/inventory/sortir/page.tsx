@@ -11,10 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { CheckSquare, Scale } from "lucide-react";
 import { toast } from "sonner";
 
-const formatKg = (n: number) => {
-  if (!n || n === 0) return "-";
-  return `${new Intl.NumberFormat("id-ID").format(n)} Kg`;
-};
+const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n)} Kg`;
 
 export default function SortirPage() {
   const { sortirs, pembelians, addSortir, isLoading } = useInventory();
@@ -28,24 +25,6 @@ export default function SortirPage() {
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
   const unSorted = pembelians.filter(p => p.status !== "Selesai");
 
-  // Fungsi untuk membuat ID Sortir otomatis (Contoh: SR-240815-001)
-  const generateSortirId = (dateStr: string) => {
-    const d = new Date(dateStr);
-    const y = String(d.getFullYear()).slice(-2);
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    const prefix = `SR-${y}${m}${day}-`;
-
-    // Cari tahu hari ini sudah ada berapa proses sortir
-    const todaySortirs = sortirs.filter(s => {
-      const sAny = s as any;
-      return sAny.batch_id && sAny.batch_id.startsWith(prefix);
-    });
-    
-    const nextNum = todaySortirs.length + 1;
-    return `${prefix}${String(nextNum).padStart(3, "0")}`;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const pb = pembelians.find(p => p.id === form.pembelian_id);
@@ -58,20 +37,17 @@ export default function SortirPage() {
       const baby = parseFloat(form.grade_baby) || 0; 
       const reject = parseFloat(form.grade_reject) || 0;
       
-      const newBatchId = generateSortirId(form.tanggal_sortir);
-      
+      // Kita tidak mengirim batch_id lagi, karena ID diwariskan dari pembelian_id
       await addSortir({
-        batch_id: newBatchId, // <-- Menyimpan ID Sortir ke Database
         pembelian_id: pb.id, 
         tanggal_sortir: form.tanggal_sortir + " 00:00:00",
         grade_a: a, grade_b: b, grade_c: c, grade_baby: baby, grade_reject: reject,
         susut: pb.tonase_gudang - (a + b + c + baby + reject),
       });
       
-      toast.success(`Berhasil! ID Sortir: ${newBatchId}`); 
+      toast.success("Hasil sortir berhasil dicatat!"); 
       setIsOpen(false);
       
-      // Reset form setelah sukses
       setForm({
         ...form,
         pembelian_id: "", grade_a: "", grade_b: "", grade_c: "", grade_baby: "", grade_reject: ""
@@ -79,7 +55,7 @@ export default function SortirPage() {
 
     } catch (err: any) { 
       console.error(err);
-      toast.error("Gagal mencatat data sortir. Pastikan kolom batch_id sudah dibuat di PocketBase."); 
+      toast.error("Gagal mencatat data sortir."); 
     }
   };
 
@@ -88,7 +64,7 @@ export default function SortirPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><CheckSquare className="h-6 w-6 text-amber-600"/> Proses Sortir</h1>
-          <p className="text-sm text-muted-foreground mt-1">Pemilahan Grade.</p>
+          <p className="text-sm text-muted-foreground mt-1">Pemilahan kentang berdasarkan grade dan pembentukan Sub-Batch ID otomatis.</p>
         </div>
         <Button onClick={() => setIsOpen(true)} className="bg-amber-600 hover:bg-amber-700"><Scale className="h-4 w-4 mr-2"/> Catat Sortir</Button>
       </div>
@@ -99,9 +75,8 @@ export default function SortirPage() {
             <table className="w-full text-sm text-left whitespace-nowrap">
               <thead className="bg-muted/50 border-b">
                 <tr>
-                  <th className="p-4">ID Sortir</th>
                   <th className="p-4">Tgl Sortir</th>
-                  <th className="p-4">Sumber Batch (Masuk)</th>
+                  <th className="p-4">Batch Induk (Barang Masuk)</th>
                   <th className="p-4">Grade A</th>
                   <th className="p-4">Grade B</th>
                   <th className="p-4">Grade C</th>
@@ -112,23 +87,66 @@ export default function SortirPage() {
               </thead>
               <tbody>
                 {sortirs.map(s => {
-                  const sAny = s as any;
+                  // Ambil Batch ID Induk dari tabel Pembelian
+                  const parentBatch = pembelians.find(p=>p.id===s.pembelian_id)?.batch_id || "UNKNOWN";
+                  
                   return (
                     <tr key={s.id} className="border-b hover:bg-muted/30">
-                      <td className="p-4 font-mono text-amber-600 font-medium">{sAny.batch_id || "-"}</td>
-                      <td className="p-4">{s.tanggal_sortir.slice(0,10)}</td>
-                      <td className="p-4 font-mono text-xs text-muted-foreground">{pembelians.find(p=>p.id===s.pembelian_id)?.batch_id}</td>
-                      <td className="p-4">{formatKg(s.grade_a)}</td>
-                      <td className="p-4">{formatKg(s.grade_b)}</td>
-                      <td className="p-4">{formatKg(s.grade_c)}</td>
-                      <td className="p-4">{formatKg(s.grade_baby)}</td>
-                      <td className="p-4">{formatKg(s.grade_reject)}</td>
-                      <td className="p-4 font-medium text-red-600">{formatKg(s.susut)}</td>
+                      <td className="p-4 align-top">{s.tanggal_sortir.slice(0,10)}</td>
+                      <td className="p-4 align-top font-mono text-primary font-medium">{parentBatch}</td>
+                      
+                      {/* Render Kolom Grade dengan Sub-Batch ID Dinamis */}
+                      <td className="p-4 align-top">
+                        {s.grade_a > 0 ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="font-semibold">{formatKg(s.grade_a)}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded w-fit">{parentBatch}-A</span>
+                          </div>
+                        ) : <span className="text-muted-foreground">-</span>}
+                      </td>
+                      
+                      <td className="p-4 align-top">
+                        {s.grade_b > 0 ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="font-semibold">{formatKg(s.grade_b)}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded w-fit">{parentBatch}-B</span>
+                          </div>
+                        ) : <span className="text-muted-foreground">-</span>}
+                      </td>
+
+                      <td className="p-4 align-top">
+                        {s.grade_c > 0 ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="font-semibold">{formatKg(s.grade_c)}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded w-fit">{parentBatch}-C</span>
+                          </div>
+                        ) : <span className="text-muted-foreground">-</span>}
+                      </td>
+
+                      <td className="p-4 align-top">
+                        {s.grade_baby > 0 ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="font-semibold">{formatKg(s.grade_baby)}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded w-fit">{parentBatch}-BY</span>
+                          </div>
+                        ) : <span className="text-muted-foreground">-</span>}
+                      </td>
+
+                      <td className="p-4 align-top">
+                        {s.grade_reject > 0 ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="font-semibold">{formatKg(s.grade_reject)}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded w-fit">{parentBatch}-RJ</span>
+                          </div>
+                        ) : <span className="text-muted-foreground">-</span>}
+                      </td>
+
+                      <td className="p-4 align-top font-medium text-red-600">{formatKg(s.susut)}</td>
                     </tr>
                   )
                 })}
                 {sortirs.length === 0 && (
-                  <tr><td colSpan={9} className="p-6 text-center text-muted-foreground">Belum ada data sortir</td></tr>
+                  <tr><td colSpan={8} className="p-6 text-center text-muted-foreground">Belum ada data sortir</td></tr>
                 )}
               </tbody>
             </table>
