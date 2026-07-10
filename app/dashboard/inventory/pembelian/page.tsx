@@ -98,10 +98,12 @@ export default function PembelianPage() {
                   <th className="p-4">ID Batch</th>
                   <th className="p-4">Tanggal</th>
                   <th className="p-4">Bandar</th>
+                  <th className="p-4">Tujuan</th>
+                  <th className="p-4">Tonase Lapangan</th>
+                  <th className="p-4">Harga / Kg</th>
                   <th className="p-4">Tonase Gudang</th>
                   <th className="p-4 text-center">Bukti TF</th>
                   <th className="p-4">Status</th>
-                  <th className="p-4">Tujuan</th>
                 </tr>
               </thead>
               <tbody>
