@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { CheckSquare, Scale, ArrowRight, AlertTriangle } from "lucide-react";
+import { CheckSquare, Scale, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n)} Kg`;
@@ -57,7 +57,7 @@ export default function SortirPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><CheckSquare className="h-6 w-6 text-amber-600"/> Proses Sortir</h1>
-          <p className="text-sm text-muted-foreground mt-1">Ringkasan hasil pemilahan batch komoditas dan kalkulasi penyusutan.</p>
+          <p className="text-sm text-muted-foreground mt-1">Ringkasan hasil pemecahan batch komoditas dan kalkulasi penyusutan.</p>
         </div>
         <Button onClick={() => setIsOpen(true)} className="bg-amber-600 hover:bg-amber-700"><Scale className="h-4 w-4 mr-2"/> Catat Sortir</Button>
       </div>
@@ -65,20 +65,21 @@ export default function SortirPage() {
       <Card className="border-border/60 shadow-sm">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
+            <table className="w-full text-sm text-left whitespace-nowrap">
               <thead className="bg-muted/60 border-b text-muted-foreground font-medium">
                 <tr>
-                  <th className="p-4 w-[15%]">Tanggal Sortir</th>
-                  <th className="p-4 w-[25%]">Batch Induk</th>
-                  <th className="p-4 w-[45%]">Hasil Distribusi & Sub-Batch ID</th>
-                  <th className="p-4 w-[15%] text-right">Penyusutan (Susut)</th>
+                  <th className="p-4">Tanggal Sortir</th>
+                  <th className="p-4">Batch Induk</th>
+                  <th className="p-4">Sub-Batch ID</th>
+                  <th className="p-4">Berat (Kg)</th>
+                  <th className="p-4 text-right">Penyusutan</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40">
                 {sortirs.map(s => {
                   const parentBatch = pembelians.find(p=>p.id===s.pembelian_id)?.batch_id || "UNKNOWN";
                   
-                  // Membuat array dinamis berisi grade yang HANYA menghasilkan tonase > 0
+                  // Filter array hanya untuk grade yang memiliki nilai timbangan di atas 0
                   const activeGrades = [
                     { label: "Grade A", qty: s.grade_a, suffix: "-A", color: "text-blue-700 bg-blue-50 border-blue-100" },
                     { label: "Grade B", qty: s.grade_b, suffix: "-B", color: "text-emerald-700 bg-emerald-50 border-emerald-100" },
@@ -89,30 +90,39 @@ export default function SortirPage() {
 
                   return (
                     <tr key={s.id} className="hover:bg-muted/20 transition-colors">
-                      <td className="p-4 align-top font-medium text-foreground/80">{s.tanggal_sortir.slice(0,10)}</td>
+                      <td className="p-4 align-top font-medium text-foreground/80 pt-5">{s.tanggal_sortir.slice(0,10)}</td>
                       
-                      <td className="p-4 align-top">
-                        <div className="font-mono text-xs font-semibold text-primary bg-primary/5 border border-primary/10 px-2.5 py-1 rounded w-fit">
+                      <td className="p-4 align-top pt-5">
+                        <div className="font-mono text-xs font-semibold text-primary bg-primary/5 border border-primary/10 px-2.5 py-1.5 rounded w-fit">
                           {parentBatch}
                         </div>
                       </td>
                       
+                      {/* KOLOM SUB-BATCH ID */}
                       <td className="p-4 align-top">
-                        {/* Wadah Flexbox Grid untuk Sub-Batch */}
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-col gap-2">
                           {activeGrades.map((grade, idx) => (
-                            <div key={idx} className={`flex items-center gap-2 border px-2.5 py-1.5 rounded-md text-xs font-medium shadow-sm bg-white ${grade.color}`}>
-                              <span className="opacity-80 font-normal">{grade.label}:</span>
-                              <span className="font-bold">{formatKg(grade.qty)}</span>
-                              <ArrowRight className="w-3 h-3 opacity-40 mx-0.5" />
-                              <span className="font-mono bg-white/80 px-1 py-0.5 rounded text-[10px] border shadow-2xs">{parentBatch}{grade.suffix}</span>
+                            <div key={idx} className="h-7 flex items-center font-mono text-[11px] bg-muted/30 border px-2.5 rounded w-fit text-muted-foreground">
+                              {parentBatch}<strong className="text-foreground ml-0.5">{grade.suffix}</strong>
                             </div>
                           ))}
                         </div>
                       </td>
                       
-                      <td className="p-4 align-top text-right">
-                        <div className="inline-flex items-center gap-1.5 font-bold text-red-600 bg-red-50/60 border border-red-100 px-2.5 py-1 rounded text-xs">
+                      {/* KOLOM BERAT (KG) */}
+                      <td className="p-4 align-top">
+                        <div className="flex flex-col gap-2">
+                          {activeGrades.map((grade, idx) => (
+                            <div key={idx} className={`h-7 flex items-center px-2.5 rounded-md text-xs font-bold w-fit border shadow-sm ${grade.color}`}>
+                              <span className="w-16 inline-block">{formatKg(grade.qty)}</span>
+                              <span className="ml-1 opacity-70 font-normal">({grade.label})</span>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                      
+                      <td className="p-4 align-top text-right pt-5">
+                        <div className="inline-flex items-center gap-1.5 font-bold text-red-600 bg-red-50/60 border border-red-100 px-2.5 py-1.5 rounded text-xs">
                           <AlertTriangle className="w-3.5 h-3.5" />
                           {formatKg(s.susut)}
                         </div>
@@ -121,7 +131,7 @@ export default function SortirPage() {
                   )
                 })}
                 {sortirs.length === 0 && (
-                  <tr><td colSpan={4} className="p-8 text-center text-muted-foreground">Belum ada data riwayat sortir</td></tr>
+                  <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">Belum ada data riwayat sortir</td></tr>
                 )}
               </tbody>
             </table>
