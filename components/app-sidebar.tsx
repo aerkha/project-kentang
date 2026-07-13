@@ -41,11 +41,12 @@ export function AppSidebar() {
   if (activeModule === "gudang") {
     moduleTitle = "Gudang & Logistik";
     currentMenus = [
-      { name: "Manajemen Stok", href: "/dashboard/inventory",             icon: PackageSearch,   show: true },
-      { name: "Master Data",    href: "/dashboard/inventory/master-data", icon: Database,        show: true },
-      { name: "Barang Masuk",   href: "/dashboard/inventory/pembelian",   icon: ArrowDownToLine, show: true },
-      { name: "Proses Sortir",  href: "/dashboard/inventory/sortir",      icon: CheckSquare,     show: true },
-      { name: "Pengiriman",     href: "/dashboard/inventory/pengiriman",  icon: ArrowUpRight,    show: true },
+      { name: "Manajemen Stok",   href: "/dashboard/inventory",             icon: PackageSearch,   show: true },
+      { name: "Master Data",      href: "/dashboard/inventory/master-data", icon: Database,        show: true },
+      { name: "Barang Masuk",     href: "/dashboard/inventory/pembelian",   icon: ArrowDownToLine, show: true },
+      { name: "Proses Sortir",    href: "/dashboard/inventory/sortir",      icon: CheckSquare,     show: true },
+      { name: "Pengiriman",       href: "/dashboard/inventory/pengiriman",  icon: ArrowUpRight,    show: true },
+      {title: "Tagihan / Invoice",  href: "/inventory/invoice",             icon: Receipt,         show: true }, // <-- Menu baru untuk Invoice
     ];
   } else if (activeModule === "keuangan") {
     moduleTitle = "Keuangan";
