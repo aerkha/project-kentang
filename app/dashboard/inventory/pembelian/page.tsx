@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ArrowDownToLine, Plus, AlertCircle, CheckCircle2, Printer } from "lucide-react";
+import { ArrowDownToLine, Plus, AlertCircle, CheckCircle2, Printer, Truck } from "lucide-react";
 import { toast } from "sonner";
 
 const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n || 0)} Kg`;
@@ -28,7 +28,8 @@ export default function PembelianPage() {
     tonase_aktual: "", 
     qty_gudang: "",    
     qty_pasar: "",     
-    harga_per_kg: "" 
+    harga_per_kg: "",
+    tujuan_pasar: "" // 👇 State baru untuk menampung tujuan Cross-Docking
   });
 
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
@@ -68,6 +69,11 @@ export default function PembelianPage() {
     e.preventDefault();
     if (!isAlokasiValid) return toast.error("Total alokasi harus sama dengan Tonase Aktual!");
     
+    // 👇 Validasi: Jika ada barang yang dikirim ke pasar, tujuan HARUS dipilih 👇
+    if (qPasar > 0 && form.tujuan_pasar === "") {
+      return toast.error("Silakan pilih Pasar Tujuan untuk DO Cross-Docking!");
+    }
+
     const bandar = bandars.find(b => b.id === form.bandar);
     if (!bandar) return toast.error("Pilih Bandar!");
     
@@ -96,29 +102,26 @@ export default function PembelianPage() {
         await addPembelian(dataToSubmit);
       }
 
-      // DO OTOMATIS: Disesuaikan agar aman untuk PocketBase
+      // DO OTOMATIS: Disesuaikan dengan pilihan dropdown Admin
       if (qPasar > 0) {
         const newDoId = generateDOId(form.tanggal);
         await addPengiriman({
           batch_id: newDoId,
           tanggal: form.tanggal + " 00:00:00",
-          tujuan: "PASAR INDUK (CROSS-DOCKING)", 
+          tujuan: form.tujuan_pasar, // Menggunakan opsi dari form
           qty_campur: qPasar, 
           qty_grade_a: 0, 
           qty_grade_b: 0, 
           qty_grade_c: 0, 
           qty_grade_baby: 0,
-          // Kolom 'buyer', 'supir', 'plat_nomor', dan 'sj_id' diabaikan (tidak dikirim) 
-          // agar relasi PocketBase tidak error membaca string kosong ""
         } as any);
       }
 
       toast.success(qPasar > 0 ? "Barang masuk & DO otomatis berhasil dicatat!" : "Barang masuk berhasil dicatat!"); 
       setIsOpen(false);
       setFileTf(null);
-      setForm({ ...form, tonase_lapangan: "", tonase_aktual: "", qty_gudang: "", qty_pasar: "", harga_per_kg: "" });
+      setForm({ ...form, tonase_lapangan: "", tonase_aktual: "", qty_gudang: "", qty_pasar: "", harga_per_kg: "", tujuan_pasar: "" });
     } catch (err: any) { 
-      // 👇 RADAR ERROR DETAIL AKTIF 👇
       console.error("PocketBase Error Detail:", err.response?.data);
       let errorMsg = "Gagal mencatat data.";
       if (err.response?.data) {
@@ -303,6 +306,27 @@ export default function PembelianPage() {
                 <div className="space-y-1"><Label>Alokasi: Masuk Gudang (Kg)</Label><Input type="number" value={form.qty_gudang} onChange={e=>setForm({...form, qty_gudang: e.target.value})} placeholder="0"/></div>
                 <div className="space-y-1"><Label>Alokasi: Langsung Kirim (Kg)</Label><Input type="number" value={form.qty_pasar} onChange={e=>setForm({...form, qty_pasar: e.target.value})} placeholder="0"/></div>
               </div>
+
+              {/* 👇 FIELD TUJUAN MUNCUL JIKA ADA ALOKASI KE PASAR 👇 */}
+              {qPasar > 0 && (
+                <div className="pt-3 border-t mt-2 space-y-2">
+                  <Label className="text-purple-700 font-bold flex items-center gap-1.5">
+                    <Truck className="w-4 h-4"/> Tujuan Pasar Induk (Cross-Docking) <span className="text-destructive">*</span>
+                  </Label>
+                  <Select value={form.tujuan_pasar} onValueChange={v=>setForm({...form, tujuan_pasar: v})} required>
+                    <SelectTrigger className="border-purple-300 bg-purple-50 text-purple-900 font-medium">
+                      <SelectValue placeholder="Pilih Pasar Tujuan DO"/>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Pasar Induk Caringin">Pasar Induk Caringin</SelectItem>
+                      <SelectItem value="Pasar Induk Kramat Jati">Pasar Induk Kramat Jati</SelectItem>
+                      <SelectItem value="Pasar Induk Cibitung">Pasar Induk Cibitung</SelectItem>
+                      <SelectItem value="Pasar Induk Tanah Tinggi">Pasar Induk Tanah Tinggi</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10.5px] text-muted-foreground italic">Pilihan ini akan otomatis membuat Delivery Order (DO) ke pasar yang dituju.</p>
+                </div>
+              )}
 
               {tAktual > 0 && (
                 <div className={`text-xs p-2 rounded flex items-center gap-2 ${selisih === 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
