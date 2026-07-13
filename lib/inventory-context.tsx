@@ -7,8 +7,7 @@ export interface MasterBandar { id: string; kode: string; nama: string; telepon:
 export interface MasterBuyer  { id: string; kode: string; nama: string; kategori: string; telepon: string; alamat: string; }
 export interface InvPembelian { id: string; batch_id: string; tanggal: string; bandar: string; tonase_lapangan: number; tonase_gudang: number; harga_per_kg: number; total_harga: number; tujuan: string; status: string; }
 export interface InvSortir    { id: string; batch_id?: string; pembelian_id: string; tanggal_sortir: string; grade_a: number; grade_b: number; grade_c: number; grade_baby: number; grade_reject: number; susut: number; pic_sortir: string; }
-export interface InvPengiriman{ id: string; batch_id: string; tanggal: string; buyer: string; qty_grade_a: number; qty_grade_b: number; qty_grade_c: number; qty_grade_baby: number; status: string; }
-
+export interface InvPengiriman{ id: string; batch_id: string; sj_id?: string; tanggal: string; tujuan?: string; supir?: string; buyer: string; qty_grade_a: number; qty_grade_b: number; qty_grade_c: number; qty_grade_baby: number; status: string; }
 export interface StockData {
   gradeA: number; gradeB: number; gradeC: number; baby: number; reject: number;
 }
