@@ -18,15 +18,16 @@ export default function PengirimanPage() {
   const [isOpen, setIsOpen] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
 
-  const [form, setForm] = useState({ 
-    tanggal: todayWibStr().slice(0, 10), 
-    tujuan: "", 
+  const [form, setForm] = useState({
+    tanggal: todayWibStr().slice(0, 10),
+    sj_id: "",
+    tujuan: "",
     supir: "",
     plat_nomor: "",
-    grade_a: "", 
-    grade_b: "", 
-    grade_c: "", 
-    grade_baby: "" 
+    grade_a: "",
+    grade_b: "",
+    grade_c: "",
+    grade_baby: "",
   });
 
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
@@ -35,7 +36,7 @@ export default function PengirimanPage() {
   const generateSJId = (dateStr: string) => {
     const ym = dateStr.slice(2, 10).replace(/-/g, ""); 
     const prefix = `SJ-${ym}-`;
-    const todaySJ = pengirimans.filter(p => p.sj_id?.startsWith(prefix));
+    const todaySJ = pengirimans.filter((p: any) => p.sj_id?.startsWith(prefix));
     return `${prefix}${String(todaySJ.length + 1).padStart(3, "0")}`;
   };
 
@@ -51,7 +52,7 @@ export default function PengirimanPage() {
 
       const newSjId = generateSJId(form.tanggal);
 
-      await addPengiriman({
+      const payload = {
         sj_id: newSjId,
         tanggal: form.tanggal + " 00:00:00",
         tujuan: form.tujuan,
@@ -62,7 +63,9 @@ export default function PengirimanPage() {
         grade_c: c,
         grade_baby: baby,
         status: "Terkirim"
-      });
+      } as any;
+
+      await addPengiriman(payload);
 
       toast.success("Surat Jalan berhasil dibuat!"); 
       setIsOpen(false);
@@ -220,8 +223,8 @@ export default function PengirimanPage() {
               </thead>
               <tbody>
                 {pengirimans.map(p => {
-                  const totalBerat = (p.grade_a || 0) + (p.grade_b || 0) + (p.grade_c || 0) + (p.grade_baby || 0);
                   const pAny = p as any;
+                  const totalBerat = (pAny.grade_a || 0) + (pAny.grade_b || 0) + (pAny.grade_c || 0) + (pAny.grade_baby || 0);
                   return (
                     <tr key={p.id} className="border-b hover:bg-muted/30">
                       <td className="p-4 font-mono text-blue-700 font-bold">{pAny.sj_id || '-'}</td>
