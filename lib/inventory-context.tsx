@@ -11,6 +11,7 @@ export interface InvPengiriman{ id: string; batch_id: string; sj_id?: string; ta
 export interface StockData {
   gradeA: number; gradeB: number; gradeC: number; baby: number; reject: number;
 }
+export interface InvInvoice { id: string; invoice_id: string; tanggal: string; jatuh_tempo: string; buyer: string; ref_sj: string; qty_a: number; qty_b: number; qty_c: number; qty_baby: number; qty_campur?: number; harga_a: number; harga_b: number; harga_c: number; harga_baby: number; harga_campur?: number; total_tagihan: number; status: string; }
 
 interface InventoryContextType {
   bandars: MasterBandar[]; buyers: MasterBuyer[];
@@ -25,6 +26,8 @@ interface InventoryContextType {
   addBuyer: (data: Partial<MasterBuyer>) => Promise<void>;
   generatePembelianId: (bandarKode: string, date: string) => string;
   generatePengirimanId: (buyerKode: string, date: string) => string;
+  invoices: InvInvoice[];
+  addInvoice: (data: Partial<InvInvoice>) => Promise<void>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -36,16 +39,18 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   const [sortirs, setSortirs] = useState<InvSortir[]>([]);
   const [pengirimans, setPengirimans] = useState<InvPengiriman[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [invoices, setInvoices] = useState<InvInvoice[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [resBandar, resBuyer, resPembelian, resSortir, resPengiriman] = await Promise.all([
+        const [resBandar, resBuyer, resPembelian, resSortir, resPengiriman, invRecords] = await Promise.all([
           pb.collection("master_bandar").getFullList({ sort: "nama" }),
           pb.collection("master_buyer").getFullList({ sort: "nama" }),
           pb.collection("inv_pembelian").getFullList({ sort: "-tanggal" }),
           pb.collection("inv_sortir").getFullList({ sort: "-tanggal_sortir" }),
           pb.collection("inv_pengiriman").getFullList({ sort: "-tanggal" }),
+          pb.collection("inv_invoice").getFullList({ sort: "-created" })
         ]);
         
         setBandars(resBandar as unknown as MasterBandar[]);
@@ -53,6 +58,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         setPembelians(resPembelian as unknown as InvPembelian[]);
         setSortirs(resSortir as unknown as InvSortir[]);
         setPengirimans(resPengiriman as unknown as InvPengiriman[]);
+        setInvoices(invRecords as unknown as InvInvoice[]);
       } catch (err) {
         console.error("Gagal memuat data inventory:", err);
       } finally {
@@ -91,6 +97,11 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     setPengirimans(prev => prev.map(p => p.id === id ? record as unknown as InvPengiriman : p));
   };
 
+  const addInvoice = async (data: Partial<InvInvoice>) => {
+    const record = await pb.collection("inv_invoice").create(data);
+    setInvoices(prev => [record as unknown as InvInvoice, ...prev]);
+  };
+
   // ── TAMBAHAN FUNGSI BARU ──
   const addBandar = async (data: Partial<MasterBandar>) => {
     const record = await pb.collection("master_bandar").create(data);
@@ -119,9 +130,9 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
   return (
     <InventoryContext.Provider value={{ 
-      bandars, buyers, pembelians, sortirs, pengirimans, currentStock, isLoading, 
-      addPembelian, addSortir, addPengiriman, updatePengiriman, addBandar, addBuyer, // <-- Jangan lupa diekspor
-      generatePembelianId, generatePengirimanId 
+      bandars, buyers, pembelians, sortirs, pengirimans, currentStock, isLoading, invoices, 
+      addPembelian, addSortir, addPengiriman, updatePengiriman, addBandar, addBuyer, addInvoice,
+      generatePembelianId, generatePengirimanId
     }}>
       {children}
     </InventoryContext.Provider>
