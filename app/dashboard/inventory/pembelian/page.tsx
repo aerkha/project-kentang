@@ -16,7 +16,6 @@ const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n || 0)
 const formatRp = (n: number) => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(n || 0);
 
 export default function PembelianPage() {
-  // 👇 KINI KITA MENARIK addPengiriman & pengirimans DARI CONTEXT 👇
   const { bandars, pembelians, addPembelian, generatePembelianId, isLoading, addPengiriman, pengirimans } = useInventory();
   const [isOpen, setIsOpen] = useState(false);
   const [fileTf, setFileTf] = useState<File | null>(null);
@@ -58,7 +57,6 @@ export default function PembelianPage() {
     autoStatus = "Menunggu Sortir";
   }
 
-  // GENERATOR ID DO OTOMATIS
   const generateDOId = (dateStr: string) => {
     const ym = dateStr.slice(2, 10).replace(/-/g, ""); 
     const prefix = `DO-${ym}-`;
@@ -89,7 +87,6 @@ export default function PembelianPage() {
         total_harga: tLapangan * harga,
       };
 
-      // 1. Simpan Pembelian
       if (fileTf) {
         const formData = new FormData();
         for (const key in dataToSubmit) { formData.append(key, dataToSubmit[key]); }
@@ -99,17 +96,20 @@ export default function PembelianPage() {
         await addPembelian(dataToSubmit);
       }
 
-      // 2. JIKA ADA ALOKASI PASAR, BUATKAN DO OTOMATIS (CROSS-DOCKING)
+      // DO OTOMATIS: Disesuaikan agar aman untuk PocketBase
       if (qPasar > 0) {
         const newDoId = generateDOId(form.tanggal);
         await addPengiriman({
           batch_id: newDoId,
           tanggal: form.tanggal + " 00:00:00",
-          buyer: "", // Dikosongkan, karena ini drop ke pasar
           tujuan: "PASAR INDUK (CROSS-DOCKING)", 
-          qty_campur: qPasar, // 👇 Disimpan sebagai qty_campur
-          qty_grade_a: 0, qty_grade_b: 0, qty_grade_c: 0, qty_grade_baby: 0,
-          supir: "", plat_nomor: "", sj_id: ""
+          qty_campur: qPasar, 
+          qty_grade_a: 0, 
+          qty_grade_b: 0, 
+          qty_grade_c: 0, 
+          qty_grade_baby: 0,
+          // Kolom 'buyer', 'supir', 'plat_nomor', dan 'sj_id' diabaikan (tidak dikirim) 
+          // agar relasi PocketBase tidak error membaca string kosong ""
         } as any);
       }
 
@@ -118,7 +118,14 @@ export default function PembelianPage() {
       setFileTf(null);
       setForm({ ...form, tonase_lapangan: "", tonase_aktual: "", qty_gudang: "", qty_pasar: "", harga_per_kg: "" });
     } catch (err: any) { 
-      toast.error("Gagal mencatat data."); 
+      // 👇 RADAR ERROR DETAIL AKTIF 👇
+      console.error("PocketBase Error Detail:", err.response?.data);
+      let errorMsg = "Gagal mencatat data.";
+      if (err.response?.data) {
+        const firstErrorKey = Object.keys(err.response.data)[0];
+        if (firstErrorKey) errorMsg = `Error DO Otomatis (Kolom '${firstErrorKey}'): ${err.response.data[firstErrorKey].message}`;
+      }
+      toast.error(errorMsg); 
     }
   };
 
@@ -221,7 +228,7 @@ export default function PembelianPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><ArrowDownToLine className="h-6 w-6 text-primary"/> Barang Masuk</h1>
-          <p className="text-sm text-muted-foreground mt-1">Penerimaan dari Bandar ke Gudang atau Langsung Pasar Induk.</p>
+          <p className="text-sm text-muted-foreground mt-1">Pembelian komoditas dari supplier/petani.</p>
         </div>
         <Button onClick={() => setIsOpen(true)}><Plus className="h-4 w-4 mr-2"/> Terima Barang</Button>
       </div>
@@ -325,7 +332,6 @@ export default function PembelianPage() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL PRATINJAU NOTA (UI) */}
       <Dialog open={!!previewData} onOpenChange={() => setPreviewData(null)}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-4 border-b pb-4 sticky top-0 bg-background z-10">
