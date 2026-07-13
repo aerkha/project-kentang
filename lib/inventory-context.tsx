@@ -7,7 +7,7 @@ export interface MasterBandar { id: string; kode: string; nama: string; telepon:
 export interface MasterBuyer  { id: string; kode: string; nama: string; kategori: string; telepon: string; alamat: string; }
 export interface InvPembelian { id: string; batch_id: string; tanggal: string; bandar: string; tonase_lapangan: number; tonase_gudang: number; harga_per_kg: number; total_harga: number; tujuan: string; status: string; }
 export interface InvSortir    { id: string; batch_id?: string; pembelian_id: string; tanggal_sortir: string; grade_a: number; grade_b: number; grade_c: number; grade_baby: number; grade_reject: number; susut: number; pic_sortir: string; }
-export interface InvPengiriman{ id: string; batch_id: string; sj_id?: string; tanggal: string; tujuan?: string; supir?: string; buyer: string; qty_grade_a: number; qty_grade_b: number; qty_grade_c: number; qty_grade_baby: number; }
+export interface InvPengiriman{ id: string; batch_id: string; sj_id?: string; tanggal: string; tujuan?: string; supir?: string; plat_nomor: string; buyer: string; qty_grade_a: number; qty_grade_b: number; qty_grade_c: number; qty_grade_baby: number; }
 export interface StockData {
   gradeA: number; gradeB: number; gradeC: number; baby: number; reject: number;
 }
@@ -16,6 +16,7 @@ interface InventoryContextType {
   bandars: MasterBandar[]; buyers: MasterBuyer[];
   pembelians: InvPembelian[]; sortirs: InvSortir[]; pengirimans: InvPengiriman[];
   currentStock: StockData;
+  updatePengiriman: (id: string, data: Partial<InvPengiriman>) => Promise<void>;
   isLoading: boolean;
   addPembelian: (data: Partial<InvPembelian>) => Promise<void>;
   addSortir: (data: Partial<InvSortir>) => Promise<void>;
@@ -85,6 +86,11 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     setPengirimans(prev => [record as unknown as InvPengiriman, ...prev]);
   };
 
+  const updatePengiriman = async (id: string, data: Partial<InvPengiriman>) => {
+    const record = await pb.collection("inv_pengiriman").update(id, data);
+    setPengirimans(prev => prev.map(p => p.id === id ? record as unknown as InvPengiriman : p));
+  };
+
   // ── TAMBAHAN FUNGSI BARU ──
   const addBandar = async (data: Partial<MasterBandar>) => {
     const record = await pb.collection("master_bandar").create(data);
@@ -114,7 +120,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   return (
     <InventoryContext.Provider value={{ 
       bandars, buyers, pembelians, sortirs, pengirimans, currentStock, isLoading, 
-      addPembelian, addSortir, addPengiriman, addBandar, addBuyer, // <-- Jangan lupa diekspor
+      addPembelian, addSortir, addPengiriman, updatePengiriman, addBandar, addBuyer, // <-- Jangan lupa diekspor
       generatePembelianId, generatePengirimanId 
     }}>
       {children}

@@ -8,29 +8,33 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Truck, Plus, Printer, AlertTriangle } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Truck, Plus, Printer, AlertTriangle, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 
 const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n || 0)} Kg`;
 
 export default function PengirimanPage() {
-  const { pengirimans, sortirs, addPengiriman, isLoading, buyers = [] } = useInventory();
+  const { pengirimans, sortirs, addPengiriman, updatePengiriman, isLoading, buyers = [] } = useInventory();
   
-  const [isOpen, setIsOpen] = useState(false);
-  const [previewData, setPreviewData] = useState<any>(null);
-
-  const [form, setForm] = useState({ 
+  // State untuk form DO (Tahap 1)
+  const [isDoOpen, setIsDoOpen] = useState(false);
+  const [doForm, setDoForm] = useState({ 
     tanggal: todayWibStr().slice(0, 10),
-    batch_id: "", // Sebagai Delivery Order (DO) ID
+    batch_id: "", 
     buyer_id: "", 
-    supir: "",
-    plat_nomor: "",
     qty_grade_a: "", 
     qty_grade_b: "", 
     qty_grade_c: "", 
     qty_grade_baby: "" 
   });
+
+  // State untuk form SJ / Penugasan Supir (Tahap 2)
+  const [isSjOpen, setIsSjOpen] = useState(false);
+  const [selectedDo, setSelectedDo] = useState<any>(null);
+  const [sjForm, setSjForm] = useState({ supir: "", plat_nomor: "" });
+
+  const [previewData, setPreviewData] = useState<any>(null);
 
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
 
@@ -58,10 +62,10 @@ export default function PengirimanPage() {
     baby: Math.max(0, totalMasuk.baby - totalKeluar.baby),
   };
 
-  const inputA = parseFloat(form.qty_grade_a) || 0;
-  const inputB = parseFloat(form.qty_grade_b) || 0;
-  const inputC = parseFloat(form.qty_grade_c) || 0;
-  const inputBaby = parseFloat(form.qty_grade_baby) || 0;
+  const inputA = parseFloat(doForm.qty_grade_a) || 0;
+  const inputB = parseFloat(doForm.qty_grade_b) || 0;
+  const inputC = parseFloat(doForm.qty_grade_c) || 0;
+  const inputBaby = parseFloat(doForm.qty_grade_baby) || 0;
 
   const isValidA = inputA <= stock.a;
   const isValidB = inputB <= stock.b;
@@ -69,10 +73,11 @@ export default function PengirimanPage() {
   const isValidBaby = inputBaby <= stock.baby;
   
   const hasInput = inputA > 0 || inputB > 0 || inputC > 0 || inputBaby > 0;
-  const isFormValid = isValidA && isValidB && isValidC && isValidBaby && hasInput && form.buyer_id !== "";
+  const isDoFormValid = isValidA && isValidB && isValidC && isValidBaby && hasInput && doForm.buyer_id !== "";
 
   // =========================================================================
-
+  // GENERATOR ID
+  // =========================================================================
   const generateSJId = (dateStr: string) => {
     const ym = dateStr.slice(2, 10).replace(/-/g, ""); 
     const prefix = `SJ-${ym}-`;
@@ -87,43 +92,63 @@ export default function PengirimanPage() {
     return `${prefix}${String(todayDO.length + 1).padStart(3, "0")}`;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // =========================================================================
+  // HANDLER SUBMIT TAHAP 1: PEMBUATAN DO
+  // =========================================================================
+  const handleDoSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isFormValid) return toast.error("Periksa kembali form. Pastikan pembeli dipilih dan stok mencukupi!");
+    if (!isDoFormValid) return toast.error("Periksa kembali form DO. Stok tidak mencukupi atau pembeli kosong!");
 
     try {
-      const newSjId = generateSJId(form.tanggal);
-      
-      // Jika input DO dikosongkan, sistem akan generate otomatis. Jika diisi, ikuti ketikan manual.
-      const finalBatchId = form.batch_id.trim() !== "" ? form.batch_id.trim() : generateDOId(form.tanggal);
-      
-      const selectedBuyer = buyers.find((b: any) => b.id === form.buyer_id);
+      const finalBatchId = doForm.batch_id.trim() !== "" ? doForm.batch_id.trim() : generateDOId(doForm.tanggal);
+      const selectedBuyer = buyers.find((b: any) => b.id === doForm.buyer_id);
       const buyerName = selectedBuyer ? selectedBuyer.nama : "";
 
       await addPengiriman({
-        sj_id: newSjId,
-        batch_id: finalBatchId, // DO / Delivery ID yang dikembalikan fungsinya
-        tanggal: form.tanggal + " 00:00:00",
-        buyer: form.buyer_id,        
+        batch_id: finalBatchId,
+        tanggal: doForm.tanggal + " 00:00:00",
+        buyer: doForm.buyer_id,        
         tujuan: buyerName,           
-        supir: form.supir,
-        plat_nomor: form.plat_nomor,
         qty_grade_a: inputA,
         qty_grade_b: inputB,
         qty_grade_c: inputC,
-        qty_grade_baby: inputBaby
+        qty_grade_baby: inputBaby,
+        // Supir, Plat Nomor, dan SJ ID dibiarkan kosong (Tahap 1)
+        supir: "",
+        plat_nomor: "",
+        sj_id: ""
       } as any);
 
-      toast.success("Surat Jalan & Delivery Order berhasil dicatat!"); 
-      setIsOpen(false);
-      setForm({ ...form, batch_id: "", buyer_id: "", supir: "", plat_nomor: "", qty_grade_a: "", qty_grade_b: "", qty_grade_c: "", qty_grade_baby: "" });
+      toast.success("Delivery Order (DO) berhasil dibuat!"); 
+      setIsDoOpen(false);
+      setDoForm({ ...doForm, batch_id: "", buyer_id: "", qty_grade_a: "", qty_grade_b: "", qty_grade_c: "", qty_grade_baby: "" });
     } catch (err: any) { 
-      let errorMsg = "Gagal mencatat pengiriman.";
-      if (err.response?.data) {
-        const firstErrorKey = Object.keys(err.response.data)[0];
-        if (firstErrorKey) errorMsg = `Error di kolom '${firstErrorKey}': ${err.response.data[firstErrorKey].message}`;
-      }
-      toast.error(errorMsg); 
+      toast.error("Gagal membuat Delivery Order."); 
+    }
+  };
+
+  // =========================================================================
+  // HANDLER SUBMIT TAHAP 2: PENUGASAN SUPIR (BUAT SJ)
+  // =========================================================================
+  const handleSjSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDo || !sjForm.supir || !sjForm.plat_nomor) return toast.error("Lengkapi data supir dan plat nomor!");
+
+    try {
+      const newSjId = generateSJId(selectedDo.tanggal);
+
+      await updatePengiriman(selectedDo.id, {
+        sj_id: newSjId,
+        supir: sjForm.supir,
+        plat_nomor: sjForm.plat_nomor
+      });
+
+      toast.success(`Surat Jalan ${newSjId} berhasil diterbitkan!`);
+      setIsSjOpen(false);
+      setSelectedDo(null);
+      setSjForm({ supir: "", plat_nomor: "" });
+    } catch (err: any) {
+      toast.error("Gagal menerbitkan Surat Jalan.");
     }
   };
 
@@ -255,9 +280,9 @@ export default function PengirimanPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><Truck className="h-6 w-6 text-blue-600"/> Pengiriman Barang</h1>
-          <p className="text-sm text-muted-foreground mt-1">Buat Surat Jalan dan catat pengiriman ke Mitra/Pasar.</p>
+          <p className="text-sm text-muted-foreground mt-1">Kelola Delivery Order (DO) dan terbitkan Surat Jalan (SJ).</p>
         </div>
-        <Button onClick={() => setIsOpen(true)} className="bg-blue-600 hover:bg-blue-700"><Plus className="h-4 w-4 mr-2"/> Buat Pengiriman</Button>
+        <Button onClick={() => setIsDoOpen(true)} className="bg-slate-800 hover:bg-slate-900"><Plus className="h-4 w-4 mr-2"/> Buat Delivery Order</Button>
       </div>
 
       <Card>
@@ -267,10 +292,10 @@ export default function PengirimanPage() {
               <thead className="bg-muted/50 border-b">
                 <tr>
                   <th className="p-4">Dokumen ID</th>
-                  <th className="p-4">Tanggal</th>
+                  <th className="p-4">Tanggal DO</th>
                   <th className="p-4">Tujuan (Pembeli)</th>
-                  <th className="p-4">Supir & Plat</th>
                   <th className="p-4">Total Berat</th>
+                  <th className="p-4">Status Pengiriman</th>
                   <th className="p-4 text-center">Aksi</th>
                 </tr>
               </thead>
@@ -281,34 +306,52 @@ export default function PengirimanPage() {
                   
                   const matchedBuyer = buyers.find((b: any) => b.id === p.buyer);
                   const displayTujuan = matchedBuyer ? matchedBuyer.nama : (p.tujuan || p.buyer);
+                  const hasSj = !!p.sj_id && !!p.supir;
 
                   return (
                     <tr key={p.id} className="border-b hover:bg-muted/30">
                       <td className="p-4">
-                        <div className="flex flex-col gap-1">
-                          <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded w-fit border" title="Delivery Order">DO: {p.batch_id}</span>
-                          <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded w-fit border border-blue-100" title="Surat Jalan">SJ: {p.sj_id || '-'}</span>
+                        <div className="flex flex-col gap-1.5">
+                          <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded w-fit border shadow-sm" title="Delivery Order">DO: {p.batch_id}</span>
+                          {hasSj && <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded w-fit border border-blue-200 shadow-sm" title="Surat Jalan">SJ: {p.sj_id}</span>}
                         </div>
                       </td>
                       <td className="p-4 align-top pt-5">{p.tanggal.slice(0,10)}</td>
                       <td className="p-4 align-top pt-5 font-semibold uppercase">{displayTujuan}</td>
-                      <td className="p-4 align-top pt-5">
-                        <div className="flex flex-col">
-                          <span className="font-medium">{p.supir || '-'}</span>
-                          <span className="text-xs text-muted-foreground uppercase">{pAny.plat_nomor || '-'}</span>
-                        </div>
-                      </td>
                       <td className="p-4 align-top pt-5 font-semibold">{formatKg(totalBerat)}</td>
-                      <td className="p-4 align-top pt-5 text-center">
-                        <Button variant="outline" size="sm" onClick={() => setPreviewData(p)} className="h-8 text-xs border-blue-200 text-blue-700 hover:bg-blue-50">
-                          <Printer className="w-3 h-3 mr-1.5" /> Pratinjau SJ
-                        </Button>
+                      <td className="p-4 align-top pt-4">
+                        {hasSj ? (
+                          <div className="flex flex-col">
+                            <span className="text-xs text-green-700 font-bold mb-0.5 flex items-center gap-1"><Truck className="w-3 h-3"/> Menuju Lokasi</span>
+                            <span className="font-medium text-xs">{p.supir}</span>
+                            <span className="text-[10px] text-muted-foreground uppercase">{pAny.plat_nomor}</span>
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-amber-700 font-semibold bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-md shadow-sm">
+                            Menunggu Supir
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-4 align-top pt-4 text-center">
+                        {hasSj ? (
+                          <Button variant="outline" size="sm" onClick={() => setPreviewData(p)} className="h-8 text-xs border-blue-200 text-blue-700 hover:bg-blue-50">
+                            <Printer className="w-3 h-3 mr-1.5" /> Pratinjau SJ
+                          </Button>
+                        ) : (
+                          <Button 
+                            size="sm" 
+                            onClick={() => { setSelectedDo(p); setIsSjOpen(true); }} 
+                            className="h-8 text-xs bg-amber-500 hover:bg-amber-600 text-white shadow-sm"
+                          >
+                            Tugaskan Supir
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   )
                 })}
                 {pengirimans.length === 0 && (
-                  <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">Belum ada riwayat pengiriman</td></tr>
+                  <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">Belum ada riwayat DO atau Pengiriman</td></tr>
                 )}
               </tbody>
             </table>
@@ -316,50 +359,50 @@ export default function PengirimanPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      {/* ========================================================================= */}
+      {/* TAHAP 1: MODAL BUAT DO (STOK BERKURANG) */}
+      {/* ========================================================================= */}
+      <Dialog open={isDoOpen} onOpenChange={setIsDoOpen}>
         <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle>Buat Surat Jalan Baru</DialogTitle></DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-6 mt-2">
+          <DialogHeader>
+            <DialogTitle>Buat Delivery Order (DO)</DialogTitle>
+            <DialogDescription>DO akan membukukan pesanan dan memotong stok di gudang.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleDoSubmit} className="space-y-6 mt-2">
             
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1"><Label>Tanggal Pengiriman</Label><Input type="date" value={form.tanggal} onChange={e=>setForm({...form, tanggal: e.target.value})} required/></div>
+              <div className="space-y-1"><Label>Tanggal DO</Label><Input type="date" value={doForm.tanggal} onChange={e=>setDoForm({...doForm, tanggal: e.target.value})} required/></div>
               <div className="space-y-1">
                 <Label>Tujuan (Pembeli / Mitra)</Label>
-                <Select value={form.buyer_id} onValueChange={v=>setForm({...form, buyer_id: v})} required>
-                  <SelectTrigger className={form.buyer_id ? "" : "border-red-300 ring-red-100"}>
+                <Select value={doForm.buyer_id} onValueChange={v=>setDoForm({...doForm, buyer_id: v})} required>
+                  <SelectTrigger className={doForm.buyer_id ? "" : "border-red-300 ring-red-100"}>
                     <SelectValue placeholder="Pilih Mitra/Pembeli" />
                   </SelectTrigger>
                   <SelectContent>
                     {buyers.length === 0 ? (
                       <SelectItem value="empty" disabled>Belum ada data pembeli</SelectItem>
                     ) : (
-                      buyers.map((b: any) => (
-                        <SelectItem key={b.id} value={b.id}>{b.nama}</SelectItem>
-                      ))
+                      buyers.map((b: any) => <SelectItem key={b.id} value={b.id}>{b.nama}</SelectItem>)
                     )}
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4 p-4 bg-muted/30 rounded-lg border">
-              <div className="space-y-1">
-                <Label>ID Delivery Order (DO)</Label>
-                <Input type="text" value={form.batch_id} onChange={e=>setForm({...form, batch_id: e.target.value})} placeholder="Otomatis jika kosong" className="placeholder:text-[11px] font-mono text-sm" />
-              </div>
-              <div className="space-y-1"><Label>Nama Supir</Label><Input type="text" value={form.supir} onChange={e=>setForm({...form, supir: e.target.value})} placeholder="Contoh: Mang Udin" required/></div>
-              <div className="space-y-1"><Label>Plat Nomor Kendaraan</Label><Input type="text" value={form.plat_nomor} onChange={e=>setForm({...form, plat_nomor: e.target.value})} placeholder="Contoh: D 1234 ABC" required className="uppercase"/></div>
+            <div className="space-y-1">
+              <Label>ID Delivery Order (Opsional)</Label>
+              <Input type="text" value={doForm.batch_id} onChange={e=>setDoForm({...doForm, batch_id: e.target.value})} placeholder="Biarkan kosong agar sistem membuatkan ID otomatis" className="font-mono text-sm" />
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 bg-muted/30 p-4 rounded-lg border">
               <div className="flex justify-between items-end border-b pb-2">
-                <Label className="text-xs uppercase tracking-widest text-muted-foreground">Rincian Barang Keluar (Berdasarkan Stok Tersedia)</Label>
+                <Label className="text-xs uppercase tracking-widest text-slate-600 font-bold">Rincian Barang Keluar (Memotong Stok)</Label>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
                 
                 <div className="space-y-1.5">
                   <Label>Grade A (Kg)</Label>
-                  <Input type="number" value={form.qty_grade_a} onChange={e=>setForm({...form, qty_grade_a: e.target.value})} placeholder="0" className={!isValidA ? "border-red-500 bg-red-50 focus-visible:ring-red-500" : ""} />
+                  <Input type="number" value={doForm.qty_grade_a} onChange={e=>setDoForm({...doForm, qty_grade_a: e.target.value})} placeholder="0" className={!isValidA ? "border-red-500 bg-red-50 focus-visible:ring-red-500" : ""} />
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-muted-foreground font-medium">Stok: {formatKg(stock.a)}</span>
                     {!isValidA && <AlertTriangle className="w-3.5 h-3.5 text-red-600" />}
@@ -368,7 +411,7 @@ export default function PengirimanPage() {
 
                 <div className="space-y-1.5">
                   <Label>Grade B (Kg)</Label>
-                  <Input type="number" value={form.qty_grade_b} onChange={e=>setForm({...form, qty_grade_b: e.target.value})} placeholder="0" className={!isValidB ? "border-red-500 bg-red-50 focus-visible:ring-red-500" : ""} />
+                  <Input type="number" value={doForm.qty_grade_b} onChange={e=>setDoForm({...doForm, qty_grade_b: e.target.value})} placeholder="0" className={!isValidB ? "border-red-500 bg-red-50 focus-visible:ring-red-500" : ""} />
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-muted-foreground font-medium">Stok: {formatKg(stock.b)}</span>
                     {!isValidB && <AlertTriangle className="w-3.5 h-3.5 text-red-600" />}
@@ -377,7 +420,7 @@ export default function PengirimanPage() {
 
                 <div className="space-y-1.5">
                   <Label>Grade C (Kg)</Label>
-                  <Input type="number" value={form.qty_grade_c} onChange={e=>setForm({...form, qty_grade_c: e.target.value})} placeholder="0" className={!isValidC ? "border-red-500 bg-red-50 focus-visible:ring-red-500" : ""} />
+                  <Input type="number" value={doForm.qty_grade_c} onChange={e=>setDoForm({...doForm, qty_grade_c: e.target.value})} placeholder="0" className={!isValidC ? "border-red-500 bg-red-50 focus-visible:ring-red-500" : ""} />
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-muted-foreground font-medium">Stok: {formatKg(stock.c)}</span>
                     {!isValidC && <AlertTriangle className="w-3.5 h-3.5 text-red-600" />}
@@ -386,7 +429,7 @@ export default function PengirimanPage() {
 
                 <div className="space-y-1.5">
                   <Label>Baby (Kg)</Label>
-                  <Input type="number" value={form.qty_grade_baby} onChange={e=>setForm({...form, qty_grade_baby: e.target.value})} placeholder="0" className={!isValidBaby ? "border-red-500 bg-red-50 focus-visible:ring-red-500" : ""} />
+                  <Input type="number" value={doForm.qty_grade_baby} onChange={e=>setDoForm({...doForm, qty_grade_baby: e.target.value})} placeholder="0" className={!isValidBaby ? "border-red-500 bg-red-50 focus-visible:ring-red-500" : ""} />
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-muted-foreground font-medium">Stok: {formatKg(stock.baby)}</span>
                     {!isValidBaby && <AlertTriangle className="w-3.5 h-3.5 text-red-600" />}
@@ -397,14 +440,46 @@ export default function PengirimanPage() {
             </div>
 
             <DialogFooter>
-              <Button type="submit" disabled={!isFormValid} className="bg-blue-600 hover:bg-blue-700">
-                {!isFormValid && (inputA > 0 || inputB > 0 || inputC > 0 || inputBaby > 0) ? "Stok Kurang / Pembeli Kosong!" : "Simpan & Buat Surat Jalan"}
+              <Button type="submit" disabled={!isDoFormValid} className="bg-slate-800 hover:bg-slate-900">
+                {!isDoFormValid && hasInput ? "Stok Kurang!" : "Simpan Delivery Order"}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
+      {/* ========================================================================= */}
+      {/* TAHAP 2: MODAL PENUGASAN SUPIR (BUAT SJ) */}
+      {/* ========================================================================= */}
+      <Dialog open={isSjOpen} onOpenChange={setIsSjOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Tugaskan Supir</DialogTitle>
+            <DialogDescription>Menerbitkan Surat Jalan untuk DO: <strong className="text-black">{selectedDo?.batch_id}</strong></DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSjSubmit} className="space-y-4 mt-2">
+            
+            <div className="space-y-1.5">
+              <Label>Nama Supir</Label>
+              <Input type="text" value={sjForm.supir} onChange={e=>setSjForm({...sjForm, supir: e.target.value})} placeholder="Contoh: Mang Mamat" required />
+            </div>
+            
+            <div className="space-y-1.5">
+              <Label>Plat Nomor Kendaraan</Label>
+              <Input type="text" value={sjForm.plat_nomor} onChange={e=>setSjForm({...sjForm, plat_nomor: e.target.value})} placeholder="Contoh: D 1234 ABC" required className="uppercase" />
+            </div>
+
+            <DialogFooter className="pt-4">
+              <Button type="button" variant="outline" onClick={() => setIsSjOpen(false)}>Batal</Button>
+              <Button type="submit" className="bg-amber-500 hover:bg-amber-600 text-white">
+                <UserCheck className="w-4 h-4 mr-2" /> Terbitkan Surat Jalan
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* PRATINJAU SJ UI (Tetap Sama Persis) */}
       <Dialog open={!!previewData} onOpenChange={() => setPreviewData(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-4 border-b pb-4 sticky top-0 bg-background z-10">
