@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Truck, Plus, Printer, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
@@ -14,14 +15,16 @@ import { toast } from "sonner";
 const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n || 0)} Kg`;
 
 export default function PengirimanPage() {
-  const { pengirimans, sortirs, addPengiriman, isLoading } = useInventory();
+  // 👇 Menambahkan 'buyers' (Daftar Pembeli/Mitra) dari context
+  // Catatan: Jika di context Anda namanya 'mitras', ganti 'buyers' menjadi 'mitras'
+  const { pengirimans, sortirs, addPengiriman, isLoading, buyers = [] } = useInventory();
   
   const [isOpen, setIsOpen] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
 
   const [form, setForm] = useState({ 
     tanggal: todayWibStr().slice(0, 10), 
-    tujuan: "", 
+    buyer_id: "", // Menyimpan ID Relasi Pembeli
     supir: "",
     plat_nomor: "",
     qty_grade_a: "", 
@@ -35,7 +38,6 @@ export default function PengirimanPage() {
   // =========================================================================
   // LOGIKA SINKRONISASI STOK REAL-TIME
   // =========================================================================
-  // 1. Hitung Total Masuk (Dari tabel Sortir menggunakan grade_x)
   const totalMasuk = {
     a: sortirs.reduce((sum, s: any) => sum + (s.grade_a || 0), 0),
     b: sortirs.reduce((sum, s: any) => sum + (s.grade_b || 0), 0),
@@ -43,7 +45,6 @@ export default function PengirimanPage() {
     baby: sortirs.reduce((sum, s: any) => sum + (s.grade_baby || 0), 0),
   };
 
-  // 2. Hitung Total Keluar (Dari tabel Pengiriman menggunakan qty_grade_x)
   const totalKeluar = {
     a: pengirimans.reduce((sum, p) => sum + (p.qty_grade_a || 0), 0),
     b: pengirimans.reduce((sum, p) => sum + (p.qty_grade_b || 0), 0),
@@ -51,7 +52,6 @@ export default function PengirimanPage() {
     baby: pengirimans.reduce((sum, p) => sum + (p.qty_grade_baby || 0), 0),
   };
 
-  // 3. Kalkulasi Stok Aktual Saat Ini
   const stock = {
     a: Math.max(0, totalMasuk.a - totalKeluar.a),
     b: Math.max(0, totalMasuk.b - totalKeluar.b),
@@ -59,7 +59,6 @@ export default function PengirimanPage() {
     baby: Math.max(0, totalMasuk.baby - totalKeluar.baby),
   };
 
-  // 4. Validasi Form Input
   const inputA = parseFloat(form.qty_grade_a) || 0;
   const inputB = parseFloat(form.qty_grade_b) || 0;
   const inputC = parseFloat(form.qty_grade_c) || 0;
@@ -71,7 +70,7 @@ export default function PengirimanPage() {
   const isValidBaby = inputBaby <= stock.baby;
   
   const hasInput = inputA > 0 || inputB > 0 || inputC > 0 || inputBaby > 0;
-  const isFormValid = isValidA && isValidB && isValidC && isValidBaby && hasInput;
+  const isFormValid = isValidA && isValidB && isValidC && isValidBaby && hasInput && form.buyer_id !== "";
 
   // =========================================================================
 
@@ -84,18 +83,21 @@ export default function PengirimanPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isFormValid) return toast.error("Periksa kembali jumlah pengiriman. Stok tidak mencukupi!");
+    if (!isFormValid) return toast.error("Periksa kembali form. Pastikan pembeli dipilih dan stok mencukupi!");
 
     try {
       const newSjId = generateSJId(form.tanggal);
       
-      // Dikirim dengan format ANY agar patuh 100% pada Interface bawaan Anda
+      // Ambil nama pembeli untuk disimpan sebagai backup teks di kolom tujuan (opsional tapi disarankan)
+      const selectedBuyer = buyers.find((b: any) => b.id === form.buyer_id);
+      const buyerName = selectedBuyer ? selectedBuyer.nama : "";
+
       await addPengiriman({
         sj_id: newSjId,
         tanggal: form.tanggal + " 00:00:00",
-        tujuan: form.tujuan,
-        buyer: form.tujuan, // Menyesuaikan mandatory field di interface Anda
-        batch_id: "PENGIRIMAN-UMUM", // Menyesuaikan mandatory field di interface Anda
+        buyer: form.buyer_id,        // ID Relasi untuk PocketBase
+        tujuan: buyerName,           // Backup teks nama pembeli
+        batch_id: "PENGIRIMAN-UMUM", // Mandatory field bawaan interface
         supir: form.supir,
         plat_nomor: form.plat_nomor,
         qty_grade_a: inputA,
@@ -107,7 +109,7 @@ export default function PengirimanPage() {
 
       toast.success("Surat Jalan berhasil dibuat!"); 
       setIsOpen(false);
-      setForm({ ...form, tujuan: "", supir: "", plat_nomor: "", qty_grade_a: "", qty_grade_b: "", qty_grade_c: "", qty_grade_baby: "" });
+      setForm({ ...form, buyer_id: "", supir: "", plat_nomor: "", qty_grade_a: "", qty_grade_b: "", qty_grade_c: "", qty_grade_baby: "" });
     } catch (err: any) { 
       let errorMsg = "Gagal mencatat pengiriman.";
       if (err.response?.data) {
@@ -121,6 +123,10 @@ export default function PengirimanPage() {
   const handlePrintSJ = (dataObj: any) => {
     const d = dataObj || previewData;
     if (!d) return;
+
+    // Cari nama pembeli dari context buyers berdasarkan ID Relasinya
+    const matchedBuyer = buyers.find((b: any) => b.id === d.buyer);
+    const namaTujuan = matchedBuyer ? matchedBuyer.nama : (d.tujuan || "Tidak Diketahui");
 
     const items = [
       { name: "Kentang Segar - Grade A", qty: d.qty_grade_a || 0 },
@@ -170,7 +176,7 @@ export default function PengirimanPage() {
         <div class="flex justify-between mb-6">
           <div class="w-1/2">
             <p class="text-sm text-gray-600 mb-1">Kepada Yth:</p>
-            <p class="text-lg font-bold uppercase">${d.tujuan || d.buyer}</p>
+            <p class="text-lg font-bold uppercase">${namaTujuan}</p>
           </div>
           <div class="w-1/2 text-right">
             <p class="text-sm text-gray-600 mb-1">Informasi Pengiriman:</p>
@@ -254,7 +260,7 @@ export default function PengirimanPage() {
                 <tr>
                   <th className="p-4">No. SJ</th>
                   <th className="p-4">Tanggal</th>
-                  <th className="p-4">Tujuan</th>
+                  <th className="p-4">Tujuan (Pembeli)</th>
                   <th className="p-4">Supir & Plat</th>
                   <th className="p-4">Total Berat</th>
                   <th className="p-4 text-center">Aksi</th>
@@ -264,11 +270,16 @@ export default function PengirimanPage() {
                 {pengirimans.map(p => {
                   const totalBerat = (p.qty_grade_a || 0) + (p.qty_grade_b || 0) + (p.qty_grade_c || 0) + (p.qty_grade_baby || 0);
                   const pAny = p as any;
+                  
+                  // Cari nama pembeli dari context buyers
+                  const matchedBuyer = buyers.find((b: any) => b.id === p.buyer);
+                  const displayTujuan = matchedBuyer ? matchedBuyer.nama : (p.tujuan || p.buyer);
+
                   return (
                     <tr key={p.id} className="border-b hover:bg-muted/30">
                       <td className="p-4 font-mono text-blue-700 font-bold">{p.sj_id || '-'}</td>
                       <td className="p-4">{p.tanggal.slice(0,10)}</td>
-                      <td className="p-4 font-semibold uppercase">{p.tujuan || p.buyer}</td>
+                      <td className="p-4 font-semibold uppercase">{displayTujuan}</td>
                       <td className="p-4">
                         <div className="flex flex-col">
                           <span className="font-medium">{p.supir || '-'}</span>
@@ -300,7 +311,24 @@ export default function PengirimanPage() {
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1"><Label>Tanggal Pengiriman</Label><Input type="date" value={form.tanggal} onChange={e=>setForm({...form, tanggal: e.target.value})} required/></div>
-              <div className="space-y-1"><Label>Tujuan (Mitra / Pasar)</Label><Input type="text" value={form.tujuan} onChange={e=>setForm({...form, tujuan: e.target.value})} placeholder="Contoh: Pasar Induk Kramat Jati" required/></div>
+              <div className="space-y-1">
+                <Label>Tujuan (Pembeli / Mitra)</Label>
+                {/* 👇 MENGGUNAKAN DROPDOWN SELECT UNTUK RELASI 👇 */}
+                <Select value={form.buyer_id} onValueChange={v=>setForm({...form, buyer_id: v})} required>
+                  <SelectTrigger className={form.buyer_id ? "" : "border-red-300 ring-red-100"}>
+                    <SelectValue placeholder="Pilih Mitra/Pembeli" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {buyers.length === 0 ? (
+                      <SelectItem value="empty" disabled>Belum ada data pembeli</SelectItem>
+                    ) : (
+                      buyers.map((b: any) => (
+                        <SelectItem key={b.id} value={b.id}>{b.nama}</SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4 p-4 bg-muted/30 rounded-lg border">
@@ -355,13 +383,14 @@ export default function PengirimanPage() {
 
             <DialogFooter>
               <Button type="submit" disabled={!isFormValid} className="bg-blue-600 hover:bg-blue-700">
-                {!isFormValid && (inputA > 0 || inputB > 0 || inputC > 0 || inputBaby > 0) ? "Stok Kurang!" : "Simpan & Buat Surat Jalan"}
+                {!isFormValid && (inputA > 0 || inputB > 0 || inputC > 0 || inputBaby > 0) ? "Stok Kurang / Pembeli Kosong!" : "Simpan & Buat Surat Jalan"}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
+      {/* Pratinjau SJ UI Sama persis dengan versi sebelumnya */}
       <Dialog open={!!previewData} onOpenChange={() => setPreviewData(null)}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-4 border-b pb-4 sticky top-0 bg-background z-10">
@@ -371,86 +400,91 @@ export default function PengirimanPage() {
             </Button>
           </div>
           
-          {previewData && (
-            <div className="bg-white text-black p-6 sm:p-8 font-sans border rounded-lg shadow-sm">
-              <div className="flex justify-between items-start border-b-2 border-black pb-4 mb-6">
-                <div>
-                  <h1 className="text-2xl sm:text-3xl font-black tracking-tight uppercase">MINBUN ERP</h1>
-                  <p className="text-xs text-gray-600">Distributor Komoditas Hasil Bumi</p>
+          {previewData && (() => {
+            const matchedBuyer = buyers.find((b: any) => b.id === previewData.buyer);
+            const displayTujuan = matchedBuyer ? matchedBuyer.nama : (previewData.tujuan || previewData.buyer);
+            
+            return (
+              <div className="bg-white text-black p-6 sm:p-8 font-sans border rounded-lg shadow-sm">
+                <div className="flex justify-between items-start border-b-2 border-black pb-4 mb-6">
+                  <div>
+                    <h1 className="text-2xl sm:text-3xl font-black tracking-tight uppercase">MINBUN ERP</h1>
+                    <p className="text-xs text-gray-600">Distributor Komoditas Hasil Bumi</p>
+                  </div>
+                  <div className="text-right">
+                    <h2 className="text-xl sm:text-2xl font-bold text-gray-800 uppercase tracking-widest">Surat Jalan</h2>
+                    <p className="text-sm font-mono mt-1 text-gray-600">No. SJ: {previewData.sj_id}</p>
+                    <p className="text-sm text-gray-600">Tanggal: {new Date(previewData.tanggal).toLocaleDateString("id-ID", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <h2 className="text-xl sm:text-2xl font-bold text-gray-800 uppercase tracking-widest">Surat Jalan</h2>
-                  <p className="text-sm font-mono mt-1 text-gray-600">No. SJ: {previewData.sj_id}</p>
-                  <p className="text-sm text-gray-600">Tanggal: {new Date(previewData.tanggal).toLocaleDateString("id-ID", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                </div>
-              </div>
 
-              <div className="flex flex-col sm:flex-row justify-between mb-6 gap-4">
-                <div className="w-full sm:w-1/2">
-                  <p className="text-sm text-gray-600 mb-1">Kepada Yth:</p>
-                  <p className="text-lg font-bold uppercase">{previewData.tujuan || previewData.buyer}</p>
+                <div className="flex flex-col sm:flex-row justify-between mb-6 gap-4">
+                  <div className="w-full sm:w-1/2">
+                    <p className="text-sm text-gray-600 mb-1">Kepada Yth:</p>
+                    <p className="text-lg font-bold uppercase">{displayTujuan}</p>
+                  </div>
+                  <div className="w-full sm:w-1/2 sm:text-right">
+                    <p className="text-sm text-gray-600 mb-1">Informasi Pengiriman:</p>
+                    <p className="text-sm font-semibold">Supir: {previewData.supir || '-'}</p>
+                    <p className="text-sm font-semibold">Plat No: <span className="uppercase">{previewData.plat_nomor || '-'}</span></p>
+                  </div>
                 </div>
-                <div className="w-full sm:w-1/2 sm:text-right">
-                  <p className="text-sm text-gray-600 mb-1">Informasi Pengiriman:</p>
-                  <p className="text-sm font-semibold">Supir: {previewData.supir || '-'}</p>
-                  <p className="text-sm font-semibold">Plat No: <span className="uppercase">{previewData.plat_nomor || '-'}</span></p>
-                </div>
-              </div>
 
-              <div className="overflow-x-auto mb-6">
-                <table className="w-full min-w-[500px] border-collapse border-2 border-black">
-                  <thead>
-                    <tr className="bg-gray-100 border-b-2 border-black">
-                      <th className="py-2 px-4 text-center text-sm font-bold w-12 border-r border-black">No</th>
-                      <th className="py-2 px-4 text-left text-sm font-bold border-r border-black">Nama Barang / Deskripsi</th>
-                      <th className="py-2 px-4 text-center text-sm font-bold w-32 border-r border-black">Kuantitas</th>
-                      <th className="py-2 px-4 text-center text-sm font-bold w-48">Keterangan</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      { name: "Kentang Segar - Grade A", qty: previewData.qty_grade_a || 0 },
-                      { name: "Kentang Segar - Grade B", qty: previewData.qty_grade_b || 0 },
-                      { name: "Kentang Segar - Grade C", qty: previewData.qty_grade_c || 0 },
-                      { name: "Kentang Segar - Baby", qty: previewData.qty_grade_baby || 0 },
-                    ].filter(item => item.qty > 0).map((item, index) => (
-                      <tr key={index}>
-                        <td className="py-3 px-4 border-b border-black text-sm text-center">{index + 1}</td>
-                        <td className="py-3 px-4 border-b border-black text-sm font-medium">{item.name}</td>
-                        <td className="py-3 px-4 border-b border-black text-sm text-center font-bold">{item.qty} Kg</td>
-                        <td className="py-3 px-4 border-b border-black text-sm text-center"></td>
+                <div className="overflow-x-auto mb-6">
+                  <table className="w-full min-w-[500px] border-collapse border-2 border-black">
+                    <thead>
+                      <tr className="bg-gray-100 border-b-2 border-black">
+                        <th className="py-2 px-4 text-center text-sm font-bold w-12 border-r border-black">No</th>
+                        <th className="py-2 px-4 text-left text-sm font-bold border-r border-black">Nama Barang / Deskripsi</th>
+                        <th className="py-2 px-4 text-center text-sm font-bold w-32 border-r border-black">Kuantitas</th>
+                        <th className="py-2 px-4 text-center text-sm font-bold w-48">Keterangan</th>
                       </tr>
-                    ))}
-                    <tr className="bg-gray-50">
-                      <td colSpan={2} className="py-3 px-4 text-right text-sm font-bold border-r border-black">TOTAL BERAT:</td>
-                      <td className="py-3 px-4 text-center text-sm font-black border-r border-black">
-                        {(previewData.qty_grade_a || 0) + (previewData.qty_grade_b || 0) + (previewData.qty_grade_c || 0) + (previewData.qty_grade_baby || 0)} Kg
-                      </td>
-                      <td></td>
-                    </tr>
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {[
+                        { name: "Kentang Segar - Grade A", qty: previewData.qty_grade_a || 0 },
+                        { name: "Kentang Segar - Grade B", qty: previewData.qty_grade_b || 0 },
+                        { name: "Kentang Segar - Grade C", qty: previewData.qty_grade_c || 0 },
+                        { name: "Kentang Segar - Baby", qty: previewData.qty_grade_baby || 0 },
+                      ].filter(item => item.qty > 0).map((item, index) => (
+                        <tr key={index}>
+                          <td className="py-3 px-4 border-b border-black text-sm text-center">{index + 1}</td>
+                          <td className="py-3 px-4 border-b border-black text-sm font-medium">{item.name}</td>
+                          <td className="py-3 px-4 border-b border-black text-sm text-center font-bold">{item.qty} Kg</td>
+                          <td className="py-3 px-4 border-b border-black text-sm text-center"></td>
+                        </tr>
+                      ))}
+                      <tr className="bg-gray-50">
+                        <td colSpan={2} className="py-3 px-4 text-right text-sm font-bold border-r border-black">TOTAL BERAT:</td>
+                        <td className="py-3 px-4 text-center text-sm font-black border-r border-black">
+                          {(previewData.qty_grade_a || 0) + (previewData.qty_grade_b || 0) + (previewData.qty_grade_c || 0) + (previewData.qty_grade_baby || 0)} Kg
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row justify-between text-center mt-12 gap-8">
+                  <div className="w-full sm:w-1/3">
+                    <p className="text-sm mb-16">Penerima,</p>
+                    <p className="text-sm font-bold border-b border-black pb-1 inline-block min-w-[150px]"></p>
+                    <p className="text-xs mt-1 text-gray-500">(Nama Jelas & Cap)</p>
+                  </div>
+                  <div className="w-full sm:w-1/3">
+                    <p className="text-sm mb-16">Pengantar / Sopir,</p>
+                    <p className="text-sm font-bold border-b border-black pb-1 inline-block min-w-[150px] uppercase">{previewData.supir || ''}</p>
+                    <p className="text-xs mt-1 text-gray-500">(Tanda Tangan)</p>
+                  </div>
+                  <div className="w-full sm:w-1/3">
+                    <p className="text-sm mb-16">Hormat Kami,</p>
+                    <p className="text-sm font-bold border-b border-black pb-1 inline-block min-w-[150px]">Gudang MinBun</p>
+                    <p className="text-xs mt-1 text-gray-500">(Bagian Pengiriman)</p>
+                  </div>
+                </div>
               </div>
-              
-              <div className="flex flex-col sm:flex-row justify-between text-center mt-12 gap-8">
-                <div className="w-full sm:w-1/3">
-                  <p className="text-sm mb-16">Penerima,</p>
-                  <p className="text-sm font-bold border-b border-black pb-1 inline-block min-w-[150px]"></p>
-                  <p className="text-xs mt-1 text-gray-500">(Nama Jelas & Cap)</p>
-                </div>
-                <div className="w-full sm:w-1/3">
-                  <p className="text-sm mb-16">Pengantar / Sopir,</p>
-                  <p className="text-sm font-bold border-b border-black pb-1 inline-block min-w-[150px] uppercase">{previewData.supir || ''}</p>
-                  <p className="text-xs mt-1 text-gray-500">(Tanda Tangan)</p>
-                </div>
-                <div className="w-full sm:w-1/3">
-                  <p className="text-sm mb-16">Hormat Kami,</p>
-                  <p className="text-sm font-bold border-b border-black pb-1 inline-block min-w-[150px]">Gudang MinBun</p>
-                  <p className="text-xs mt-1 text-gray-500">(Bagian Pengiriman)</p>
-                </div>
-              </div>
-            </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>
