@@ -17,7 +17,6 @@ const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n || 0)
 export default function PengirimanPage() {
   const { pengirimans, sortirs, addPengiriman, updatePengiriman, isLoading, buyers = [] } = useInventory();
   
-  // State untuk form DO (Tahap 1)
   const [isDoOpen, setIsDoOpen] = useState(false);
   const [doForm, setDoForm] = useState({ 
     tanggal: todayWibStr().slice(0, 10),
@@ -29,7 +28,6 @@ export default function PengirimanPage() {
     qty_grade_baby: "" 
   });
 
-  // State untuk form SJ / Penugasan Supir (Tahap 2)
   const [isSjOpen, setIsSjOpen] = useState(false);
   const [selectedDo, setSelectedDo] = useState<any>(null);
   const [sjForm, setSjForm] = useState({ supir: "", plat_nomor: "" });
@@ -38,9 +36,6 @@ export default function PengirimanPage() {
 
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
 
-  // =========================================================================
-  // LOGIKA SINKRONISASI STOK REAL-TIME
-  // =========================================================================
   const totalMasuk = {
     a: sortirs.reduce((sum, s: any) => sum + (s.grade_a || 0), 0),
     b: sortirs.reduce((sum, s: any) => sum + (s.grade_b || 0), 0),
@@ -75,9 +70,6 @@ export default function PengirimanPage() {
   const hasInput = inputA > 0 || inputB > 0 || inputC > 0 || inputBaby > 0;
   const isDoFormValid = isValidA && isValidB && isValidC && isValidBaby && hasInput && doForm.buyer_id !== "";
 
-  // =========================================================================
-  // GENERATOR ID
-  // =========================================================================
   const generateSJId = (dateStr: string) => {
     const ym = dateStr.slice(2, 10).replace(/-/g, ""); 
     const prefix = `SJ-${ym}-`;
@@ -92,9 +84,6 @@ export default function PengirimanPage() {
     return `${prefix}${String(todayDO.length + 1).padStart(3, "0")}`;
   };
 
-  // =========================================================================
-  // HANDLER SUBMIT TAHAP 1: PEMBUATAN DO
-  // =========================================================================
   const handleDoSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isDoFormValid) return toast.error("Periksa kembali form DO. Stok tidak mencukupi atau pembeli kosong!");
@@ -113,7 +102,7 @@ export default function PengirimanPage() {
         qty_grade_b: inputB,
         qty_grade_c: inputC,
         qty_grade_baby: inputBaby,
-        // Supir, Plat Nomor, dan SJ ID dibiarkan kosong (Tahap 1)
+        qty_campur: 0, // Form manual DO difokuskan untuk barang gudang/sortir
         supir: "",
         plat_nomor: "",
         sj_id: ""
@@ -127,16 +116,12 @@ export default function PengirimanPage() {
     }
   };
 
-  // =========================================================================
-  // HANDLER SUBMIT TAHAP 2: PENUGASAN SUPIR (BUAT SJ)
-  // =========================================================================
   const handleSjSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDo || !sjForm.supir || !sjForm.plat_nomor) return toast.error("Lengkapi data supir dan plat nomor!");
 
     try {
       const newSjId = generateSJId(selectedDo.tanggal);
-
       await updatePengiriman(selectedDo.id, {
         sj_id: newSjId,
         supir: sjForm.supir,
@@ -159,11 +144,13 @@ export default function PengirimanPage() {
     const matchedBuyer = buyers.find((b: any) => b.id === d.buyer);
     const namaTujuan = matchedBuyer ? matchedBuyer.nama : (d.tujuan || "Tidak Diketahui");
 
+    // 👇 qty_campur KINI AKAN MUNCUL DI BARIS PDF 👇
     const items = [
       { name: "Kentang Segar - Grade A", qty: d.qty_grade_a || 0 },
       { name: "Kentang Segar - Grade B", qty: d.qty_grade_b || 0 },
       { name: "Kentang Segar - Grade C", qty: d.qty_grade_c || 0 },
       { name: "Kentang Segar - Baby", qty: d.qty_grade_baby || 0 },
+      { name: "Kentang Segar - Campur (Karungan)", qty: d.qty_campur || 0 }, 
     ].filter(item => item.qty > 0);
 
     const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
@@ -301,7 +288,8 @@ export default function PengirimanPage() {
               </thead>
               <tbody>
                 {pengirimans.map(p => {
-                  const totalBerat = (p.qty_grade_a || 0) + (p.qty_grade_b || 0) + (p.qty_grade_c || 0) + (p.qty_grade_baby || 0);
+                  // 👇 TOTAL BERAT KINI MENCAKUP qty_campur 👇
+                  const totalBerat = (p.qty_grade_a || 0) + (p.qty_grade_b || 0) + (p.qty_grade_c || 0) + (p.qty_grade_baby || 0) + (p.qty_campur || 0);
                   const pAny = p as any;
                   
                   const matchedBuyer = buyers.find((b: any) => b.id === p.buyer);
@@ -317,7 +305,11 @@ export default function PengirimanPage() {
                         </div>
                       </td>
                       <td className="p-4 align-top pt-5">{p.tanggal.slice(0,10)}</td>
-                      <td className="p-4 align-top pt-5 font-semibold uppercase">{displayTujuan}</td>
+                      <td className="p-4 align-top pt-5 font-semibold uppercase">
+                        {displayTujuan} 
+                        {/* Label Badge untuk barang Campur Cross-Docking */}
+                        {(p.qty_campur || 0) > 0 && <span className="ml-2 bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded-full border border-purple-200">Cross-Docking</span>}
+                      </td>
                       <td className="p-4 align-top pt-5 font-semibold">{formatKg(totalBerat)}</td>
                       <td className="p-4 align-top pt-4">
                         {hasSj ? (
@@ -359,9 +351,6 @@ export default function PengirimanPage() {
         </CardContent>
       </Card>
 
-      {/* ========================================================================= */}
-      {/* TAHAP 1: MODAL BUAT DO (STOK BERKURANG) */}
-      {/* ========================================================================= */}
       <Dialog open={isDoOpen} onOpenChange={setIsDoOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -396,7 +385,7 @@ export default function PengirimanPage() {
 
             <div className="space-y-3 bg-muted/30 p-4 rounded-lg border">
               <div className="flex justify-between items-end border-b pb-2">
-                <Label className="text-xs uppercase tracking-widest text-slate-600 font-bold">Rincian Barang Keluar (Memotong Stok)</Label>
+                <Label className="text-xs uppercase tracking-widest text-slate-600 font-bold">Rincian Barang Keluar (Memotong Stok Gudang)</Label>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
                 
@@ -448,9 +437,6 @@ export default function PengirimanPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ========================================================================= */}
-      {/* TAHAP 2: MODAL PENUGASAN SUPIR (BUAT SJ) */}
-      {/* ========================================================================= */}
       <Dialog open={isSjOpen} onOpenChange={setIsSjOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -479,7 +465,6 @@ export default function PengirimanPage() {
         </DialogContent>
       </Dialog>
 
-      {/* PRATINJAU SJ UI (Tetap Sama Persis) */}
       <Dialog open={!!previewData} onOpenChange={() => setPreviewData(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-4 border-b pb-4 sticky top-0 bg-background z-10">
@@ -536,6 +521,7 @@ export default function PengirimanPage() {
                         { name: "Kentang Segar - Grade B", qty: previewData.qty_grade_b || 0 },
                         { name: "Kentang Segar - Grade C", qty: previewData.qty_grade_c || 0 },
                         { name: "Kentang Segar - Baby", qty: previewData.qty_grade_baby || 0 },
+                        { name: "Kentang Segar - Campur (Karungan)", qty: previewData.qty_campur || 0 },
                       ].filter(item => item.qty > 0).map((item, index) => (
                         <tr key={index}>
                           <td className="py-1.5 px-2 border-b border-black text-xs text-center">{index + 1}</td>
@@ -547,7 +533,7 @@ export default function PengirimanPage() {
                       <tr className="bg-gray-50">
                         <td colSpan={2} className="py-1.5 px-2 text-right text-xs font-bold border-r border-black">TOTAL BERAT:</td>
                         <td className="py-1.5 px-2 text-center text-xs font-black border-r border-black">
-                          {(previewData.qty_grade_a || 0) + (previewData.qty_grade_b || 0) + (previewData.qty_grade_c || 0) + (previewData.qty_grade_baby || 0)} Kg
+                          {(previewData.qty_grade_a || 0) + (previewData.qty_grade_b || 0) + (previewData.qty_grade_c || 0) + (previewData.qty_grade_baby || 0) + (previewData.qty_campur || 0)} Kg
                         </td>
                         <td></td>
                       </tr>

@@ -9,19 +9,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ArrowDownToLine, Plus, ReceiptText, AlertCircle, CheckCircle2, Printer } from "lucide-react";
+import { ArrowDownToLine, Plus, AlertCircle, CheckCircle2, Printer } from "lucide-react";
 import { toast } from "sonner";
-import pb from "@/lib/pocketbase";
 
 const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n || 0)} Kg`;
 const formatRp = (n: number) => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(n || 0);
 
 export default function PembelianPage() {
-  const { bandars, pembelians, addPembelian, generatePembelianId, isLoading } = useInventory();
+  // 👇 KINI KITA MENARIK addPengiriman & pengirimans DARI CONTEXT 👇
+  const { bandars, pembelians, addPembelian, generatePembelianId, isLoading, addPengiriman, pengirimans } = useInventory();
   const [isOpen, setIsOpen] = useState(false);
   const [fileTf, setFileTf] = useState<File | null>(null);
-  
-  // State untuk Pratinjau Modal (UI Saja)
   const [previewData, setPreviewData] = useState<any>(null);
 
   const [form, setForm] = useState({ 
@@ -60,6 +58,14 @@ export default function PembelianPage() {
     autoStatus = "Menunggu Sortir";
   }
 
+  // GENERATOR ID DO OTOMATIS
+  const generateDOId = (dateStr: string) => {
+    const ym = dateStr.slice(2, 10).replace(/-/g, ""); 
+    const prefix = `DO-${ym}-`;
+    const todayDO = pengirimans.filter(p => p.batch_id?.startsWith(prefix));
+    return `${prefix}${String(todayDO.length + 1).padStart(3, "0")}`;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAlokasiValid) return toast.error("Total alokasi harus sama dengan Tonase Aktual!");
@@ -83,6 +89,7 @@ export default function PembelianPage() {
         total_harga: tLapangan * harga,
       };
 
+      // 1. Simpan Pembelian
       if (fileTf) {
         const formData = new FormData();
         for (const key in dataToSubmit) { formData.append(key, dataToSubmit[key]); }
@@ -92,28 +99,33 @@ export default function PembelianPage() {
         await addPembelian(dataToSubmit);
       }
 
-      toast.success("Barang masuk berhasil dicatat!"); 
+      // 2. JIKA ADA ALOKASI PASAR, BUATKAN DO OTOMATIS (CROSS-DOCKING)
+      if (qPasar > 0) {
+        const newDoId = generateDOId(form.tanggal);
+        await addPengiriman({
+          batch_id: newDoId,
+          tanggal: form.tanggal + " 00:00:00",
+          buyer: "", // Dikosongkan, karena ini drop ke pasar
+          tujuan: "PASAR INDUK (CROSS-DOCKING)", 
+          qty_campur: qPasar, // 👇 Disimpan sebagai qty_campur
+          qty_grade_a: 0, qty_grade_b: 0, qty_grade_c: 0, qty_grade_baby: 0,
+          supir: "", plat_nomor: "", sj_id: ""
+        } as any);
+      }
+
+      toast.success(qPasar > 0 ? "Barang masuk & DO otomatis berhasil dicatat!" : "Barang masuk berhasil dicatat!"); 
       setIsOpen(false);
       setFileTf(null);
       setForm({ ...form, tonase_lapangan: "", tonase_aktual: "", qty_gudang: "", qty_pasar: "", harga_per_kg: "" });
     } catch (err: any) { 
-      let errorMsg = "Gagal mencatat barang masuk.";
-      if (err.response?.data) {
-        const firstErrorKey = Object.keys(err.response.data)[0];
-        if (firstErrorKey) errorMsg = `Error di kolom '${firstErrorKey}': ${err.response.data[firstErrorKey].message}`;
-      }
-      toast.error(errorMsg); 
+      toast.error("Gagal mencatat data."); 
     }
   };
 
-  // =========================================================================
-  // LOGIKA CETAK PDF DIADAPTASI DARI HALAMAN MOU
-  // =========================================================================
   const handlePrint = (dataObj: any) => {
     const d = dataObj || previewData;
     if (!d) return;
 
-    // Membangun dokumen HTML virtual murni menggunakan CDN Tailwind
     const html = `
       <!DOCTYPE html>
       <html lang="id">
@@ -189,18 +201,14 @@ export default function PembelianPage() {
         </div>
 
         <script>
-          // Menunggu CDN Tailwind merender CSS, lalu otomatis buka dialog print
           window.onload = function() {
-            setTimeout(function() {
-              window.print();
-            }, 500);
+            setTimeout(function() { window.print(); }, 500);
           };
         </script>
       </body>
       </html>
     `;
 
-    // Menggunakan teknik Blob yang sama dengan halaman MoU
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const w = window.open(url, "_blank");
@@ -213,7 +221,7 @@ export default function PembelianPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><ArrowDownToLine className="h-6 w-6 text-primary"/> Barang Masuk</h1>
-          <p className="text-sm text-muted-foreground mt-1">Penerimaan barang komoditas dari Bandar dan Petani.</p>
+          <p className="text-sm text-muted-foreground mt-1">Penerimaan dari Bandar ke Gudang atau Langsung Pasar Induk.</p>
         </div>
         <Button onClick={() => setIsOpen(true)}><Plus className="h-4 w-4 mr-2"/> Terima Barang</Button>
       </div>
@@ -264,7 +272,6 @@ export default function PembelianPage() {
         </CardContent>
       </Card>
 
-      {/* FORM MODAL - BARANG MASUK */}
       <Dialog open={isOpen} onOpenChange={(open) => { setIsOpen(open); if (!open) setFileTf(null); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Terima Barang dari Bandar</DialogTitle></DialogHeader>
