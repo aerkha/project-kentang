@@ -15,8 +15,6 @@ import { toast } from "sonner";
 const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n || 0)} Kg`;
 
 export default function PengirimanPage() {
-  // 👇 Menambahkan 'buyers' (Daftar Pembeli/Mitra) dari context
-  // Catatan: Jika di context Anda namanya 'mitras', ganti 'buyers' menjadi 'mitras'
   const { pengirimans, sortirs, addPengiriman, isLoading, buyers = [] } = useInventory();
   
   const [isOpen, setIsOpen] = useState(false);
@@ -24,7 +22,7 @@ export default function PengirimanPage() {
 
   const [form, setForm] = useState({ 
     tanggal: todayWibStr().slice(0, 10), 
-    buyer_id: "", // Menyimpan ID Relasi Pembeli
+    buyer_id: "", 
     supir: "",
     plat_nomor: "",
     qty_grade_a: "", 
@@ -87,24 +85,22 @@ export default function PengirimanPage() {
 
     try {
       const newSjId = generateSJId(form.tanggal);
-      
-      // Ambil nama pembeli untuk disimpan sebagai backup teks di kolom tujuan (opsional tapi disarankan)
       const selectedBuyer = buyers.find((b: any) => b.id === form.buyer_id);
       const buyerName = selectedBuyer ? selectedBuyer.nama : "";
 
       await addPengiriman({
         sj_id: newSjId,
         tanggal: form.tanggal + " 00:00:00",
-        buyer: form.buyer_id,        // ID Relasi untuk PocketBase
-        tujuan: buyerName,           // Backup teks nama pembeli
-        batch_id: "PENGIRIMAN-UMUM", // Mandatory field bawaan interface
+        buyer: form.buyer_id,        
+        tujuan: buyerName,           
+        batch_id: "PENGIRIMAN-UMUM", 
         supir: form.supir,
         plat_nomor: form.plat_nomor,
         qty_grade_a: inputA,
         qty_grade_b: inputB,
         qty_grade_c: inputC,
-        qty_grade_baby: inputBaby,
-        status: "Terkirim"
+        qty_grade_baby: inputBaby
+        // Kolom status SUDAH DIHAPUS DARI SINI
       } as any);
 
       toast.success("Surat Jalan berhasil dibuat!"); 
@@ -124,7 +120,6 @@ export default function PengirimanPage() {
     const d = dataObj || previewData;
     if (!d) return;
 
-    // Cari nama pembeli dari context buyers berdasarkan ID Relasinya
     const matchedBuyer = buyers.find((b: any) => b.id === d.buyer);
     const namaTujuan = matchedBuyer ? matchedBuyer.nama : (d.tujuan || "Tidak Diketahui");
 
@@ -271,7 +266,6 @@ export default function PengirimanPage() {
                   const totalBerat = (p.qty_grade_a || 0) + (p.qty_grade_b || 0) + (p.qty_grade_c || 0) + (p.qty_grade_baby || 0);
                   const pAny = p as any;
                   
-                  // Cari nama pembeli dari context buyers
                   const matchedBuyer = buyers.find((b: any) => b.id === p.buyer);
                   const displayTujuan = matchedBuyer ? matchedBuyer.nama : (p.tujuan || p.buyer);
 
@@ -313,7 +307,6 @@ export default function PengirimanPage() {
               <div className="space-y-1"><Label>Tanggal Pengiriman</Label><Input type="date" value={form.tanggal} onChange={e=>setForm({...form, tanggal: e.target.value})} required/></div>
               <div className="space-y-1">
                 <Label>Tujuan (Pembeli / Mitra)</Label>
-                {/* 👇 MENGGUNAKAN DROPDOWN SELECT UNTUK RELASI 👇 */}
                 <Select value={form.buyer_id} onValueChange={v=>setForm({...form, buyer_id: v})} required>
                   <SelectTrigger className={form.buyer_id ? "" : "border-red-300 ring-red-100"}>
                     <SelectValue placeholder="Pilih Mitra/Pembeli" />
@@ -390,7 +383,6 @@ export default function PengirimanPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Pratinjau SJ UI Sama persis dengan versi sebelumnya */}
       <Dialog open={!!previewData} onOpenChange={() => setPreviewData(null)}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-4 border-b pb-4 sticky top-0 bg-background z-10">
