@@ -25,28 +25,32 @@ export default function SortirPage() {
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
   const unSorted = pembelians.filter(p => p.status === "Menunggu Sortir");
 
-  // 1. Hitung Total Kentang Mentah yang masuk ke Gudang
-  const totalMentahMasuk = pembelians.reduce((sum, p) => sum + (p.tonase_gudang || 0), 0);
+  // 1. Ambil data pembelian/batch yang sedang dipilih di form
+  const selectedPembelian = pembelians.find((p: any) => p.id === form.pembelian_id);
+  const mentahBatch = selectedPembelian?.tonase_gudang || 0;
 
-  // 2. Hitung Total Kentang yang SUDAH disortir sejauh ini (Semua Grade + Susut)
-  const totalSudahDisortir = sortirs.reduce((sum, s: any) => {
-    return sum + (s.grade_a || 0) + (s.grade_b || 0) + (s.grade_c || 0) + (s.grade_baby || 0) + (s.susut || 0);
+  // 2. Filter riwayat sortir yang menggunakan pembelian_id yang sama persis
+  const sortedInBatch = sortirs.filter((s: any) => s.pembelian_id === form.pembelian_id);
+
+  // 3. Hitung total yang sudah disortir (Grade + Reject/Susut) pada batch ini sebelumnya
+  const totalSudahDisortirBatch = sortedInBatch.reduce((sum, s: any) => {
+    return sum + (s.grade_a || 0) + (s.grade_b || 0) + (s.grade_c || 0) + (s.grade_baby || 0) + (s.reject || s.susut || 0);
   }, 0);
 
-  // 3. Sisa Kentang Mentah yang belum disortir
-  const sisaBelumDisortir = Math.max(0, totalMentahMasuk - totalSudahDisortir);
+  // 4. Sisa kentang mentah murni untuk batch ini
+  const sisaBelumDisortir = Math.max(0, mentahBatch - totalSudahDisortirBatch);
 
-  // 4. Hitung Inputan Form Saat Ini
+  // 5. Kalkulasi inputan form sortir saat ini
   const inputA = parseFloat(form.grade_a) || 0;
   const inputB = parseFloat(form.grade_b) || 0;
   const inputC = parseFloat(form.grade_c) || 0;
   const inputBaby = parseFloat(form.grade_baby) || 0;
-  const inputSusut = parseFloat(form.grade_reject) || 0; // Jika Anda ada form pencatatan susut/buang
+  const inputReject = parseFloat(form.grade_reject) || 0;
   
-  const totalInputSekarang = inputA + inputB + inputC + inputBaby + inputSusut;
+  const totalInputSekarang = inputA + inputB + inputC + inputBaby + inputReject;
 
-  // 5. GUARD VALIDATOR
-  const isValidSortir = totalInputSekarang > 0 && totalInputSekarang <= sisaBelumDisortir;
+  // 6. Validasi Guard Per Batch
+  const isValidSortir = form.pembelian_id !== "" && totalInputSekarang > 0 && totalInputSekarang <= sisaBelumDisortir;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
