@@ -16,7 +16,9 @@ const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n || 0)
 const formatRp = (n: number) => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(n || 0);
 
 export default function PembelianPage() {
-  const { bandars, pembelians, addPembelian, generatePembelianId, isLoading, addPengiriman, pengirimans } = useInventory();
+  // 👇 TAMBAHKAN buyers = [] DARI CONTEXT 👇
+  const { bandars, pembelians, addPembelian, generatePembelianId, isLoading, addPengiriman, pengirimans, buyers = [] } = useInventory();
+  
   const [isOpen, setIsOpen] = useState(false);
   const [fileTf, setFileTf] = useState<File | null>(null);
   const [previewData, setPreviewData] = useState<any>(null);
@@ -29,7 +31,7 @@ export default function PembelianPage() {
     qty_gudang: "",    
     qty_pasar: "",     
     harga_per_kg: "",
-    tujuan_pasar: "" // 👇 State baru untuk menampung tujuan Cross-Docking
+    tujuan_pasar: "" // Akan menyimpan ID dari Master Data Buyer
   });
 
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
@@ -69,9 +71,8 @@ export default function PembelianPage() {
     e.preventDefault();
     if (!isAlokasiValid) return toast.error("Total alokasi harus sama dengan Tonase Aktual!");
     
-    // 👇 Validasi: Jika ada barang yang dikirim ke pasar, tujuan HARUS dipilih 👇
     if (qPasar > 0 && form.tujuan_pasar === "") {
-      return toast.error("Silakan pilih Pasar Tujuan untuk DO Cross-Docking!");
+      return toast.error("Silakan pilih Mitra/Buyer Tujuan untuk DO Cross-Docking!");
     }
 
     const bandar = bandars.find(b => b.id === form.bandar);
@@ -102,13 +103,17 @@ export default function PembelianPage() {
         await addPembelian(dataToSubmit);
       }
 
-      // DO OTOMATIS: Disesuaikan dengan pilihan dropdown Admin
+      // 👇 DO OTOMATIS: Kini tersinkron dengan Master Data Buyer 👇
       if (qPasar > 0) {
         const newDoId = generateDOId(form.tanggal);
+        const selectedBuyer = buyers.find((b: any) => b.id === form.tujuan_pasar);
+        const buyerName = selectedBuyer ? selectedBuyer.nama : "Cross-Docking";
+
         await addPengiriman({
           batch_id: newDoId,
           tanggal: form.tanggal + " 00:00:00",
-          tujuan: form.tujuan_pasar, // Menggunakan opsi dari form
+          buyer: form.tujuan_pasar, // Menyimpan ID relasi Master Buyer
+          tujuan: buyerName,        // Menyimpan Nama Buyer
           qty_campur: qPasar, 
           qty_grade_a: 0, 
           qty_grade_b: 0, 
@@ -231,7 +236,7 @@ export default function PembelianPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><ArrowDownToLine className="h-6 w-6 text-primary"/> Barang Masuk</h1>
-          <p className="text-sm text-muted-foreground mt-1">Pembelian komoditas dari supplier/petani.</p>
+          <p className="text-sm text-muted-foreground mt-1">Penbelian komoditas dari supplier/petani</p>
         </div>
         <Button onClick={() => setIsOpen(true)}><Plus className="h-4 w-4 mr-2"/> Terima Barang</Button>
       </div>
@@ -307,24 +312,27 @@ export default function PembelianPage() {
                 <div className="space-y-1"><Label>Alokasi: Langsung Kirim (Kg)</Label><Input type="number" value={form.qty_pasar} onChange={e=>setForm({...form, qty_pasar: e.target.value})} placeholder="0"/></div>
               </div>
 
-              {/* 👇 FIELD TUJUAN MUNCUL JIKA ADA ALOKASI KE PASAR 👇 */}
+              {/* 👇 OPSI TUJUAN KINI MENARIK DARI MASTER DATA BUYER 👇 */}
               {qPasar > 0 && (
                 <div className="pt-3 border-t mt-2 space-y-2">
                   <Label className="text-purple-700 font-bold flex items-center gap-1.5">
-                    <Truck className="w-4 h-4"/> Tujuan Pasar Induk (Cross-Docking) <span className="text-destructive">*</span>
+                    <Truck className="w-4 h-4"/> Tujuan Cross-Docking (Mitra/Pasar) <span className="text-destructive">*</span>
                   </Label>
                   <Select value={form.tujuan_pasar} onValueChange={v=>setForm({...form, tujuan_pasar: v})} required>
                     <SelectTrigger className="border-purple-300 bg-purple-50 text-purple-900 font-medium">
-                      <SelectValue placeholder="Pilih Pasar Tujuan DO"/>
+                      <SelectValue placeholder="Pilih Mitra/Pembeli Tujuan"/>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Pasar Induk Caringin">Pasar Induk Caringin</SelectItem>
-                      <SelectItem value="Pasar Induk Kramat Jati">Pasar Induk Kramat Jati</SelectItem>
-                      <SelectItem value="Pasar Induk Cibitung">Pasar Induk Cibitung</SelectItem>
-                      <SelectItem value="Pasar Induk Tanah Tinggi">Pasar Induk Tanah Tinggi</SelectItem>
+                      {buyers.length === 0 ? (
+                        <SelectItem value="empty" disabled>Belum ada data Master Buyer</SelectItem>
+                      ) : (
+                        buyers.map((b: any) => (
+                          <SelectItem key={b.id} value={b.id}>{b.nama}</SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
-                  <p className="text-[10.5px] text-muted-foreground italic">Pilihan ini akan otomatis membuat Delivery Order (DO) ke pasar yang dituju.</p>
+                  <p className="text-[10.5px] text-muted-foreground italic">Pilihan ini akan otomatis membuat Delivery Order (DO) atas nama pembeli ini.</p>
                 </div>
               )}
 
