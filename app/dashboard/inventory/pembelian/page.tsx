@@ -20,8 +20,6 @@ export default function PembelianPage() {
   const { bandars, pembelians, addPembelian, generatePembelianId, isLoading } = useInventory();
   const [isOpen, setIsOpen] = useState(false);
   const [fileTf, setFileTf] = useState<File | null>(null);
-  
-  // State untuk menyimpan data yang akan dicetak
   const [printData, setPrintData] = useState<any>(null);
 
   const [form, setForm] = useState({ 
@@ -106,14 +104,12 @@ export default function PembelianPage() {
     }
   };
 
-  // Fungsi untuk memicu print browser
   const handlePrint = () => {
     window.print();
   };
 
   return (
     <div className="space-y-6">
-      {/* Tombol Halaman (Hanya Tampil di Layar, Hilang Saat Print) */}
       <div className="flex justify-between items-center print:hidden">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><ArrowDownToLine className="h-6 w-6 text-primary"/> Barang Masuk</h1>
@@ -122,7 +118,6 @@ export default function PembelianPage() {
         <Button onClick={() => setIsOpen(true)}><Plus className="h-4 w-4 mr-2"/> Terima Barang</Button>
       </div>
 
-      {/* Tabel Utama (Hanya Tampil di Layar, Hilang Saat Print) */}
       <Card className="print:hidden">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -169,7 +164,6 @@ export default function PembelianPage() {
         </CardContent>
       </Card>
 
-      {/* MODAL FORM INPUT (Hidden on Print) */}
       <Dialog open={isOpen} onOpenChange={(open) => { setIsOpen(open); if (!open) setFileTf(null); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto print:hidden">
           <DialogHeader><DialogTitle>Terima Barang dari Bandar</DialogTitle></DialogHeader>
@@ -225,10 +219,8 @@ export default function PembelianPage() {
       </Dialog>
 
       {/* ================================================================= */}
-      {/* AREA PRINT NOTA (Hanya tampil di dalam modal atau saat diprint) */}
+      {/* AREA PRINT NOTA */}
       {/* ================================================================= */}
-      
-      {/* CSS Khusus agar area ini tercetak layar penuh saat window.print() dipanggil */}
       <style dangerouslySetInnerHTML={{__html: `
         @media print {
           body * { visibility: hidden; }
@@ -238,71 +230,73 @@ export default function PembelianPage() {
         }
       `}} />
 
+      {/* 👇 TAMBAHAN max-h-[90vh] dan overflow-y-auto PADA DIALOG INI 👇 */}
       <Dialog open={!!printData} onOpenChange={() => setPrintData(null)}>
-        <DialogContent className="max-w-3xl print-hide">
-          <div className="flex justify-between items-center mb-4 border-b pb-4">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto print-hide">
+          <div className="flex justify-between items-center mb-4 border-b pb-4 sticky top-0 bg-background z-10">
             <DialogTitle>Pratinjau Nota Terima</DialogTitle>
             <Button onClick={handlePrint} className="bg-blue-600 hover:bg-blue-700"><Printer className="w-4 h-4 mr-2"/> Print / PDF</Button>
           </div>
           
-          {/* Bagian ini yang akan ditangkap oleh printer */}
           {printData && (
-            <div id="print-area" className="bg-white text-black p-8 font-sans border rounded-lg shadow-sm">
-              <div className="flex justify-between items-start border-b-2 border-black pb-4 mb-6">
-                <div>
-                  <h1 className="text-3xl font-black tracking-tight uppercase">MINBUN ERP</h1>
+            <div id="print-area" className="bg-white text-black p-6 sm:p-8 font-sans border rounded-lg shadow-sm">
+              <div className="flex flex-col sm:flex-row justify-between items-start border-b-2 border-black pb-4 mb-6">
+                <div className="mb-4 sm:mb-0">
+                  <h1 className="text-2xl sm:text-3xl font-black tracking-tight uppercase">MINBUN ERP</h1>
                   <p className="text-sm text-gray-600">Distributor Komoditas Hasil Bumi</p>
                 </div>
-                <div className="text-right">
-                  <h2 className="text-2xl font-bold text-gray-800 uppercase tracking-widest">Nota Terima</h2>
+                <div className="sm:text-right">
+                  <h2 className="text-xl sm:text-2xl font-bold text-gray-800 uppercase tracking-widest">Nota Terima</h2>
                   <p className="text-sm font-mono mt-1 text-gray-600">ID: {printData.batch_id}</p>
                   <p className="text-sm text-gray-600">Tanggal: {new Date(printData.tanggal).toLocaleDateString("id-ID", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                 </div>
               </div>
 
-              <div className="mb-8">
+              <div className="mb-6">
                 <p className="text-sm text-gray-600 mb-1">Diterima dari Bandar:</p>
                 <p className="text-lg font-bold">{printData.bndr?.nama || "Tidak Diketahui"}</p>
                 <p className="text-sm text-gray-600">Kode Bandar: {printData.bndr?.kode || "-"}</p>
               </div>
 
-              <table className="w-full mb-8 border-collapse">
-                <thead>
-                  <tr className="bg-gray-100 border-y-2 border-black">
-                    <th className="py-3 px-4 text-left text-sm font-bold w-10">No</th>
-                    <th className="py-3 px-4 text-left text-sm font-bold">Keterangan</th>
-                    <th className="py-3 px-4 text-right text-sm font-bold">Berat (Kg)</th>
-                    <th className="py-3 px-4 text-right text-sm font-bold">Harga/Kg</th>
-                    <th className="py-3 px-4 text-right text-sm font-bold">Total Harga</th>
-                  </tr>
-                </thead>
-                <tbody className="border-b-2 border-black">
-                  <tr>
-                    <td className="py-4 px-4 text-sm">1</td>
-                    <td className="py-4 px-4 text-sm">Kentang Segar (Informasi Lapangan)</td>
-                    <td className="py-4 px-4 text-right text-sm font-medium">{printData.tonase_lapangan} Kg</td>
-                    <td className="py-4 px-4 text-right text-sm font-medium">{formatRp(printData.harga_per_kg)}</td>
-                    <td className="py-4 px-4 text-right text-sm font-bold">{formatRp(printData.total_harga)}</td>
-                  </tr>
-                </tbody>
-              </table>
+              <div className="overflow-x-auto mb-6">
+                <table className="w-full min-w-[500px] border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100 border-y-2 border-black">
+                      <th className="py-2 px-3 text-left text-sm font-bold w-10">No</th>
+                      <th className="py-2 px-3 text-left text-sm font-bold">Keterangan</th>
+                      <th className="py-2 px-3 text-right text-sm font-bold">Berat (Kg)</th>
+                      <th className="py-2 px-3 text-right text-sm font-bold">Harga/Kg</th>
+                      <th className="py-2 px-3 text-right text-sm font-bold">Total Harga</th>
+                    </tr>
+                  </thead>
+                  <tbody className="border-b-2 border-black">
+                    <tr>
+                      <td className="py-3 px-3 text-sm">1</td>
+                      <td className="py-3 px-3 text-sm">Kentang Segar (Info Lapangan)</td>
+                      <td className="py-3 px-3 text-right text-sm font-medium">{printData.tonase_lapangan} Kg</td>
+                      <td className="py-3 px-3 text-right text-sm font-medium">{formatRp(printData.harga_per_kg)}</td>
+                      <td className="py-3 px-3 text-right text-sm font-bold">{formatRp(printData.total_harga)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
 
-              <div className="flex justify-between items-start mt-12">
-                <div className="text-xs text-gray-500 w-1/2">
+              <div className="flex flex-col sm:flex-row justify-between items-start mt-8 gap-8">
+                <div className="text-xs text-gray-500 w-full sm:w-1/2">
                   <p className="font-semibold text-gray-700 mb-1">Catatan Operasional:</p>
                   <p>Tonase Timbang Aktual Gudang: {printData.total_aktual} Kg</p>
                   <p>Masuk Gudang: {printData.tonase_gudang} Kg | Langsung Pasar: {printData.tonase_langsung || 0} Kg</p>
                   <p className="mt-2 italic">*Nota ini sah sebagai bukti penerimaan barang dan dasar perhitungan pembayaran.</p>
                 </div>
                 
-                <div className="flex gap-16 text-center">
+                <div className="flex gap-8 sm:gap-16 text-center w-full sm:w-auto justify-around sm:justify-end">
                   <div>
-                    <p className="text-sm mb-16">Pihak Bandar</p>
-                    <p className="text-sm font-bold border-b border-black pb-1 inline-block min-w-[120px]">{printData.bndr?.nama}</p>
+                    <p className="text-sm mb-12 sm:mb-16">Pihak Bandar</p>
+                    <p className="text-sm font-bold border-b border-black pb-1 inline-block min-w-[100px] sm:min-w-[120px]">{printData.bndr?.nama}</p>
                   </div>
                   <div>
-                    <p className="text-sm mb-16">Admin MinBun</p>
-                    <p className="text-sm font-bold border-b border-black pb-1 inline-block min-w-[120px]">_____________</p>
+                    <p className="text-sm mb-12 sm:mb-16">Admin MinBun</p>
+                    <p className="text-sm font-bold border-b border-black pb-1 inline-block min-w-[100px] sm:min-w-[120px]">_____________</p>
                   </div>
                 </div>
               </div>
