@@ -47,8 +47,17 @@ export default function SortirPage() {
       toast.success("Hasil sortir berhasil dicatat!"); 
       setIsOpen(false);
       setForm({ ...form, pembelian_id: "", grade_a: "", grade_b: "", grade_c: "", grade_baby: "", grade_reject: "" });
-    } catch { 
-      toast.error("Gagal mencatat data sortir."); 
+    } catch (err: any) {
+      // 👇 RADAR ERROR AKTIF 👇
+      console.error("PocketBase Error Detail Sortir:", err.response?.data);
+      let errorMsg = "Gagal mencatat data sortir.";
+      if (err.response?.data) {
+        const firstErrorKey = Object.keys(err.response.data)[0];
+        if (firstErrorKey) {
+          errorMsg = `Error DB (Kolom '${firstErrorKey}'): ${err.response.data[firstErrorKey].message}`;
+        }
+      }
+      toast.error(errorMsg);
     }
   };
 
