@@ -25,6 +25,29 @@ export default function SortirPage() {
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
   const unSorted = pembelians.filter(p => p.status === "Menunggu Sortir");
 
+  // 1. Hitung Total Kentang Mentah yang masuk ke Gudang
+  const totalMentahMasuk = pembelians.reduce((sum, p) => sum + (p.tonase_gudang || 0), 0);
+
+  // 2. Hitung Total Kentang yang SUDAH disortir sejauh ini (Semua Grade + Susut)
+  const totalSudahDisortir = sortirs.reduce((sum, s: any) => {
+    return sum + (s.grade_a || 0) + (s.grade_b || 0) + (s.grade_c || 0) + (s.grade_baby || 0) + (s.susut || 0);
+  }, 0);
+
+  // 3. Sisa Kentang Mentah yang belum disortir
+  const sisaBelumDisortir = Math.max(0, totalMentahMasuk - totalSudahDisortir);
+
+  // 4. Hitung Inputan Form Saat Ini
+  const inputA = parseFloat(form.grade_a) || 0;
+  const inputB = parseFloat(form.grade_b) || 0;
+  const inputC = parseFloat(form.grade_c) || 0;
+  const inputBaby = parseFloat(form.grade_baby) || 0;
+  const inputSusut = parseFloat(form.grade_reject) || 0; // Jika Anda ada form pencatatan susut/buang
+  
+  const totalInputSekarang = inputA + inputB + inputC + inputBaby + inputSusut;
+
+  // 5. GUARD VALIDATOR
+  const isValidSortir = totalInputSekarang > 0 && totalInputSekarang <= sisaBelumDisortir;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const pb = pembelians.find(p => p.id === form.pembelian_id);
@@ -151,7 +174,18 @@ export default function SortirPage() {
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>Catat Hasil Sortir & Grade</DialogTitle></DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-6 mt-2">
+            <div className="bg-blue-50 border border-blue-200 p-3 rounded-md mb-4 flex justify-between items-center">
+              <span className="text-sm text-blue-800 font-medium">Sisa Komoditas Siap Sortir:</span>
+              <span className="text-lg font-bold text-blue-900">{sisaBelumDisortir} Kg</span>
+            </div>
+
+            {totalInputSekarang > sisaBelumDisortir && (
+              <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                Input hasil sortir ({totalInputSekarang} Kg) melebihi stok mentah di gudang!
+              </div>
+            )}
             <div className="space-y-1"><Label>Batch Belum Sortir</Label>
               <Select value={form.pembelian_id} onValueChange={v=>setForm({...form, pembelian_id: v})} required>
                 <SelectTrigger><SelectValue placeholder="Pilih Batch Pembelian" /></SelectTrigger>
@@ -170,7 +204,11 @@ export default function SortirPage() {
               </div>
             </div>
             
-            <DialogFooter><Button type="submit" className="bg-amber-600 hover:bg-amber-700">Simpan Sortir</Button></DialogFooter>
+            <DialogFooter>
+              <Button type="submit" disabled={!isValidSortir} className="bg-blue-600 hover:bg-blue-700">
+                {!isValidSortir && totalInputSekarang > 0 ? "Batas Stok Terlampaui!" : "Simpan Hasil Sortir"}
+              </Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
