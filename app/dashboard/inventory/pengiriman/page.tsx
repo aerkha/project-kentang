@@ -8,86 +8,125 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Truck, Plus, Printer } from "lucide-react";
+import { Truck, Plus, Printer, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n || 0)} Kg`;
 
 export default function PengirimanPage() {
-  const { pengirimans, addPengiriman, isLoading } = useInventory();
+  const { pengirimans, sortirs, addPengiriman, isLoading } = useInventory();
+  
   const [isOpen, setIsOpen] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
 
-  const [form, setForm] = useState({
-    tanggal: todayWibStr().slice(0, 10),
-    sj_id: "",
-    tujuan: "",
+  const [form, setForm] = useState({ 
+    tanggal: todayWibStr().slice(0, 10), 
+    tujuan: "", 
     supir: "",
     plat_nomor: "",
-    grade_a: "",
-    grade_b: "",
-    grade_c: "",
-    grade_baby: "",
+    qty_grade_a: "", 
+    qty_grade_b: "", 
+    qty_grade_c: "", 
+    qty_grade_baby: "" 
   });
 
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
 
-  // Fungsi generate ID Surat Jalan (Contoh: SJ-260713-001)
+  // =========================================================================
+  // LOGIKA SINKRONISASI STOK REAL-TIME
+  // =========================================================================
+  // 1. Hitung Total Masuk (Dari tabel Sortir menggunakan grade_x)
+  const totalMasuk = {
+    a: sortirs.reduce((sum, s: any) => sum + (s.grade_a || 0), 0),
+    b: sortirs.reduce((sum, s: any) => sum + (s.grade_b || 0), 0),
+    c: sortirs.reduce((sum, s: any) => sum + (s.grade_c || 0), 0),
+    baby: sortirs.reduce((sum, s: any) => sum + (s.grade_baby || 0), 0),
+  };
+
+  // 2. Hitung Total Keluar (Dari tabel Pengiriman menggunakan qty_grade_x)
+  const totalKeluar = {
+    a: pengirimans.reduce((sum, p) => sum + (p.qty_grade_a || 0), 0),
+    b: pengirimans.reduce((sum, p) => sum + (p.qty_grade_b || 0), 0),
+    c: pengirimans.reduce((sum, p) => sum + (p.qty_grade_c || 0), 0),
+    baby: pengirimans.reduce((sum, p) => sum + (p.qty_grade_baby || 0), 0),
+  };
+
+  // 3. Kalkulasi Stok Aktual Saat Ini
+  const stock = {
+    a: Math.max(0, totalMasuk.a - totalKeluar.a),
+    b: Math.max(0, totalMasuk.b - totalKeluar.b),
+    c: Math.max(0, totalMasuk.c - totalKeluar.c),
+    baby: Math.max(0, totalMasuk.baby - totalKeluar.baby),
+  };
+
+  // 4. Validasi Form Input
+  const inputA = parseFloat(form.qty_grade_a) || 0;
+  const inputB = parseFloat(form.qty_grade_b) || 0;
+  const inputC = parseFloat(form.qty_grade_c) || 0;
+  const inputBaby = parseFloat(form.qty_grade_baby) || 0;
+
+  const isValidA = inputA <= stock.a;
+  const isValidB = inputB <= stock.b;
+  const isValidC = inputC <= stock.c;
+  const isValidBaby = inputBaby <= stock.baby;
+  
+  const hasInput = inputA > 0 || inputB > 0 || inputC > 0 || inputBaby > 0;
+  const isFormValid = isValidA && isValidB && isValidC && isValidBaby && hasInput;
+
+  // =========================================================================
+
   const generateSJId = (dateStr: string) => {
     const ym = dateStr.slice(2, 10).replace(/-/g, ""); 
     const prefix = `SJ-${ym}-`;
-    const todaySJ = pengirimans.filter((p: any) => p.sj_id?.startsWith(prefix));
+    const todaySJ = pengirimans.filter(p => p.sj_id?.startsWith(prefix));
     return `${prefix}${String(todaySJ.length + 1).padStart(3, "0")}`;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isFormValid) return toast.error("Periksa kembali jumlah pengiriman. Stok tidak mencukupi!");
+
     try {
-      const a = parseFloat(form.grade_a) || 0;
-      const b = parseFloat(form.grade_b) || 0;
-      const c = parseFloat(form.grade_c) || 0;
-      const baby = parseFloat(form.grade_baby) || 0;
-      
-      if (a + b + c + baby === 0) return toast.error("Minimal satu grade harus diisi!");
-
       const newSjId = generateSJId(form.tanggal);
-
-      const payload = {
+      
+      // Dikirim dengan format ANY agar patuh 100% pada Interface bawaan Anda
+      await addPengiriman({
         sj_id: newSjId,
         tanggal: form.tanggal + " 00:00:00",
         tujuan: form.tujuan,
+        buyer: form.tujuan, // Menyesuaikan mandatory field di interface Anda
+        batch_id: "PENGIRIMAN-UMUM", // Menyesuaikan mandatory field di interface Anda
         supir: form.supir,
         plat_nomor: form.plat_nomor,
-        grade_a: a,
-        grade_b: b,
-        grade_c: c,
-        grade_baby: baby,
+        qty_grade_a: inputA,
+        qty_grade_b: inputB,
+        qty_grade_c: inputC,
+        qty_grade_baby: inputBaby,
         status: "Terkirim"
-      } as any;
-
-      await addPengiriman(payload);
+      } as any);
 
       toast.success("Surat Jalan berhasil dibuat!"); 
       setIsOpen(false);
-      setForm({ ...form, tujuan: "", supir: "", plat_nomor: "", grade_a: "", grade_b: "", grade_c: "", grade_baby: "" });
+      setForm({ ...form, tujuan: "", supir: "", plat_nomor: "", qty_grade_a: "", qty_grade_b: "", qty_grade_c: "", qty_grade_baby: "" });
     } catch (err: any) { 
-      toast.error("Gagal mencatat pengiriman. Cek kolom di PocketBase."); 
+      let errorMsg = "Gagal mencatat pengiriman.";
+      if (err.response?.data) {
+        const firstErrorKey = Object.keys(err.response.data)[0];
+        if (firstErrorKey) errorMsg = `Error di kolom '${firstErrorKey}': ${err.response.data[firstErrorKey].message}`;
+      }
+      toast.error(errorMsg); 
     }
   };
 
-  // =========================================================================
-  // LOGIKA CETAK SURAT JALAN (TANPA HARGA, DENGAN TAB BARU)
-  // =========================================================================
   const handlePrintSJ = (dataObj: any) => {
     const d = dataObj || previewData;
     if (!d) return;
 
-    // Filter baris barang yang jumlahnya > 0
     const items = [
-      { name: "Kentang Segar - Grade A", qty: d.grade_a || 0 },
-      { name: "Kentang Segar - Grade B", qty: d.grade_b || 0 },
-      { name: "Kentang Segar - Grade C", qty: d.grade_c || 0 },
-      { name: "Kentang Segar - Baby", qty: d.grade_baby || 0 },
+      { name: "Kentang Segar - Grade A", qty: d.qty_grade_a || 0 },
+      { name: "Kentang Segar - Grade B", qty: d.qty_grade_b || 0 },
+      { name: "Kentang Segar - Grade C", qty: d.qty_grade_c || 0 },
+      { name: "Kentang Segar - Baby", qty: d.qty_grade_baby || 0 },
     ].filter(item => item.qty > 0);
 
     const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
@@ -131,7 +170,7 @@ export default function PengirimanPage() {
         <div class="flex justify-between mb-6">
           <div class="w-1/2">
             <p class="text-sm text-gray-600 mb-1">Kepada Yth:</p>
-            <p class="text-lg font-bold uppercase">${d.tujuan}</p>
+            <p class="text-lg font-bold uppercase">${d.tujuan || d.buyer}</p>
           </div>
           <div class="w-1/2 text-right">
             <p class="text-sm text-gray-600 mb-1">Informasi Pengiriman:</p>
@@ -223,16 +262,16 @@ export default function PengirimanPage() {
               </thead>
               <tbody>
                 {pengirimans.map(p => {
+                  const totalBerat = (p.qty_grade_a || 0) + (p.qty_grade_b || 0) + (p.qty_grade_c || 0) + (p.qty_grade_baby || 0);
                   const pAny = p as any;
-                  const totalBerat = (pAny.grade_a || 0) + (pAny.grade_b || 0) + (pAny.grade_c || 0) + (pAny.grade_baby || 0);
                   return (
                     <tr key={p.id} className="border-b hover:bg-muted/30">
-                      <td className="p-4 font-mono text-blue-700 font-bold">{pAny.sj_id || '-'}</td>
+                      <td className="p-4 font-mono text-blue-700 font-bold">{p.sj_id || '-'}</td>
                       <td className="p-4">{p.tanggal.slice(0,10)}</td>
-                      <td className="p-4 font-semibold uppercase">{pAny.tujuan}</td>
+                      <td className="p-4 font-semibold uppercase">{p.tujuan || p.buyer}</td>
                       <td className="p-4">
                         <div className="flex flex-col">
-                          <span className="font-medium">{pAny.supir || '-'}</span>
+                          <span className="font-medium">{p.supir || '-'}</span>
                           <span className="text-xs text-muted-foreground uppercase">{pAny.plat_nomor || '-'}</span>
                         </div>
                       </td>
@@ -254,7 +293,6 @@ export default function PengirimanPage() {
         </CardContent>
       </Card>
 
-      {/* FORM MODAL - BUAT SURAT JALAN */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>Buat Surat Jalan Baru</DialogTitle></DialogHeader>
@@ -271,21 +309,59 @@ export default function PengirimanPage() {
             </div>
 
             <div className="space-y-3">
-              <Label className="text-xs uppercase tracking-widest text-muted-foreground">Rincian Barang Keluar (Isi yang dikirim saja)</Label>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="space-y-1"><Label>Grade A (Kg)</Label><Input type="number" value={form.grade_a} onChange={e=>setForm({...form, grade_a: e.target.value})} placeholder="0"/></div>
-                <div className="space-y-1"><Label>Grade B (Kg)</Label><Input type="number" value={form.grade_b} onChange={e=>setForm({...form, grade_b: e.target.value})} placeholder="0"/></div>
-                <div className="space-y-1"><Label>Grade C (Kg)</Label><Input type="number" value={form.grade_c} onChange={e=>setForm({...form, grade_c: e.target.value})} placeholder="0"/></div>
-                <div className="space-y-1"><Label>Baby (Kg)</Label><Input type="number" value={form.grade_baby} onChange={e=>setForm({...form, grade_baby: e.target.value})} placeholder="0"/></div>
+              <div className="flex justify-between items-end border-b pb-2">
+                <Label className="text-xs uppercase tracking-widest text-muted-foreground">Rincian Barang Keluar (Berdasarkan Stok Tersedia)</Label>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
+                
+                <div className="space-y-1.5">
+                  <Label>Grade A (Kg)</Label>
+                  <Input type="number" value={form.qty_grade_a} onChange={e=>setForm({...form, qty_grade_a: e.target.value})} placeholder="0" className={!isValidA ? "border-red-500 bg-red-50 focus-visible:ring-red-500" : ""} />
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-muted-foreground font-medium">Stok: {formatKg(stock.a)}</span>
+                    {!isValidA && <AlertTriangle className="w-3.5 h-3.5 text-red-600" />}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Grade B (Kg)</Label>
+                  <Input type="number" value={form.qty_grade_b} onChange={e=>setForm({...form, qty_grade_b: e.target.value})} placeholder="0" className={!isValidB ? "border-red-500 bg-red-50 focus-visible:ring-red-500" : ""} />
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-muted-foreground font-medium">Stok: {formatKg(stock.b)}</span>
+                    {!isValidB && <AlertTriangle className="w-3.5 h-3.5 text-red-600" />}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Grade C (Kg)</Label>
+                  <Input type="number" value={form.qty_grade_c} onChange={e=>setForm({...form, qty_grade_c: e.target.value})} placeholder="0" className={!isValidC ? "border-red-500 bg-red-50 focus-visible:ring-red-500" : ""} />
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-muted-foreground font-medium">Stok: {formatKg(stock.c)}</span>
+                    {!isValidC && <AlertTriangle className="w-3.5 h-3.5 text-red-600" />}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Baby (Kg)</Label>
+                  <Input type="number" value={form.qty_grade_baby} onChange={e=>setForm({...form, qty_grade_baby: e.target.value})} placeholder="0" className={!isValidBaby ? "border-red-500 bg-red-50 focus-visible:ring-red-500" : ""} />
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-muted-foreground font-medium">Stok: {formatKg(stock.baby)}</span>
+                    {!isValidBaby && <AlertTriangle className="w-3.5 h-3.5 text-red-600" />}
+                  </div>
+                </div>
+
               </div>
             </div>
 
-            <DialogFooter><Button type="submit" className="bg-blue-600 hover:bg-blue-700">Simpan & Buat Surat Jalan</Button></DialogFooter>
+            <DialogFooter>
+              <Button type="submit" disabled={!isFormValid} className="bg-blue-600 hover:bg-blue-700">
+                {!isFormValid && (inputA > 0 || inputB > 0 || inputC > 0 || inputBaby > 0) ? "Stok Kurang!" : "Simpan & Buat Surat Jalan"}
+              </Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* MODAL PRATINJAU SJ (UI) */}
       <Dialog open={!!previewData} onOpenChange={() => setPreviewData(null)}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-4 border-b pb-4 sticky top-0 bg-background z-10">
@@ -312,7 +388,7 @@ export default function PengirimanPage() {
               <div className="flex flex-col sm:flex-row justify-between mb-6 gap-4">
                 <div className="w-full sm:w-1/2">
                   <p className="text-sm text-gray-600 mb-1">Kepada Yth:</p>
-                  <p className="text-lg font-bold uppercase">{previewData.tujuan}</p>
+                  <p className="text-lg font-bold uppercase">{previewData.tujuan || previewData.buyer}</p>
                 </div>
                 <div className="w-full sm:w-1/2 sm:text-right">
                   <p className="text-sm text-gray-600 mb-1">Informasi Pengiriman:</p>
@@ -333,10 +409,10 @@ export default function PengirimanPage() {
                   </thead>
                   <tbody>
                     {[
-                      { name: "Kentang Segar - Grade A", qty: previewData.grade_a || 0 },
-                      { name: "Kentang Segar - Grade B", qty: previewData.grade_b || 0 },
-                      { name: "Kentang Segar - Grade C", qty: previewData.grade_c || 0 },
-                      { name: "Kentang Segar - Baby", qty: previewData.grade_baby || 0 },
+                      { name: "Kentang Segar - Grade A", qty: previewData.qty_grade_a || 0 },
+                      { name: "Kentang Segar - Grade B", qty: previewData.qty_grade_b || 0 },
+                      { name: "Kentang Segar - Grade C", qty: previewData.qty_grade_c || 0 },
+                      { name: "Kentang Segar - Baby", qty: previewData.qty_grade_baby || 0 },
                     ].filter(item => item.qty > 0).map((item, index) => (
                       <tr key={index}>
                         <td className="py-3 px-4 border-b border-black text-sm text-center">{index + 1}</td>
@@ -348,7 +424,7 @@ export default function PengirimanPage() {
                     <tr className="bg-gray-50">
                       <td colSpan={2} className="py-3 px-4 text-right text-sm font-bold border-r border-black">TOTAL BERAT:</td>
                       <td className="py-3 px-4 text-center text-sm font-black border-r border-black">
-                        {(previewData.grade_a || 0) + (previewData.grade_b || 0) + (previewData.grade_c || 0) + (previewData.grade_baby || 0)} Kg
+                        {(previewData.qty_grade_a || 0) + (previewData.qty_grade_b || 0) + (previewData.qty_grade_c || 0) + (previewData.qty_grade_baby || 0)} Kg
                       </td>
                       <td></td>
                     </tr>
