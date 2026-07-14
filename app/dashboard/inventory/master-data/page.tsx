@@ -7,43 +7,39 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Database, Users, Building2, Plus } from "lucide-react";
+import { Database, Users, Building2, Plus, Edit } from "lucide-react";
 import { toast } from "sonner";
 
 export default function MasterDataPage() {
-  const { bandars, buyers, addBandar, addBuyer, isLoading } = useInventory();
+  // Tambahkan fungsi updateBandar dan updateBuyer dari context
+  const { bandars, buyers, addBandar, addBuyer, updateBandar, updateBuyer, isLoading } = useInventory();
+  
   const [isBandarOpen, setIsBandarOpen] = useState(false);
   const [isBuyerOpen, setIsBuyerOpen] = useState(false);
   
-  const [formBandar, setFormBandar] = useState({ kode: "", nama: "", telepon: "", alamat: "" });
-  const [formBuyer, setFormBuyer] = useState({ kode: "", nama: "", kategori: "Pasar Induk", perusahaan: "", npwp: "", telepon: "", alamat: "" });
+  // State form ditambahkan properti 'id' untuk mendeteksi mode Edit/Tambah
+  const initialBandar = { id: "", kode: "", nama: "", telepon: "", alamat: "" };
+  const initialBuyer = { id: "", kode: "", nama: "", kategori: "Pasar Induk", perusahaan: "", npwp: "", telepon: "", alamat: "" };
+
+  const [formBandar, setFormBandar] = useState(initialBandar);
+  const [formBuyer, setFormBuyer] = useState(initialBuyer);
 
   // -----------------------------------------------------------------
   // 1. GENERATOR SMART ID (KODE OTOMATIS)
   // -----------------------------------------------------------------
   const generateSmartKode = (inputText: string, prefix: string, dataList: any[]) => {
     if (!inputText) return "";
-
-    // Bersihkan awalan PT/CV/Toko agar tidak menjadi singkatan utama
     let cleanText = inputText.replace(/^(PT\.?|CV\.?|UD\.?|TOKO)\s+/i, "").trim();
-
-    // Ambil konsonan saja
     let consonants = cleanText.replace(/[AIUEOaiueo\s\.\,\-\_]/g, "");
-    
-    // Jika terlalu pendek, ambil semua huruf
     if (consonants.length < 3) consonants = cleanText.replace(/[\s\.\,\-\_]/g, "");
-
-    // Jadikan 3 huruf kapital
+    
     let abbr = consonants.substring(0, 3).toUpperCase();
     while (abbr.length < 3) abbr += "X";
-
     const baseKode = `${prefix}-${abbr}`;
 
-    // Cek database untuk mencari duplikasi
     const existing = dataList.filter(item => item.kode && item.kode.startsWith(baseKode));
-    if (existing.length === 0) return baseKode; // Bebas duplikat
+    if (existing.length === 0) return baseKode; 
 
-    // Jika ada duplikasi, hitung suffix tertinggi
     let maxSuffix = 0;
     existing.forEach(item => {
       const parts = item.kode.split('-');
@@ -52,7 +48,6 @@ export default function MasterDataPage() {
         if (!isNaN(num) && num > maxSuffix) maxSuffix = num;
       }
     });
-
     return `${baseKode}-${String(maxSuffix + 1).padStart(3, "0")}`;
   };
 
@@ -60,9 +55,9 @@ export default function MasterDataPage() {
   // 2. EFFECT HOOKS UNTUK AUTO-TYPING KODE
   // -----------------------------------------------------------------
   
-  // Efek untuk form Bandar
   useEffect(() => {
-    if (isBandarOpen) {
+    // Generate HANYA jika sedang Tambah Baru (id kosong)
+    if (isBandarOpen && !formBandar.id) {
       if (formBandar.nama) {
         const autoKode = generateSmartKode(formBandar.nama, "BND", bandars);
         setFormBandar(prev => ({ ...prev, kode: autoKode }));
@@ -70,11 +65,11 @@ export default function MasterDataPage() {
         setFormBandar(prev => ({ ...prev, kode: "" }));
       }
     }
-  }, [formBandar.nama, isBandarOpen, bandars]);
+  }, [formBandar.nama, isBandarOpen, bandars, formBandar.id]);
 
-  // Efek untuk form Buyer
   useEffect(() => {
-    if (isBuyerOpen) {
+    // Generate HANYA jika sedang Tambah Baru (id kosong)
+    if (isBuyerOpen && !formBuyer.id) {
       const textAcuan = formBuyer.perusahaan || formBuyer.nama;
       if (textAcuan) {
         const autoKode = generateSmartKode(textAcuan, "BYR", buyers);
@@ -83,32 +78,67 @@ export default function MasterDataPage() {
         setFormBuyer(prev => ({ ...prev, kode: "" }));
       }
     }
-  }, [formBuyer.perusahaan, formBuyer.nama, isBuyerOpen, buyers]);
+  }, [formBuyer.perusahaan, formBuyer.nama, isBuyerOpen, buyers, formBuyer.id]);
 
 
   // -----------------------------------------------------------------
-  // 3. HANDLER SUBMIT
+  // 3. HANDLER BUKA MODAL EDIT
+  // -----------------------------------------------------------------
+  const handleEditBandar = (bandar: any) => {
+    setFormBandar({ ...bandar }); // Isi form dengan data yang dipilih
+    setIsBandarOpen(true);
+  };
+
+  const handleEditBuyer = (buyer: any) => {
+    setFormBuyer({ ...buyer }); // Isi form dengan data yang dipilih
+    setIsBuyerOpen(true);
+  };
+
+  // -----------------------------------------------------------------
+  // 4. HANDLER SUBMIT (TAMBAH & UPDATE)
   // -----------------------------------------------------------------
   if (isLoading) return <div className="animate-pulse p-8 text-center text-primary font-medium">Memuat Data Master...</div>;
 
   const handleSimpanBandar = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await addBandar({ ...formBandar, kode: formBandar.kode.toUpperCase() });
-      toast.success("Bandar ditambahkan!"); 
+      const payload = { ...formBandar, kode: formBandar.kode.toUpperCase() };
+      
+      if (formBandar.id) {
+        // Mode UPDATE
+        const { id, ...updateData } = payload;
+        if (updateBandar) await updateBandar(id, updateData);
+        toast.success("Data Bandar berhasil diperbarui!");
+      } else {
+        // Mode TAMBAH
+        const { id, ...createData } = payload;
+        await addBandar(createData);
+        toast.success("Bandar baru ditambahkan!"); 
+      }
       setIsBandarOpen(false); 
-      setFormBandar({ kode: "", nama: "", telepon: "", alamat: "" });
-    } catch { toast.error("Gagal menyimpan Bandar."); }
+      setFormBandar(initialBandar);
+    } catch { toast.error("Gagal menyimpan data Bandar."); }
   };
 
   const handleSimpanBuyer = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await addBuyer({ ...formBuyer, kode: formBuyer.kode.toUpperCase() });
-      toast.success("Buyer ditambahkan!"); 
+      const payload = { ...formBuyer, kode: formBuyer.kode.toUpperCase() };
+
+      if (formBuyer.id) {
+        // Mode UPDATE
+        const { id, ...updateData } = payload;
+        if (updateBuyer) await updateBuyer(id, updateData);
+        toast.success("Data Buyer berhasil diperbarui!");
+      } else {
+        // Mode TAMBAH
+        const { id, ...createData } = payload;
+        await addBuyer(createData);
+        toast.success("Buyer baru ditambahkan!"); 
+      }
       setIsBuyerOpen(false); 
-      setFormBuyer({ kode: "", nama: "", kategori: "Pasar Induk", perusahaan: "", npwp: "", telepon: "", alamat: "" });
-    } catch { toast.error("Gagal menyimpan Buyer."); }
+      setFormBuyer(initialBuyer);
+    } catch { toast.error("Gagal menyimpan data Buyer."); }
   };
 
   return (
@@ -123,17 +153,28 @@ export default function MasterDataPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-lg flex items-center gap-2"><Users className="w-5 h-5" /> Daftar Bandar</CardTitle>
-            <Button size="sm" onClick={() => { setFormBandar({ kode: "", nama: "", telepon: "", alamat: "" }); setIsBandarOpen(true); }}><Plus className="h-4 w-4 mr-1" /> Tambah</Button>
+            <Button size="sm" onClick={() => { setFormBandar(initialBandar); setIsBandarOpen(true); }}><Plus className="h-4 w-4 mr-1" /> Tambah</Button>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left mt-2">
-                <thead className="bg-muted/50 border-b"><tr><th className="p-2">Kode</th><th className="p-2">Nama</th><th className="p-2">Telepon</th></tr></thead>
+                <thead className="bg-muted/50 border-b">
+                  <tr><th className="p-2">Kode</th><th className="p-2">Nama</th><th className="p-2">Telepon</th><th className="p-2 text-center w-16">Aksi</th></tr>
+                </thead>
                 <tbody>
                   {bandars.map((b: any) => (
-                    <tr key={b.id} className="border-b hover:bg-muted/30"><td className="p-2 font-mono text-indigo-700 font-bold">{b.kode}</td><td className="p-2 font-semibold">{b.nama}</td><td className="p-2">{b.telepon || "-"}</td></tr>
+                    <tr key={b.id} className="border-b hover:bg-muted/30">
+                      <td className="p-2 font-mono text-indigo-700 font-bold">{b.kode}</td>
+                      <td className="p-2 font-semibold">{b.nama}</td>
+                      <td className="p-2">{b.telepon || "-"}</td>
+                      <td className="p-2 text-center">
+                        <Button variant="ghost" size="icon" onClick={() => handleEditBandar(b)} className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Edit Data">
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    </tr>
                   ))}
-                  {bandars.length === 0 && <tr><td colSpan={3} className="p-4 text-center text-muted-foreground">Belum ada data Bandar.</td></tr>}
+                  {bandars.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">Belum ada data Bandar.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -144,12 +185,14 @@ export default function MasterDataPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-lg flex items-center gap-2"><Building2 className="w-5 h-5" /> Daftar Buyer</CardTitle>
-            <Button size="sm" onClick={() => { setFormBuyer({ kode: "", nama: "", kategori: "Pasar Induk", perusahaan: "", npwp: "", telepon: "", alamat: "" }); setIsBuyerOpen(true); }}><Plus className="h-4 w-4 mr-1" /> Tambah</Button>
+            <Button size="sm" onClick={() => { setFormBuyer(initialBuyer); setIsBuyerOpen(true); }}><Plus className="h-4 w-4 mr-1" /> Tambah</Button>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left mt-2 whitespace-nowrap">
-                <thead className="bg-muted/50 border-b"><tr><th className="p-2">Kode</th><th className="p-2">Perusahaan & PIC</th><th className="p-2">Kategori</th><th className="p-2">NPWP</th></tr></thead>
+                <thead className="bg-muted/50 border-b">
+                  <tr><th className="p-2">Kode</th><th className="p-2">Perusahaan & PIC</th><th className="p-2">Kategori</th><th className="p-2">NPWP</th><th className="p-2 text-center w-16">Aksi</th></tr>
+                </thead>
                 <tbody>
                   {buyers.map((b: any) => (
                     <tr key={b.id} className="border-b hover:bg-muted/30">
@@ -160,9 +203,14 @@ export default function MasterDataPage() {
                       </td>
                       <td className="p-2">{b.kategori}</td>
                       <td className="p-2 font-mono text-xs">{b.npwp || "-"}</td>
+                      <td className="p-2 text-center">
+                        <Button variant="ghost" size="icon" onClick={() => handleEditBuyer(b)} className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Edit Data">
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </td>
                     </tr>
                   ))}
-                  {buyers.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">Belum ada data Buyer.</td></tr>}
+                  {buyers.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">Belum ada data Buyer.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -173,7 +221,7 @@ export default function MasterDataPage() {
       {/* MODAL FORM BANDAR */}
       <Dialog open={isBandarOpen} onOpenChange={setIsBandarOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Tambah Data Bandar</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{formBandar.id ? "Edit Data Bandar" : "Tambah Data Bandar"}</DialogTitle></DialogHeader>
           <form onSubmit={handleSimpanBandar} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2 space-y-1">
@@ -186,10 +234,14 @@ export default function MasterDataPage() {
               </div>
               <div className="space-y-1">
                 <Label>No. Telepon / WA</Label>
-                <Input type="tel" value={formBandar.telepon} onChange={e => setFormBandar({ ...formBandar, telepon: e.target.value })} />
+                <Input type="tel" value={formBandar.telepon || ""} onChange={e => setFormBandar({ ...formBandar, telepon: e.target.value })} />
               </div>
             </div>
-            <DialogFooter><Button type="submit" className="bg-indigo-600 hover:bg-indigo-700">Simpan Bandar</Button></DialogFooter>
+            <DialogFooter>
+              <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700">
+                {formBandar.id ? "Simpan Perubahan" : "Simpan Bandar"}
+              </Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
@@ -197,7 +249,7 @@ export default function MasterDataPage() {
       {/* MODAL FORM BUYER */}
       <Dialog open={isBuyerOpen} onOpenChange={setIsBuyerOpen}>
         <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle>Tambah Data Buyer</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{formBuyer.id ? "Edit Data Buyer" : "Tambah Data Buyer"}</DialogTitle></DialogHeader>
           <form onSubmit={handleSimpanBuyer} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               
@@ -240,7 +292,11 @@ export default function MasterDataPage() {
               </div>
 
             </div>
-            <DialogFooter><Button type="submit" className="bg-indigo-600 hover:bg-indigo-700">Simpan Buyer</Button></DialogFooter>
+            <DialogFooter>
+              <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700">
+                {formBuyer.id ? "Simpan Perubahan" : "Simpan Buyer"}
+              </Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

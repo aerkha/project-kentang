@@ -4,10 +4,10 @@ import { createContext, useContext, useState, useEffect, useMemo, type ReactNode
 import pb from "./pocketbase";
 
 export interface MasterBandar { id: string; kode: string; nama: string; telepon: string; alamat: string; }
-export interface MasterBuyer  { id: string; kode: string; nama: string; kategori: string; telepon: string; alamat: string; perusahaan?: string; npwp?: string;}
+export interface MasterBuyer { id: string; kode: string; nama: string; kategori: string; telepon: string; alamat: string; perusahaan?: string; npwp?: string; }
 export interface InvPembelian { id: string; batch_id: string; tanggal: string; bandar: string; tonase_lapangan: number; tonase_gudang: number; harga_per_kg: number; total_harga: number; tujuan: string; status: string; }
-export interface InvSortir    { id: string; batch_id?: string; pembelian_id: string; tanggal_sortir: string; grade_a: number; grade_b: number; grade_c: number; grade_baby: number; grade_reject: number; susut: number; pic_sortir: string; }
-export interface InvPengiriman{ id: string; batch_id: string; sj_id?: string; tanggal: string; tujuan?: string; supir?: string; plat_nomor: string; buyer: string; qty_grade_a: number; qty_grade_b: number; qty_grade_c: number; qty_grade_baby: number; qty_campur?: number; }
+export interface InvSortir { id: string; batch_id?: string; pembelian_id: string; tanggal_sortir: string; grade_a: number; grade_b: number; grade_c: number; grade_baby: number; grade_reject: number; susut: number; pic_sortir: string; }
+export interface InvPengiriman { id: string; batch_id: string; sj_id?: string; tanggal: string; tujuan?: string; supir?: string; plat_nomor: string; buyer: string; qty_grade_a: number; qty_grade_b: number; qty_grade_c: number; qty_grade_baby: number; qty_campur?: number; }
 export interface StockData {
   gradeA: number; gradeB: number; gradeC: number; baby: number; reject: number;
 }
@@ -24,6 +24,8 @@ interface InventoryContextType {
   addPengiriman: (data: Partial<InvPengiriman>) => Promise<void>;
   addBandar: (data: Partial<MasterBandar>) => Promise<void>;
   addBuyer: (data: Partial<MasterBuyer>) => Promise<void>;
+  updateBandar: (id: string, data: Partial<MasterBandar>) => Promise<void>;
+  updateBuyer: (id: string, data: Partial<MasterBuyer>) => Promise<void>;
   generatePembelianId: (bandarKode: string, date: string) => string;
   generatePengirimanId: (buyerKode: string, date: string) => string;
   invoices: InvInvoice[];
@@ -53,7 +55,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
           pb.collection("inv_pengiriman").getFullList({ sort: "-tanggal" }),
           pb.collection("inv_invoice").getFullList({ sort: "-created" }),
         ]);
-        
+
         setBandars(resBandar as unknown as MasterBandar[]);
         setBuyers(resBuyer as unknown as MasterBuyer[]);
         setPembelians(resPembelian as unknown as InvPembelian[]);
@@ -124,9 +126,18 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     setBuyers(prev => [...prev, record as unknown as MasterBuyer].sort((a, b) => a.nama.localeCompare(b.nama)));
   };
 
+  const updateBandar = async (id: string, data: Partial<MasterBandar>) => {
+    const record = await pb.collection("master_bandar").update(id, data);
+    setBandars(prev => prev.map(b => b.id === id ? record as any : b));
+  };
+  const updateBuyer = async (id: string, data: Partial<MasterBuyer>) => {
+    const record = await pb.collection("master_buyer").update(id, data);
+    setBuyers(prev => prev.map(b => b.id === id ? record as any : b));
+  };
+
   const formatYYMMDD = (dateStr: string) => {
     const d = new Date(dateStr);
-    return d.toISOString().slice(2, 10).replace(/-/g, ""); 
+    return d.toISOString().slice(2, 10).replace(/-/g, "");
   };
 
   const generatePembelianId = (bandarKode: string, date: string) => {
@@ -140,9 +151,9 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <InventoryContext.Provider value={{ 
+    <InventoryContext.Provider value={{
       bandars, buyers, pembelians, sortirs, pengirimans, currentStock, isLoading, invoices,
-      addPembelian, addSortir, addPengiriman, updatePengiriman, addBandar, addBuyer, addInvoice, updateInvoice,
+      addPembelian, addSortir, addPengiriman, updatePengiriman, addBandar, addBuyer, updateBandar, updateBuyer, addInvoice, updateInvoice,
       generatePembelianId, generatePengirimanId
     }}>
       {children}
