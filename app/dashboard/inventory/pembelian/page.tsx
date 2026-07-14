@@ -326,9 +326,16 @@ export default function PembelianPage() {
                       {buyers.length === 0 ? (
                         <SelectItem value="empty" disabled>Belum ada data Master Buyer</SelectItem>
                       ) : (
-                        buyers.map((b: any) => (
-                          <SelectItem key={b.id} value={b.id}>{b.nama}</SelectItem>
-                        ))
+                        buyers.map((b: any) => {
+                          // 👇 Logika untuk menggabungkan PT dan Nama PIC
+                          const displayLabel = b.perusahaan ? `${b.perusahaan} (${b.nama})` : b.nama;
+                          
+                          return (
+                            <SelectItem key={b.id} value={b.id}>
+                              {displayLabel}
+                            </SelectItem>
+                          );
+                        })
                       )}
                     </SelectContent>
                   </Select>
