@@ -38,15 +38,15 @@ export default function MasterDataPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Database className="h-6 w-6 text-primary"/> Master Data</h1>
+        <h1 className="text-2xl font-bold flex items-center gap-2"><Database className="h-6 w-6 text-primary" /> Master Data</h1>
         <p className="text-sm text-muted-foreground mt-1">Kelola daftar Bandar (Pemasok) dan Buyer (Pelanggan).</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg flex items-center gap-2"><Users className="w-5 h-5"/> Daftar Bandar</CardTitle>
-            <Button size="sm" onClick={() => setIsBandarOpen(true)}><Plus className="h-4 w-4 mr-1"/> Tambah</Button>
+            <CardTitle className="text-lg flex items-center gap-2"><Users className="w-5 h-5" /> Daftar Bandar</CardTitle>
+            <Button size="sm" onClick={() => setIsBandarOpen(true)}><Plus className="h-4 w-4 mr-1" /> Tambah</Button>
           </CardHeader>
           <CardContent>
             <table className="w-full text-sm text-left mt-2">
@@ -62,8 +62,8 @@ export default function MasterDataPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg flex items-center gap-2"><Building2 className="w-5 h-5"/> Daftar Buyer</CardTitle>
-            <Button size="sm" onClick={() => setIsBuyerOpen(true)}><Plus className="h-4 w-4 mr-1"/> Tambah</Button>
+            <CardTitle className="text-lg flex items-center gap-2"><Building2 className="w-5 h-5" /> Daftar Buyer</CardTitle>
+            <Button size="sm" onClick={() => setIsBuyerOpen(true)}><Plus className="h-4 w-4 mr-1" /> Tambah</Button>
           </CardHeader>
           <CardContent>
             <table className="w-full text-sm text-left mt-2">
@@ -84,9 +84,9 @@ export default function MasterDataPage() {
           <DialogHeader><DialogTitle>Tambah Data Bandar</DialogTitle></DialogHeader>
           <form onSubmit={handleSimpanBandar} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1"><Label>Kode (Misal: UJG)</Label><Input value={formBandar.kode} onChange={e=>setFormBandar({...formBandar, kode: e.target.value})} maxLength={4} required className="uppercase"/></div>
-              <div className="space-y-1"><Label>Nama Bandar</Label><Input value={formBandar.nama} onChange={e=>setFormBandar({...formBandar, nama: e.target.value})} required/></div>
-              <div className="col-span-2 space-y-1"><Label>No. Telepon / WA</Label><Input type="tel" value={formBandar.telepon} onChange={e=>setFormBandar({...formBandar, telepon: e.target.value})}/></div>
+              <div className="space-y-1"><Label>Kode (Misal: UJG)</Label><Input value={formBandar.kode} onChange={e => setFormBandar({ ...formBandar, kode: e.target.value })} maxLength={4} required className="uppercase" /></div>
+              <div className="space-y-1"><Label>Nama Bandar</Label><Input value={formBandar.nama} onChange={e => setFormBandar({ ...formBandar, nama: e.target.value })} required /></div>
+              <div className="col-span-2 space-y-1"><Label>No. Telepon / WA</Label><Input type="tel" value={formBandar.telepon} onChange={e => setFormBandar({ ...formBandar, telepon: e.target.value })} /></div>
             </div>
             <DialogFooter><Button type="submit">Simpan</Button></DialogFooter>
           </form>
@@ -99,29 +99,46 @@ export default function MasterDataPage() {
           <DialogHeader><DialogTitle>Tambah Data Buyer</DialogTitle></DialogHeader>
           <form onSubmit={handleSimpanBuyer} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1"><Label>Kode (Misal: LTM)</Label><Input value={formBuyer.kode} onChange={e=>setFormBuyer({...formBuyer, kode: e.target.value})} maxLength={6} required className="uppercase"/></div>
+              <div className="space-y-1"><Label>Kode (Misal: LTM)</Label><Input value={formBuyer.kode} onChange={e => setFormBuyer({ ...formBuyer, kode: e.target.value })} maxLength={6} required className="uppercase" /></div>
               <div className="space-y-1"><Label>Kategori</Label>
-                <Select value={formBuyer.kategori} onValueChange={v=>setFormBuyer({...formBuyer, kategori: v})} required>
+                <Select value={formBuyer.kategori} onValueChange={v => setFormBuyer({ ...formBuyer, kategori: v })} required>
                   <SelectTrigger><SelectValue placeholder="Pilih Kategori" /></SelectTrigger>
                   <SelectContent><SelectItem value="Pasar Induk">Pasar Induk</SelectItem><SelectItem value="Modern Trade">Modern Trade / Supermarket</SelectItem><SelectItem value="Ekspor">Ekspor</SelectItem></SelectContent>
                 </Select>
               </div>
-              <div className="col-span-2 space-y-1"><Label>Nama PIC Perusahaan</Label><Input value={formBuyer.nama} onChange={e=>setFormBuyer({...formBuyer, nama: e.target.value})} required/></div>
+              <div className="col-span-2 space-y-1"><Label>Nama PIC Perusahaan</Label><Input value={formBuyer.nama} onChange={e => setFormBuyer({ ...formBuyer, nama: e.target.value })} required /></div>
               <div className="space-y-1.5">
-              <Label>Nama Perusahaan / PT <span className="text-xs text-muted-foreground font-normal">(Opsional)</span></Label>
+                <Label>Nama Perusahaan / PT</Label>
+                <Input
+                  placeholder="Contoh: PT. Sayur Segar Makmur"
+                  value={formBuyer?.perusahaan || ""}
+                  onChange={e => setFormBuyer({ ...formBuyer, perusahaan: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Nomor NPWP</Label>
+                <Input
+                  placeholder="Contoh: 12.345.678.9-012.000"
+                  value={formBuyer?.npwp || ""}
+                  onChange={e => setFormBuyer({ ...formBuyer, npwp: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+              <Label>Alamat Lengkap</Label>
               <Input 
-                placeholder="Contoh: PT. Sayur Segar Makmur" 
-                value={formBuyer?.perusahaan || ""} 
-                onChange={e => setFormBuyer({...formBuyer, perusahaan: e.target.value})} 
+                placeholder="Contoh: Jl. Pasar Induk Blok A No. 1..." 
+                value={formBuyer?.alamat || ""} 
+                onChange={e => setFormBuyer({ ...formBuyer, alamat: e.target.value })} 
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label>Nomor NPWP <span className="text-xs text-muted-foreground font-normal">(Opsional)</span></Label>
+              <Label>No. Telp / WhatsApp</Label>
               <Input 
-                placeholder="Contoh: 12.345.678.9-012.000" 
-                value={formBuyer?.npwp || ""} 
-                onChange={e => setFormBuyer({...formBuyer, npwp: e.target.value})} 
+                type="tel"
+                placeholder="Contoh: 081234567890" 
+                value={formBuyer?.telepon || ""} 
+                onChange={e => setFormBuyer({ ...formBuyer, telepon: e.target.value })} 
               />
             </div>
             </div>

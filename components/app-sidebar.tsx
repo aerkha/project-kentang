@@ -39,7 +39,7 @@ export function AppSidebar() {
   let currentMenus = [];
 
   if (activeModule === "gudang") {
-    moduleTitle = "Gudang & Logistik";
+    moduleTitle = "Gudang & Operasional";
     currentMenus = [
       { name: "Manajemen Stok",     href: "/dashboard/inventory",             icon: PackageSearch,   show: true },
       { name: "Master Data",        href: "/dashboard/inventory/master-data", icon: Database,        show: true },
