@@ -125,14 +125,16 @@ export default function InvoicePage() {
 
     const matchedBuyer = buyers.find((b: any) => b.id === d.buyer);
     const namaTujuan = matchedBuyer ? matchedBuyer.nama : "Tidak Diketahui";
+    const namaPerusahaan = matchedBuyer?.perusahaan ? matchedBuyer.perusahaan : namaTujuan;
     const alamatTujuan = matchedBuyer ? matchedBuyer.alamat : "-";
+    const npwpTujuan = matchedBuyer?.npwp ? matchedBuyer.npwp : "-";
 
     const items = [
-      { name: "Kentang Segar - Grade A", qty: d.qty_a || 0, price: d.harga_a || 0 },
-      { name: "Kentang Segar - Grade B", qty: d.qty_b || 0, price: d.harga_b || 0 },
-      { name: "Kentang Segar - Grade C", qty: d.qty_c || 0, price: d.harga_c || 0 },
-      { name: "Kentang Segar - Baby", qty: d.qty_baby || 0, price: d.harga_baby || 0 },
-      { name: "Kentang Segar - Campur", qty: d.qty_campur || 0, price: d.harga_campur || 0 },
+      { name: "Kentang granola - Grade A", qty: d.qty_a || 0, price: d.harga_a || 0 },
+      { name: "Kentang granola - Grade B", qty: d.qty_b || 0, price: d.harga_b || 0 },
+      { name: "Kentang granola - Grade C", qty: d.qty_c || 0, price: d.harga_c || 0 },
+      { name: "Kentang granola - Baby", qty: d.qty_baby || 0, price: d.harga_baby || 0 },
+      { name: "Kentang granola - Campur", qty: d.qty_campur || 0, price: d.harga_campur || 0 },
     ].filter(item => item.qty > 0);
 
     const itemsHtml = items.map((item, index) => `
@@ -180,8 +182,10 @@ export default function InvoicePage() {
         <div class="flex justify-between mb-8">
           <div class="w-1/2 bg-slate-50 p-4 rounded-lg border border-slate-200">
             <p class="text-xs text-gray-500 mb-1 uppercase font-bold tracking-wider">Ditagihkan Kepada:</p>
-            <p class="text-lg font-black uppercase text-slate-800">${namaTujuan}</p>
+            <p class="text-lg font-black uppercase text-slate-800">${namaPerusahaan}</p>
+            ${matchedBuyer?.perusahaan ? `<p class="text-sm font-semibold text-gray-700 mt-0.5">Attn: ${namaTujuan}</p>` : ''}
             <p class="text-sm text-gray-600 mt-1">${alamatTujuan}</p>
+            <p class="text-sm text-gray-600 font-mono mt-1 font-semibold">NPWP: ${npwpTujuan}</p>
           </div>
           <div class="w-1/2 text-right flex flex-col justify-end">
             <p class="text-xs text-gray-500 mb-0.5">Referensi Surat Jalan (DO):</p>
@@ -242,8 +246,13 @@ export default function InvoicePage() {
 
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const url = URL.createObjectURL(blob);
-    const w = window.open(url, "_blank");
-    if (w) w.focus();
+    const link = document.createElement("a");
+    link.href = url;
+    link.target = "_blank";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
@@ -297,7 +306,7 @@ export default function InvoicePage() {
                         )}
                       </td>
                       <td className="p-4 align-top pt-4 text-center">
-                        <Button variant="outline" size="sm" onClick={() => setPreviewData(inv)} className="h-8 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50">
+                        <Button variant="outline" size="sm" onClick={() => handlePrint(inv)} className="h-8 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50">
                           <Printer className="w-3 h-3 mr-1.5" /> Cetak / PDF
                         </Button>
                       </td>
