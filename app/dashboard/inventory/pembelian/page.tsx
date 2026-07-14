@@ -16,8 +16,8 @@ const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n || 0)
 const formatRp = (n: number) => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(n || 0);
 
 export default function PembelianPage() {
-  // 👇 TAMBAHKAN buyers = [] DARI CONTEXT 👇
-  const { bandars, pembelians, addPembelian, generatePembelianId, isLoading, addPengiriman, pengirimans, buyers = [] } = useInventory();
+  // 👇 Hapus generatePembelianId dari sini karena kita akan menggunakan fungsi lokal
+  const { bandars, pembelians, addPembelian, isLoading, addPengiriman, pengirimans, buyers = [] } = useInventory();
   
   const [isOpen, setIsOpen] = useState(false);
   const [fileTf, setFileTf] = useState<File | null>(null);
@@ -31,7 +31,7 @@ export default function PembelianPage() {
     qty_gudang: "",    
     qty_pasar: "",     
     harga_per_kg: "",
-    tujuan_pasar: "" // Akan menyimpan ID dari Master Data Buyer
+    tujuan_pasar: "" 
   });
 
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
@@ -60,6 +60,31 @@ export default function PembelianPage() {
     autoStatus = "Menunggu Sortir";
   }
 
+  // 👇 FUNGSI BARU: Generator ID Pembelian Lokal
+  const generateBatchIdLocal = (tanggalStr: string, bandarKode: string) => {
+    if (!tanggalStr) return "";
+    
+    // Ubah format menjadi YYMMDD
+    const dateObj = new Date(tanggalStr);
+    const yy = String(dateObj.getFullYear()).slice(-2);
+    const mm = String(dateObj.getMonth() + 1).padStart(2, "0");
+    const dd = String(dateObj.getDate()).padStart(2, "0");
+    const dateStr = `${yy}${mm}${dd}`;
+    
+    const prefixHariIni = `PB-${dateStr}`;
+
+    // Filter SEMUA transaksi di hari ini (Abaikan kode bandar)
+    const transaksiHariIni = pembelians.filter((p: any) => 
+      p.batch_id && p.batch_id.startsWith(prefixHariIni)
+    );
+
+    // Nomor urut global per hari
+    const urutan = transaksiHariIni.length + 1;
+    const suffix = String(urutan).padStart(3, "0");
+
+    return `${prefixHariIni}-${bandarKode}-${suffix}`;
+  };
+
   const generateDOId = (dateStr: string) => {
     const ym = dateStr.slice(2, 10).replace(/-/g, ""); 
     const prefix = `DO-${ym}-`;
@@ -79,7 +104,8 @@ export default function PembelianPage() {
     if (!bandar) return toast.error("Pilih Bandar!");
     
     try {
-      const batchId = generatePembelianId(bandar.kode, form.tanggal);
+      // 👇 Gunakan Fungsi Lokal di Sini
+      const batchId = generateBatchIdLocal(form.tanggal, bandar.kode);
 
       const dataToSubmit: Record<string, any> = {
         batch_id: batchId,
@@ -103,7 +129,6 @@ export default function PembelianPage() {
         await addPembelian(dataToSubmit);
       }
 
-      // 👇 DO OTOMATIS: Kini tersinkron dengan Master Data Buyer 👇
       if (qPasar > 0) {
         const newDoId = generateDOId(form.tanggal);
         const selectedBuyer = buyers.find((b: any) => b.id === form.tujuan_pasar);
@@ -112,8 +137,8 @@ export default function PembelianPage() {
         await addPengiriman({
           batch_id: newDoId,
           tanggal: form.tanggal + " 00:00:00",
-          buyer: form.tujuan_pasar, // Menyimpan ID relasi Master Buyer
-          tujuan: buyerName,        // Menyimpan Nama Buyer
+          buyer: form.tujuan_pasar, 
+          tujuan: buyerName,        
           qty_campur: qPasar, 
           qty_grade_a: 0, 
           qty_grade_b: 0, 
@@ -235,8 +260,8 @@ export default function PembelianPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2"><ArrowDownToLine className="h-6 w-6 text-primary"/> Barang Masuk</h1>
-          <p className="text-sm text-muted-foreground mt-1">Penbelian komoditas dari supplier/petani</p>
+          <h1 className="text-2xl font-bold flex items-center gap-2"><ArrowDownToLine className="h-6 w-6 text-primary"/> Pembelian</h1>
+          <p className="text-sm text-muted-foreground mt-1">Pembelian komoditas dari supplier/petani</p>
         </div>
         <Button onClick={() => setIsOpen(true)}><Plus className="h-4 w-4 mr-2"/> Terima Barang</Button>
       </div>
@@ -312,7 +337,6 @@ export default function PembelianPage() {
                 <div className="space-y-1"><Label>Alokasi: Langsung Kirim (Kg)</Label><Input type="number" value={form.qty_pasar} onChange={e=>setForm({...form, qty_pasar: e.target.value})} placeholder="0"/></div>
               </div>
 
-              {/* 👇 OPSI TUJUAN KINI MENARIK DARI MASTER DATA BUYER 👇 */}
               {qPasar > 0 && (
                 <div className="pt-3 border-t mt-2 space-y-2">
                   <Label className="text-purple-700 font-bold flex items-center gap-1.5">
@@ -327,7 +351,6 @@ export default function PembelianPage() {
                         <SelectItem value="empty" disabled>Belum ada data Master Buyer</SelectItem>
                       ) : (
                         buyers.map((b: any) => {
-                          // 👇 Logika untuk menggabungkan PT dan Nama PIC
                           const displayLabel = b.perusahaan ? `${b.perusahaan} (${b.nama})` : b.nama;
                           
                           return (
