@@ -6,25 +6,25 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { 
-  Sprout, Users, BarChart3, LogOut, User, FileText, Receipt, 
+import {
+  Sprout, Users, BarChart3, LogOut, User, FileText, Receipt,
   UserCog, Menu, X, Wallet, Bell, PackageSearch, ArrowLeft
 } from "lucide-react";
-import { 
+import {
   Database, ArrowDownToLine, CheckSquare, ArrowUpRight
 } from "lucide-react";
 
 export function AppSidebar() {
-  const pathname  = usePathname();
+  const pathname = usePathname();
   const { user, logout } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
 
   const close = () => setIsOpen(false);
 
   const isAdmin = user?.role === "admin";
-  const isUser  = user?.role === "user";
+  const isUser = user?.role === "user";
   const isOwner = user?.role === "owner";
-  
+
   // Hanya role ini yang punya akses ke halaman Portal
   const isPortalUser = isAdmin || isUser || isOwner;
 
@@ -41,12 +41,12 @@ export function AppSidebar() {
   if (activeModule === "gudang") {
     moduleTitle = "Gudang & Operasional";
     currentMenus = [
-      { name: "Manajemen Stok",     href: "/dashboard/inventory",             icon: PackageSearch,   show: true },
-      { name: "Master Data",        href: "/dashboard/inventory/master-data", icon: Database,        show: true },
-      { name: "Barang Masuk",       href: "/dashboard/inventory/pembelian",   icon: ArrowDownToLine, show: true },
-      { name: "Proses Sortir",      href: "/dashboard/inventory/sortir",      icon: CheckSquare,     show: true },
-      { name: "Pengiriman",         href: "/dashboard/inventory/pengiriman",  icon: ArrowUpRight,    show: true },
-      { name: "Tagihan / Invoice",  href: "/dashboard/inventory/invoice",     icon: Receipt,         show: true }, // <-- Menu baru untuk Invoice
+      { name: "Manajemen Stok", href: "/dashboard/inventory", icon: PackageSearch, show: true },
+      { name: "Master Data", href: "/dashboard/inventory/master-data", icon: Database, show: true },
+      { name: "Pembelian", href: "/dashboard/inventory/pembelian", icon: ArrowDownToLine, show: true },
+      { name: "Proses Sortir", href: "/dashboard/inventory/sortir", icon: CheckSquare, show: true },
+      { name: "Pengiriman", href: "/dashboard/inventory/pengiriman", icon: ArrowUpRight, show: true },
+      { name: "Tagihan / Invoice", href: "/dashboard/inventory/invoice", icon: Receipt, show: true }, // <-- Menu baru untuk Invoice
     ];
   } else if (activeModule === "keuangan") {
     moduleTitle = "Keuangan";
@@ -62,11 +62,11 @@ export function AppSidebar() {
     // Transaksi & Operasional (Default)
     moduleTitle = "Transaksi & Operasional";
     currentMenus = [
-      { name: "Dashboard Analitik", href: "/dashboard",           icon: BarChart3, show: true },
-      { name: "Investor & Broker",  href: "/dashboard/investors", icon: Users,     show: true },
-      { name: "PKS (MoU)",          href: "/dashboard/mou",       icon: FileText,  show: true },
-      { name: "Transaksi",          href: "/dashboard/transaksi", icon: Receipt,   show: true },
-      { name: "Reminder",           href: "/dashboard/reminder",  icon: Bell,      show: isAdmin || isUser || isOwner },
+      { name: "Dashboard Analitik", href: "/dashboard", icon: BarChart3, show: true },
+      { name: "Investor & Broker", href: "/dashboard/investors", icon: Users, show: true },
+      { name: "PKS (MoU)", href: "/dashboard/mou", icon: FileText, show: true },
+      { name: "Transaksi", href: "/dashboard/transaksi", icon: Receipt, show: true },
+      { name: "Reminder", href: "/dashboard/reminder", icon: Bell, show: isAdmin || isUser || isOwner },
     ];
   }
 
@@ -134,10 +134,10 @@ export function AppSidebar() {
             <div className="space-y-1">
               {currentMenus.map((item) => {
                 if (!item.show) return null;
-                const isActive = 
-                  pathname === item.href || 
+                const isActive =
+                  pathname === item.href ||
                   (item.href !== "/dashboard" && item.href !== "/dashboard/inventory" && pathname.startsWith(item.href));
-                
+
                 return (
                   <Link
                     key={item.name}
