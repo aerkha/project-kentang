@@ -28,6 +28,7 @@ interface InventoryContextType {
   generatePengirimanId: (buyerKode: string, date: string) => string;
   invoices: InvInvoice[];
   addInvoice: (data: Partial<InvInvoice>) => Promise<void>;
+  updateInvoice: (id: string, data: Partial<InvInvoice>) => Promise<void>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -50,7 +51,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
           pb.collection("inv_pembelian").getFullList({ sort: "-tanggal" }),
           pb.collection("inv_sortir").getFullList({ sort: "-tanggal_sortir" }),
           pb.collection("inv_pengiriman").getFullList({ sort: "-tanggal" }),
-          pb.collection("inv_invoice").getFullList({ sort: "-created" })
+          pb.collection("inv_invoice").getFullList({ sort: "-created" }),
         ]);
         
         setBandars(resBandar as unknown as MasterBandar[]);
@@ -102,6 +103,16 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     setInvoices(prev => [record as unknown as InvInvoice, ...prev]);
   };
 
+  const updateInvoice = async (id: string, data: Partial<InvInvoice>) => {
+    try {
+      const record = await pb.collection("inv_invoice").update(id, data);
+      setInvoices(prev => prev.map(inv => inv.id === id ? (record as unknown as InvInvoice) : inv));
+    } catch (err) {
+      console.error("Gagal update invoice:", err);
+      throw err;
+    }
+  };
+
   // ── TAMBAHAN FUNGSI BARU ──
   const addBandar = async (data: Partial<MasterBandar>) => {
     const record = await pb.collection("master_bandar").create(data);
@@ -130,8 +141,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
   return (
     <InventoryContext.Provider value={{ 
-      bandars, buyers, pembelians, sortirs, pengirimans, currentStock, isLoading, invoices, 
-      addPembelian, addSortir, addPengiriman, updatePengiriman, addBandar, addBuyer, addInvoice,
+      bandars, buyers, pembelians, sortirs, pengirimans, currentStock, isLoading, invoices,
+      addPembelian, addSortir, addPengiriman, updatePengiriman, addBandar, addBuyer, addInvoice, updateInvoice,
       generatePembelianId, generatePengirimanId
     }}>
       {children}

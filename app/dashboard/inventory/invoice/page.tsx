@@ -18,10 +18,9 @@ const formatRp = (n: number) => new Intl.NumberFormat("id-ID", { style: "currenc
 
 export default function InvoicePage() {
   // Asumsi 'invoices' dan 'addInvoice' sudah Anda tambahkan di context
-  const { buyers = [], pengirimans = [], invoices = [], addInvoice, isLoading } = useInventory();
+  const { buyers = [], pengirimans = [], invoices = [], addInvoice, updateInvoice, isLoading } = useInventory();
   
   const [isOpen, setIsOpen] = useState(false);
-  const [previewData, setPreviewData] = useState<any>(null);
 
   const [form, setForm] = useState({ 
     tanggal: todayWibStr().slice(0, 10),
@@ -116,8 +115,22 @@ export default function InvoicePage() {
     }
   };
 
+  const handleMarkLunas = async (id: string, currentInvoiceId: string) => {
+    // Memunculkan konfirmasi dialog bawaan browser
+    if (window.confirm(`Apakah Anda yakin ingin menandai Invoice ${currentInvoiceId} menjadi LUNAS?`)) {
+      try {
+        if (updateInvoice) {
+          await updateInvoice(id, { status: "Lunas" });
+          toast.success(`Invoice ${currentInvoiceId} berhasil dilunasi!`);
+        }
+      } catch (err) {
+        toast.error("Gagal mengubah status invoice.");
+      }
+    }
+  };
+
   const handlePrint = (dataObj: any) => {
-    const d = dataObj || previewData;
+    const d = dataObj
     if (!d) return;
 
     const matchedBuyer = buyers.find((b: any) => b.id === d.buyer);
@@ -305,9 +318,16 @@ export default function InvoicePage() {
                         )}
                       </td>
                       <td className="p-4 align-top pt-4 text-center">
-                        <Button variant="outline" size="sm" onClick={() => handlePrint(inv)} className="h-8 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50">
-                          <Printer className="w-3 h-3 mr-1.5" /> Cetak / PDF
-                        </Button>
+                        <div className="flex items-center justify-center gap-2">
+                          {!isLunas && (
+                            <Button variant="outline" size="sm" onClick={() => handleMarkLunas(inv.id, inv.invoice_id)} className="h-8 text-xs border-green-200 text-green-700 hover:bg-green-50">
+                              <CheckCircle2 className="w-3 h-3 mr-1.5" /> Pelunasan
+                            </Button>
+                          )}
+                          <Button variant="outline" size="sm" onClick={() => handlePrint(inv)} className="h-8 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50">
+                            <Printer className="w-3 h-3 mr-1.5" /> Cetak / PDF
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   )
