@@ -15,7 +15,7 @@ export default function MasterDataPage() {
   const [isBandarOpen, setIsBandarOpen] = useState(false);
   const [isBuyerOpen, setIsBuyerOpen] = useState(false);
   const [formBandar, setFormBandar] = useState({ kode: "", nama: "", telepon: "", alamat: "" });
-  const [formBuyer, setFormBuyer] = useState({ kode: "", nama: "", kategori: "Pasar Induk", telepon: "", alamat: "" });
+  const [formBuyer, setFormBuyer] = useState({ kode: "", nama: "", kategori: "Pasar Induk", perusahaan: "", npwp: "", telepon: "", alamat: "" });
 
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
 
@@ -31,7 +31,7 @@ export default function MasterDataPage() {
     e.preventDefault();
     try {
       await addBuyer({ ...formBuyer, kode: formBuyer.kode.toUpperCase() });
-      toast.success("Buyer ditambahkan!"); setIsBuyerOpen(false); setFormBuyer({ kode: "", nama: "", kategori: "Pasar Induk", telepon: "", alamat: "" });
+      toast.success("Buyer ditambahkan!"); setIsBuyerOpen(false); setFormBuyer({ kode: "", nama: "", kategori: "Pasar Induk", perusahaan: "", npwp: "", telepon: "", alamat: "" });
     } catch { toast.error("Gagal menyimpan Buyer."); }
   };
 
@@ -67,10 +67,10 @@ export default function MasterDataPage() {
           </CardHeader>
           <CardContent>
             <table className="w-full text-sm text-left mt-2">
-              <thead className="bg-muted/50 border-b"><tr><th className="p-2">Kode</th><th className="p-2">Nama</th><th className="p-2">Kategori</th></tr></thead>
+              <thead className="bg-muted/50 border-b"><tr><th className="p-2">Kode</th><th className="p-2">Nama PIC</th><th className="p-2">Kategori</th><th className="p-2">Nama PT</th><th className="p-2">NPWP</th></tr></thead>
               <tbody>
                 {buyers.map(b => (
-                  <tr key={b.id} className="border-b"><td className="p-2 font-mono">{b.kode}</td><td className="p-2 font-semibold">{b.nama}</td><td className="p-2">{b.kategori}</td></tr>
+                  <tr key={b.id} className="border-b"><td className="p-2 font-mono">{b.kode}</td><td className="p-2 font-semibold">{b.nama}</td><td className="p-2">{b.kategori}</td><td className="p-2">{b.perusahaan || "-"}</td><td className="p-2">{b.npwp || "-"}</td></tr>
                 ))}
               </tbody>
             </table>
@@ -106,7 +106,24 @@ export default function MasterDataPage() {
                   <SelectContent><SelectItem value="Pasar Induk">Pasar Induk</SelectItem><SelectItem value="Modern Trade">Modern Trade / Supermarket</SelectItem><SelectItem value="Ekspor">Ekspor</SelectItem></SelectContent>
                 </Select>
               </div>
-              <div className="col-span-2 space-y-1"><Label>Nama Buyer / Perusahaan</Label><Input value={formBuyer.nama} onChange={e=>setFormBuyer({...formBuyer, nama: e.target.value})} required/></div>
+              <div className="col-span-2 space-y-1"><Label>Nama PIC Perusahaan</Label><Input value={formBuyer.nama} onChange={e=>setFormBuyer({...formBuyer, nama: e.target.value})} required/></div>
+              <div className="space-y-1.5">
+              <Label>Nama Perusahaan / PT <span className="text-xs text-muted-foreground font-normal">(Opsional)</span></Label>
+              <Input 
+                placeholder="Contoh: PT. Sayur Segar Makmur" 
+                value={formBuyer?.perusahaan || ""} 
+                onChange={e => setFormBuyer({...formBuyer, perusahaan: e.target.value})} 
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Nomor NPWP <span className="text-xs text-muted-foreground font-normal">(Opsional)</span></Label>
+              <Input 
+                placeholder="Contoh: 12.345.678.9-012.000" 
+                value={formBuyer?.npwp || ""} 
+                onChange={e => setFormBuyer({...formBuyer, npwp: e.target.value})} 
+              />
+            </div>
             </div>
             <DialogFooter><Button type="submit">Simpan</Button></DialogFooter>
           </form>

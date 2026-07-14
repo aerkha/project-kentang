@@ -320,12 +320,24 @@ export default function InvoicePage() {
                       <td className="p-4 align-top pt-4 text-center">
                         <div className="flex items-center justify-center gap-2">
                           {!isLunas && (
-                            <Button variant="outline" size="sm" onClick={() => handleMarkLunas(inv.id, inv.invoice_id)} className="h-8 text-xs border-green-200 text-green-700 hover:bg-green-50">
-                              <CheckCircle2 className="w-3 h-3 mr-1.5" /> Pelunasan
+                            <Button 
+                              variant="outline" 
+                              size="icon" 
+                              title="Tandai Lunas"
+                              onClick={() => handleMarkLunas(inv.id, inv.invoice_id)} 
+                              className="h-8 w-8 border-green-200 text-green-700 hover:bg-green-50"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
                             </Button>
                           )}
-                          <Button variant="outline" size="sm" onClick={() => handlePrint(inv)} className="h-8 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50">
-                            <Printer className="w-3 h-3 mr-1.5" /> Cetak / PDF
+                          <Button 
+                            variant="outline" 
+                            size="icon"
+                            title="Cetak PDF Invoice" 
+                            onClick={() => handlePrint(inv)} 
+                            className="h-8 w-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                          >
+                            <Printer className="w-4 h-4" />
                           </Button>
                         </div>
                       </td>
