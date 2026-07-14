@@ -27,17 +27,14 @@ export default function InvoicePage() {
     tanggal: todayWibStr().slice(0, 10),
     jatuh_tempo: "",
     buyer_id: "",
-    selected_sj: [] as string[], // Menyimpan ID pengiriman
+    selected_sj: [] as string[],
     harga_a: "", harga_b: "", harga_c: "", harga_baby: "", harga_campur: ""
   });
-
-  if (isLoading) return <div className="animate-pulse">Memuat...</div>;
 
   // 1. FILTER: Cari Surat Jalan (Pengiriman) yang sudah jalan (punya SJ ID) untuk buyer yang dipilih
   const availableSj = useMemo(() => {
     if (!form.buyer_id) return [];
     return pengirimans.filter(p => p.buyer === form.buyer_id && p.sj_id !== "");
-    // Opsional di masa depan: Tambahkan && p.is_invoiced !== true agar SJ yg sudah ditagih tidak muncul lagi
   }, [form.buyer_id, pengirimans]);
 
   // 2. REKAP TOTAL KG DARI SJ YANG DICEKLIS
@@ -255,6 +252,8 @@ export default function InvoicePage() {
     
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
+
+  if (isLoading) return <div className="animate-pulse">Memuat...</div>;
 
   return (
     <div className="space-y-6">
