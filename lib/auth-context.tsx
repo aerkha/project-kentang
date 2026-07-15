@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import { useRouter } from "next/navigation"; // <-- TAMBAHAN: Untuk mengarahkan halaman
 import pb from "./pocketbase";
 import { TreeLoader } from "@/components/ui/tree-loader";
@@ -42,9 +42,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter(); // <-- TAMBAHAN: Inisialisasi router
 
+  // M-5: SDK fires onChange during authRefresh. Guard dengan applyingRef
+  // untuk mencegah double-setUser.
+  const applyingRef = useRef(false);
+
   useEffect(() => {
     // Dengarkan perubahan auth (login / logout / token expired)
     const unsubscribe = pb.authStore.onChange((_token, record) => {
+      if (applyingRef.current) return;
       setUser(record ? modelToUser(record as Record<string, string>) : null);
     });
 
@@ -52,14 +57,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const restore = async () => {
       if (pb.authStore.isValid) {
         try {
+          applyingRef.current = true;
           // authRefresh memverifikasi token ke PocketBase dan memperbarui record
           await pb.collection("users").authRefresh();
           if (pb.authStore.record) {
             setUser(modelToUser(pb.authStore.record as Record<string, string>));
           }
-        } catch {
-          // Token expired / invalid / tidak ada collection context → paksa logout
-          pb.authStore.clear();
+        } catch (err) {
+          // C-2: Hanya bersihkan auth pada token benar-benar invalid/expired
+          // (status 401/403). Untuk error lain (network, koleksi belum ada,
+          // dsb.) JANGAN logout paksa — biarkan user mencoba recover.
+          const status = (err as { status?: number } | null)?.status;
+          if (status === 401 || status === 403) {
+            pb.authStore.clear();
+            setUser(null);
+          } else {
+            console.warn("[auth] authRefresh gagal non-401:", err);
+          }
+        } finally {
+          applyingRef.current = false;
         }
       }
       setIsLoading(false);
@@ -92,6 +108,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     pb.authStore.clear();
     setUser(null);
+    // M-2 Sinyal ke seluruh konteks untuk membersihkan pbIdMap lokal
+    // (mencegah leakage record id antar sesi user pada browser yang sama).
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("app:logout"));
+    }
     router.push("/"); // Memastikan saat logout otomatis dikembalikan ke form login
   };
 

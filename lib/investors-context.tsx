@@ -93,6 +93,13 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
   const [investors, setInvestors] = useState<Investor[]>([]);
   const pbIdMap = useRef(new Map<string, string>());
   const map = pbIdMap.current;
+  // M-2: bersihkan pbIdMap pada logout
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onLogout = () => { pbIdMap.current.clear(); };
+    window.addEventListener("app:logout", onLogout);
+    return () => window.removeEventListener("app:logout", onLogout);
+  }, []);
 
   const resolvePbId = async (customId: string): Promise<string | null> => {
     const cached = map.get(customId);

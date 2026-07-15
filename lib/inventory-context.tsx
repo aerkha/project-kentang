@@ -88,8 +88,13 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   };
 
   const addSortir = async (data: Partial<InvSortir>) => {
+    // M-3: pembelian_id wajib ada sebelum update status pembelian. Tanpa guard,
+    // `data.pembelian_id!` akan melempar error samar.
+    if (!data.pembelian_id) {
+      throw new Error("addSortir: pembelian_id wajib diisi");
+    }
     const record = await pb.collection("inv_sortir").create(data);
-    await pb.collection("inv_pembelian").update(data.pembelian_id!, { status: "Selesai" });
+    await pb.collection("inv_pembelian").update(data.pembelian_id, { status: "Selesai" });
     setSortirs(prev => [record as unknown as InvSortir, ...prev]);
     setPembelians(prev => prev.map(p => p.id === data.pembelian_id ? { ...p, status: "Selesai" } : p));
   };

@@ -234,6 +234,13 @@ export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
 
   const pbIdMapRef = useRef(new Map<string, string>());
   const map = pbIdMapRef.current;
+  // M-2: bersihkan pbIdMap pada logout
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onLogout = () => pbIdMapRef.current.clear();
+    window.addEventListener("app:logout", onLogout);
+    return () => window.removeEventListener("app:logout", onLogout);
+  }, []);
 
   const resolvePbId = async (customId: string): Promise<string | null> => {
     const cached = map.get(customId);
@@ -430,27 +437,5 @@ export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
 export function useMou() {
   const ctx = useContext(MouContext);
   if (!ctx) throw new Error("useMou must be used within a MouProvider");
-
-  const uploadBuktiPengembalian = async (id: string, file: File): Promise<string> => {
-    // 1. Ubah custom ID (MOU-XXXX) menjadi ID 15 karakter asli PocketBase
-    const pbId = await resolvePbId(id); 
-    if (!pbId) throw new Error(`MOU "${id}" tidak ditemukan.`);
-    
-    // 2. Siapkan file untuk dikirim
-    const fd = new FormData();
-    fd.append("buktiPengembalian", file); // *Pastikan "buktiPengembalian" adalah nama field yang benar di PocketBase Anda
-    
-    // 3. Update menggunakan ID PocketBase asli (Bukan lagi MOU-XXXX)
-    const record = await pb.collection("mous").update(pbId, fd);
-    
-    const url = pbFileUrl(pbId, record.buktiPengembalian);
-    await ctx.updateMou(id, { buktiPengembalian: url });
-    return url;
-  };
-
-  return {
-    ...ctx,
-    uploadBuktiPengembalian,
-  };
-  
+  return ctx;
 }

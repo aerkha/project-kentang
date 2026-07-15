@@ -67,6 +67,13 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
   const [brokers, setBrokers] = useState<Broker[]>([]);
   const pbIdMapRef = useRef(new Map<string, string>());
   const map = pbIdMapRef.current;
+  // M-2: bersihkan pbIdMap pada logout
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onLogout = () => { pbIdMapRef.current.clear(); };
+    window.addEventListener("app:logout", onLogout);
+    return () => window.removeEventListener("app:logout", onLogout);
+  }, []);
 
   const resolvePbId = async (customId: string): Promise<string | null> => {
     const cached = map.get(customId);

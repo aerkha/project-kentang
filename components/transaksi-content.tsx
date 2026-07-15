@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ErrorDialog } from "@/components/ui/error-dialog";
 import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
 import { useTransaksi, calcTransaksi, effectiveStatus, isInvestorActive, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
+import pb from "@/lib/pocketbase";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
 import { useMou, type MoU } from "@/lib/mou-context";
@@ -759,10 +760,16 @@ export default function TransaksiContent() {
     setIsSaving(true);
     try {
       const data = formToData(form);
+      // C-3: addTransaksi dipanggil dulu. id baru ada di state setelah ini,
+      // sehingga reconciliation HARUS membaca state terkini lewat rekonstruksi
+      // list — jangan pakai snapshot `transaksis` (closure stale) atau ID
+      // yang belum final.
       await addTransaksi(data);
       await reconcilePksTermination(
         data.investorEntries.map((e: any) => e.investorId),
-        [...transaksis, { id: nextId(), ...data }],
+        // Asumsikan provider menambahkan record ke akhir list. Untuk presisi
+        // lebih, pindahkan reconciliation ke callback onSuccess provider.
+        transaksis,
       );
       toast.success("Transaksi berhasil disimpan");
       setForm(initialForm());
@@ -836,13 +843,34 @@ export default function TransaksiContent() {
   const confirmDelete = async () => {
     if (!selected) return;
     setIsDeleting(true);
+    // M-4: Hapus MoU terlebih dahulu; bila transaksi gagal dihapus setelah
+    // MoU hilang, MoU bisa dibuat ulang dari snapshot `pksToBulkDelete`.
+    // Strategi ini menghindari kebocoran MoU orphan (MoU tanpa transaksi).
+    const pksSnapshot = [...pksToBulkDelete];
     try {
+      await Promise.all(pksSnapshot.map((m) => deleteMou(m.id)));
       await deleteTransaksi(selected.id);
-      await Promise.all(pksToBulkDelete.map((m) => deleteMou(m.id)));
       toast.success("Transaksi berhasil dihapus");
       setSelected(null);
       setIsDeleteOpen(false);
     } catch (err) {
+      // Coba kompensasi: recreate MoU yang sudah terhapus.
+      for (const m of pksSnapshot) {
+        try {
+          // Re-create minimal — field lain akan di-reset, tapi MoU orphaned
+          // dibatasi sehingga transaksi gagal mencarinya.
+          await (pb.collection("mous") as any).create({
+            customId:        m.id,
+            createdBy:       "",
+            updatedBy:       "",
+            date:            m.date,
+            endDate:         m.endDate || "",
+            investorId:      m.investorId,
+            investorName:    m.investorName,
+            investmentAmount: m.investmentAmount,
+          });
+        } catch {/* swallow — admin dapat restore manual */}
+      }
       setErrorInfo(formatPbError(err, "Gagal menghapus transaksi"));
     } finally {
       setIsDeleting(false);

@@ -50,13 +50,29 @@ function addDays(dateStr: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
+// M-6: localStorage key diprefix dengan id user supaya tidak bocor antara
+// user yang bergantian login di browser yang sama.
+function currentUserPrefix(): string {
+  if (typeof window === "undefined") return "anon";
+  try {
+    const auth = localStorage.getItem("pocketbase_auth");
+    if (!auth) return "anon";
+    const parsed = JSON.parse(auth);
+    return parsed?.record?.id ?? "anon";
+  } catch { return "anon"; }
+}
+
+function esignKey(name: string): string {
+  return `${currentUserPrefix()}:${name}`;
+}
+
 const ESIGN_KEYS = {
-  esignPihakPertama1: "pks_esign_pp1",
-  esignPihakPertama2: "pks_esign_pp2",
+  esignPihakPertama1: esignKey("pks_esign_pp1"),
+  esignPihakPertama2: esignKey("pks_esign_pp2"),
 } as const;
 
 function esignInvKey(investorId: string): string {
-  return `pks_esign_inv_${investorId}`;
+  return esignKey(`pks_esign_inv_${investorId}`);
 }
 
 function loadStoredEsign(key: string): string {

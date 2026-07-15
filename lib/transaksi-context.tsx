@@ -240,11 +240,23 @@ async function deleteInvestorEntriesByIds(ids: string[]): Promise<void> {
 
 export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [transaksis, setTransaksis] = useState<Transaksi[]>([]);
+  // M-7 Stabilkan identitas fungsi yang dipublikasi via context. addTransaksi,
+  // updateTransaksi, dll. dibungkus useCallback agar tidak berubah tiap render
+  // (menghindari re-render konsumen yang memasukan fungsi ke dependency array).
+  const trxSetTransaksis = setTransaksis;
   const pbIdMapRef = useRef(new Map<string, string>());
   const map = pbIdMapRef.current;
 
   // Ref untuk menghindari stale closure saat autorenewal berjalan di background
   const transaksisRef = useRef<Transaksi[]>([]);
+  // M-2: bersihkan pbIdMap pada logout untuk mencegah leakage data
+  // ketika user lain login di browser yang sama.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onLogout = () => pbIdMapRef.current.clear();
+    window.addEventListener("app:logout", onLogout);
+    return () => window.removeEventListener("app:logout", onLogout);
+  }, []);
   useEffect(() => {
     transaksisRef.current = transaksis;
   }, [transaksis]);
@@ -476,23 +488,36 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
       return;
     }
 
-    // 4. Buat transaksi baru di database
+    // 4. Buat transaksi baru di database — C-4 retry pada konflik customId.
     try {
-      const record = await pb.collection("transaksis").create({
-        customId: newCustomId,
-        createdBy: currentUserId(),
-        updatedBy: currentUserId(),
-        date: newDateStr,
-        description: oldTrx.description,
-        endDate: oldTrx.endDate || "",
-        isAutorenewal: true,
-        hpp: oldTrx.hpp,
-        kebutuhanModal: oldTrx.kebutuhanModal,
-        ongkirPerKg: oldTrx.ongkirPerKg,
-        hargaJual: 0, // Harga jual otomatis Rp 0 agar profit belum terhitung
-        status: "berjalan",
-        catatanAkhir: "",
-      });
+      let record: any = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          record = await pb.collection("transaksis").create({
+            customId: newCustomId,
+            createdBy: currentUserId(),
+            updatedBy: currentUserId(),
+            date: newDateStr,
+            description: oldTrx.description,
+            endDate: oldTrx.endDate || "",
+            isAutorenewal: true,
+            hpp: oldTrx.hpp,
+            kebutuhanModal: oldTrx.kebutuhanModal,
+            ongkirPerKg: oldTrx.ongkirPerKg,
+            hargaJual: 0, // Harga jual otomatis Rp 0 agar profit belum terhitung
+            status: "berjalan",
+            catatanAkhir: "",
+          });
+          break;
+        } catch (err) {
+          if (isCustomIdConflict(err) && attempt < 4) {
+            newCustomId = await generateCustomId(true);
+            continue;
+          }
+          throw err;
+        }
+      }
+      if (!record) throw new Error("triggerAutorenewal: gagal membuat transaksi baru");
 
       // 5. Salin data investor
       await createInvestorEntries(record.id, oldTrx.investorEntries);
