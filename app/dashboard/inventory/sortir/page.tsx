@@ -75,7 +75,7 @@ export default function SortirPage() {
     setIsOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const pb = pembelians.find(p => p.id === form.pembelian_id);
     if (!pb) return;

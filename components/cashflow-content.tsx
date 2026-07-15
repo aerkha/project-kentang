@@ -102,7 +102,7 @@ function PengeluaranForm({
 }: {
   formData: FormData;
   setFormData: (f: FormData) => void;
-  onSubmit: (e: React.FormEvent) => void;
+  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   submitLabel: string;
   isSaving: boolean;
 }) {
@@ -279,7 +279,7 @@ export function CashflowContent() {
   };
 
   // ── Handler tambah ──
-  const handleAdd = async (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const err = validateForm(form);
     if (err) { toast.error(err); return; }
@@ -318,7 +318,7 @@ export function CashflowContent() {
     setIsEditOpen(true);
   };
 
-  const handleEdit = async (e: React.FormEvent) => {
+  const handleEdit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selected) return;
     const err = validateForm(form);

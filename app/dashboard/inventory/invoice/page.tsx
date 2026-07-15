@@ -79,7 +79,7 @@ export default function InvoicePage() {
     }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!isFormValid) return toast.error("Pilih Minimal 1 Surat Jalan, isi Jatuh Tempo & Harga!");
 

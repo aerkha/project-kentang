@@ -307,7 +307,7 @@ export function UsersContent() {
     regular:  users.filter((u) => u.role === "user").length,
   }), [users]);
 
-  const handleAdd = async (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setFormError("");
     if (form.password !== form.passwordConfirm) {
@@ -349,7 +349,7 @@ export function UsersContent() {
     setIsEditOpen(true);
   };
 
-  const handleEdit = async (e: React.FormEvent) => {
+  const handleEdit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selected) return;
     setFormError("");

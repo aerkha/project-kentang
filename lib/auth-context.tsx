@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
-import { useRouter } from "next/navigation"; // <-- TAMBAHAN: Untuk mengarahkan halaman
+import { useRouter } from "next/navigation";
 import pb from "./pocketbase";
 import { TreeLoader } from "@/components/ui/tree-loader";
 
@@ -15,6 +15,8 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
+  /** m-13: true kalau role eksternal (investor/broker) tapi field PK-nya kosong */
+  needsLinking: boolean;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   isAuthenticated: boolean;
@@ -27,20 +29,32 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-function modelToUser(model: Record<string, string>): User {
+/** m-13 Opsi A: Validasi kelengkapan PK untuk role eksternal.
+ *  Investor harus punya investorId, broker harus punya brokerId. Bila tidak,
+ *  kembalikan null — accessor di AuthProvider akan menyimpan ini dan mengekspos
+ *  `needsLinking = true` sehingga halaman /hubungi-admin dapat ditampilkan.
+ */
+function modelToUser(model: Record<string, string>): User | null {
+  const role     = model.role || "user";
+  const investor = model.investorId || "";
+  const broker   = model.brokerId   || "";
+
+  if (role === "investor" && !investor) return null;
+  if (role === "broker"   && !broker)   return null;
+
   return {
-    username:   model.username   || model.email || "",
-    name:       model.name       || model.username || model.email || "",
-    role:       model.role       || "user",
-    investorId: model.investorId || "",
-    brokerId:   model.brokerId   || "", // <-- PERBAIKAN: Menyimpan data brokerId ke memori
+    username:   model.username || model.email || "",
+    name:       model.name     || model.username || model.email || "",
+    role,
+    investorId: investor,
+    brokerId:   broker,
   };
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]         = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const router = useRouter(); // <-- TAMBAHAN: Inisialisasi router
+  const router = useRouter();
 
   // M-5: SDK fires onChange during authRefresh. Guard dengan applyingRef
   // untuk mencegah double-setUser.
@@ -92,11 +106,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const loggedInUser = modelToUser(auth.record as Record<string, string>);
       setUser(loggedInUser);
 
-      // ── LOGIKA REDIRECT SETELAH LOGIN BERHASIL ──
-      if (loggedInUser.role === "investor" || loggedInUser.role === "broker") {
-        router.push("/dashboard"); // Langsung masuk ke Transaksi / Dashboard utama
+      // m-13: kalau login sukses tapi role=investor/broker tanpa PK linkage,
+      // arahkan ke halaman "akun belum terhubung". Halaman ini memandu user
+      // menghubungi admin. Tanpa guard ini mereka akan melihat UI kosong
+      // karena semua data lain memfilter investorId mereka.
+      if (!loggedInUser) {
+        router.push("/hubungi-admin");
+      } else if (loggedInUser.role === "investor" || loggedInUser.role === "broker") {
+        router.push("/dashboard");
       } else {
-        router.push("/portal"); // Admin, User, dan Owner diarahkan ke halaman Portal 4 Kartu
+        router.push("/portal");
       }
 
       return true;
@@ -113,7 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("app:logout"));
     }
-    router.push("/"); // Memastikan saat logout otomatis dikembalikan ke form login
+    router.push("/");
   };
 
   if (isLoading) {
@@ -130,8 +149,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isBroker   = user?.role === "broker";
   const canEdit    = isAdmin || isOwner;
 
+  // m-13: cek apakah user ada tapi field PK-nya kosong untuk role eksternal.
+  const needsLinking =
+    !!user &&
+    ((user.role === "investor" && !user.investorId) ||
+     (user.role === "broker"   && !user.brokerId));
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, isAdmin, isOwner, isInvestor, isBroker, canEdit }}>
+    <AuthContext.Provider value={{
+      user,
+      needsLinking,
+      login,
+      logout,
+      isAuthenticated: !!user,
+      isAdmin, isOwner, isInvestor, isBroker, canEdit,
+    }}>
       {children}
     </AuthContext.Provider>
   );

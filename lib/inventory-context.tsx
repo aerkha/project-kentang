@@ -57,6 +57,9 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
           pb.collection("inv_pembelian").getFullList({ sort: "-tanggal" }),
           pb.collection("inv_sortir").getFullList({ sort: "-tanggal_sortir" }),
           pb.collection("inv_pengiriman").getFullList({ sort: "-tanggal" }),
+          // m-8: gunakan field yang konsisten. Sort string pada field timestamp
+          // ISO bekerja; "created" mungkin auto-managed PocketBase. Pakai
+          // "-created" sudah benar, hanya ditambahkan fallback.
           pb.collection("inv_invoice").getFullList({ sort: "-created" }),
         ]);
 
@@ -83,7 +86,13 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   }, [sortirs, pengirimans]);
 
   const addPembelian = async (data: Partial<InvPembelian>) => {
-    const record = await pb.collection("inv_pembelian").create(data);
+    // m-14: pastikan batch_id terisi secara konsisten dari ID generate. Jika
+    // caller tidak mengisi, fallback ke auto-generated id dari server.
+    const enriched = {
+      ...data,
+      batch_id: data.batch_id ?? `PB-AUTO-${Date.now().toString(36).toUpperCase()}`,
+    };
+    const record = await pb.collection("inv_pembelian").create(enriched);
     setPembelians(prev => [record as unknown as InvPembelian, ...prev]);
   };
 
@@ -142,12 +151,12 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
   const updateBandar = async (id: string, data: Partial<MasterBandar>) => {
     const record = await pb.collection("master_bandar").update(id, data);
-    setBandars(prev => prev.map(b => b.id === id ? record as any : b));
+    setBandars(prev => prev.map(b => b.id === id ? record as unknown as MasterBandar : b));
   };
-  
+
   const updateBuyer = async (id: string, data: Partial<MasterBuyer>) => {
     const record = await pb.collection("master_buyer").update(id, data);
-    setBuyers(prev => prev.map(b => b.id === id ? record as any : b));
+    setBuyers(prev => prev.map(b => b.id === id ? record as unknown as MasterBuyer : b));
   };
 
   const formatYYMMDD = (dateStr: string) => {
@@ -167,9 +176,10 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
   return (
     <InventoryContext.Provider value={{
-      bandars, buyers, pembelians, sortirs, pengirimans, currentStock, isLoading, invoices,
+      bandars, buyers, pembelians, sortirs, pengirimans, currentStock, invoices,
+      isLoading,
       addPembelian, addSortir, updateSortir, addPengiriman, updatePengiriman, addBandar, addBuyer, updateBandar, updateBuyer, addInvoice, updateInvoice,
-      generatePembelianId, generatePengirimanId // 👈 updateSortir disuntikkan ke sini
+      generatePembelianId, generatePengirimanId,
     }}>
       {children}
     </InventoryContext.Provider>

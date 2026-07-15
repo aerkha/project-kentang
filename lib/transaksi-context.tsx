@@ -106,7 +106,7 @@ interface TransaksiContextType {
   deleteTransaksi: (id: string) => Promise<void>;
   syncInvestorInfo: (investorId: string, investorName: string, investorBrokerName: string) => Promise<void>;
   uploadBuktiTransaksi: (id: string, keterangan: string, file: File) => Promise<string>;
-  triggerAutorenewal: (oldTrxId: string) => Promise<void>; // <-- DITAMBAHKAN
+  triggerAutorenewal: (oldTrxId: string) => Promise<void>;
 }
 
 const TransaksiContext = createContext<TransaksiContextType | undefined>(undefined);
@@ -188,19 +188,23 @@ function isCustomIdConflict(err: unknown): boolean {
 }
 
 async function generateCustomId(isAutorenewal: boolean = false): Promise<string> {
+  const fallback = isAutorenewal ? "TRX-0001A" : "TRX-0001";
   try {
-    const res = await pb.collection("transaksis").getFullList({ fields: "customId" });
-    if (res.length === 0) return isAutorenewal ? "TRX-0001A" : "TRX-0001";
-    const max = res.reduce((m, r) => {
-      // Hilangkan "TRX-" dan huruf alfabet di belakangnya untuk mencari nilai maksimal
-      const numStr = (r.customId as string).replace("TRX-", "").replace(/[A-Z]/gi, "");
-      const n = Number.parseInt(numStr) || 0;
-      return Math.max(m, n);
-    }, 0);
-    const num = String(max + 1).padStart(4, "0");
-    return isAutorenewal ? `TRX-${num}A` : `TRX-${num}`;
+    // Ambil hanya 1 record terbesar (descending by customId) — jauh lebih
+    // efisien dibanding getFullList() yang memuat seluruh koleksi ke memori.
+    const res = await pb.collection("transaksis").getList<{ customId: string }>(1, 1, {
+      sort: "-customId",
+      fields: "customId",
+    });
+    const top = res.items[0]?.customId;
+    if (!top) return fallback;
+    // Hilangkan "TRX-" dan trailing letter (mis. "0005A" -> 5).
+    const numStr = top.replace(/^TRX-/, "").replace(/[A-Z]+$/i, "");
+    const next = (Number.parseInt(numStr, 10) || 0) + 1;
+    const padded = String(next).padStart(4, "0");
+    return isAutorenewal ? `TRX-${padded}A` : `TRX-${padded}`;
   } catch {
-    return isAutorenewal ? "TRX-0001A" : "TRX-0001";
+    return fallback;
   }
 }
 
@@ -240,10 +244,8 @@ async function deleteInvestorEntriesByIds(ids: string[]): Promise<void> {
 
 export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [transaksis, setTransaksis] = useState<Transaksi[]>([]);
-  // M-7 Stabilkan identitas fungsi yang dipublikasi via context. addTransaksi,
-  // updateTransaksi, dll. dibungkus useCallback agar tidak berubah tiap render
-  // (menghindari re-render konsumen yang memasukan fungsi ke dependency array).
-  const trxSetTransaksis = setTransaksis;
+  // M-7: identitas fungsi distabilkan via useMemo di bawah; setTransaksis
+  // sudah stabil dari React sehingga tidak perlu dibungkus useCallback.
   const pbIdMapRef = useRef(new Map<string, string>());
   const map = pbIdMapRef.current;
 
@@ -475,9 +477,11 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
       newCustomId = `${oldTrx.id}A`;
     }
 
-    // 2. Hitung Tanggal Mulai Baru
-    const daysMatch = oldTrx.description.match(/\d+/);
-    const days = daysMatch ? parseInt(daysMatch[0], 10) : 30;
+    // 2. Hitung Tanggal Mulai Baru — m-5: hardcode 30 hari per siklus.
+    // 1 ID transaksi = 1 siklus (sudah didokumentasikan). Tidak parse dari
+    // deskripsi karena user dapat menulis teks bebas (mis: "PT 2025" akan
+    // menghasilkan daysMatch=2025, autorenewal meloncat 5.5 tahun).
+    const days = 30;
     const [y, m, d] = oldTrx.date.slice(0, 10).split("-").map(Number);
     const newDateMs = Date.UTC(y, m - 1, d + days);
     const newDateStr = new Date(newDateMs).toISOString().slice(0, 10);

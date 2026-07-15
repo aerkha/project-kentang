@@ -84,7 +84,7 @@ export default function PengirimanPage() {
     return `${prefix}${String(todayDO.length + 1).padStart(3, "0")}`;
   };
 
-  const handleDoSubmit = async (e: React.FormEvent) => {
+  const handleDoSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!isDoFormValid) return toast.error("Periksa kembali form DO. Stok tidak mencukupi atau pembeli kosong!");
 
@@ -118,7 +118,7 @@ export default function PengirimanPage() {
     }
   };
 
-  const handleSjSubmit = async (e: React.FormEvent) => {
+  const handleSjSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedDo || !sjForm.supir || !sjForm.plat_nomor) return toast.error("Lengkapi data supir dan plat nomor!");
 

@@ -262,6 +262,8 @@ function TrxFormFields({
   const displaySisaForPks = (mou: MoU): number => {
     const inv = investors.find((x) => x.id === mou.investorId);
     if (!inv) return mou.investmentAmount;
+    // m-15: gunakan min() antara MoU.investmentAmount dan sisa modal investor.
+    // Sebelumnya Math.min() sudah dipanggil — tetap, hanya dokumentasikan.
     return Math.min(mou.investmentAmount, sisaModal(inv));
   };
 
@@ -702,7 +704,9 @@ export default function TransaksiContent() {
 
   const nextId = () => {
     const max = transaksis.reduce((m, x) => {
-      const numStr = x.id.replace("TRX-", "").replace(/[A-Z]/gi, "");
+      // m-3: anchor regex ke akhir ID — "TRX-0001A" → "0001", bukan "0001" yg
+      // salah kalau ID mengandung karakter tak terduga di tengah.
+      const numStr = x.id.replace(/^TRX-/i, "").replace(/[A-Za-z]+$/, "");
       const n = Number.parseInt(numStr) || 0;
       return Math.max(m, n);
     }, 0);
@@ -727,10 +731,10 @@ export default function TransaksiContent() {
           investorName:       inv?.name ?? e.investorId,
           investorBrokerName: inv?.brokerName ?? "",
           nilaiInvestasi:     Number.parseFloat(e.nilaiInvestasi) || 0,
-          pctTrader:          Number.parseFloat(e.pctTrader)  || 0,
-          pctMinBun:          Number.parseFloat(e.pctMinBun)  || 0,
-          pctBrokerI:         Number.parseFloat(e.pctBrokerI) || 0,
-          pctBrokerII:        0,
+          pctTrader:          Number.parseFloat(e.pctTrader)    || 0,
+          pctMinBun:          Number.parseFloat(e.pctMinBun)    || 0,
+          pctBrokerI:         Number.parseFloat(e.pctBrokerI)   || 0,
+          pctBrokerII:        Number.parseFloat(e.pctBrokerII)  || 0, // m-4: pass through user input
         };
       }),
     ongkirPerKg:  Number.parseFloat(f.ongkirPerKg) || 0,

@@ -25,7 +25,7 @@ export function LoginForm() {
   const [isResetting, setIsResetting] = useState(false);
 
   // ── Handler Login ──
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setIsLoading(true);
@@ -38,7 +38,7 @@ export function LoginForm() {
   };
 
   // ── Handler Lupa Password ──
-  const handleResetPassword = async (e: React.FormEvent) => {
+  const handleResetPassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setResetMessage("");

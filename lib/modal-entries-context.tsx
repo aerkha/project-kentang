@@ -65,9 +65,14 @@ export function ModalEntriesProvider({ children }: { children: ReactNode }) {
     investorCustomId: string,
     data: { amount: number; date: string; type: "initial" | "topup"; keterangan?: string }
   ) => {
+    // m-10: collapse 3 round trips (findInvestor → createEntry → fetchWithExpand)
+    // menjadi 2 dengan menggunakan lookup berdasarkan PocketBase id, dan
+    // ambili customId langsung dari record hasil create (mereka sudah tersedia
+    // melalui `expand`). Untuk amannya, tetap pakai 2-step dengan expand
+    // pada create ketika investasi punya data tambahan di masa depan.
     const inv = await pb.collection("investors").getFirstListItem(
       `customId = "${investorCustomId}"`,
-      { fields: "id" }
+      { fields: "id,customId" }
     );
     const record = await pb.collection("modal_entries").create({
       investorId:  inv.id,
@@ -76,8 +81,12 @@ export function ModalEntriesProvider({ children }: { children: ReactNode }) {
       type:        data.type,
       keterangan:  data.keterangan ?? "",
     });
-    const full = await pb.collection("modal_entries").getOne(record.id, { expand: "investorId" });
-    setEntries((prev) => [...prev, recordToEntry(full as PbRecord)]);
+    // Gunakan referensi lokal `inv.customId` daripada round-trip fetch ulang.
+    const full: PbRecord = {
+      ...record,
+      expand: { investorId: { customId: inv.customId, id: inv.id } },
+    };
+    setEntries((prev) => [...prev, recordToEntry(full)]);
   };
 
   const deleteEntry = async (id: string) => {

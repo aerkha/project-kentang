@@ -859,7 +859,7 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
 interface BrokerFormProps {
   formData: BrokerFormData;
   setFormData: (data: BrokerFormData) => void;
-  onSubmit: (e: React.FormEvent) => void;
+  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   submitLabel: string;
   previewId: string;
   isSaving?: boolean;
@@ -1404,7 +1404,7 @@ export function InvestorsContent() {
     }
   };
 
-  const handleEditInvestor = async (e: React.FormEvent) => {
+  const handleEditInvestor = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedInvestor) return;
     setIsSaving(true);
@@ -1515,7 +1515,7 @@ export function InvestorsContent() {
     setIsTopUpOpen(true);
   };
 
-  const handleTopUpConfirm = async (e: React.FormEvent) => {
+  const handleTopUpConfirm = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!topUpInvestor) return;
     const nominal = parseFloat(topUpAmount);
@@ -1640,7 +1640,7 @@ export function InvestorsContent() {
 
   // ── Broker handlers ──
 
-  const handleAddBroker = async (e: React.FormEvent) => {
+  const handleAddBroker = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSaving(true);
     try {
@@ -1709,7 +1709,7 @@ export function InvestorsContent() {
     }
   };
 
-  const handleEditBroker = async (e: React.FormEvent) => {
+  const handleEditBroker = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedBroker) return;
     setIsSaving(true);
