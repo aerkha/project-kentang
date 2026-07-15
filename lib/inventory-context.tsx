@@ -20,7 +20,11 @@ interface InventoryContextType {
   updatePengiriman: (id: string, data: Partial<InvPengiriman>) => Promise<void>;
   isLoading: boolean;
   addPembelian: (data: Partial<InvPembelian>) => Promise<void>;
+  
+  // 👇 Tambahkan updateSortir di antarmuka (interface) ini 👇
   addSortir: (data: Partial<InvSortir>) => Promise<void>;
+  updateSortir: (id: string, data: Partial<InvSortir>) => Promise<void>; 
+  
   addPengiriman: (data: Partial<InvPengiriman>) => Promise<void>;
   addBandar: (data: Partial<MasterBandar>) => Promise<void>;
   addBuyer: (data: Partial<MasterBuyer>) => Promise<void>;
@@ -90,6 +94,12 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     setPembelians(prev => prev.map(p => p.id === data.pembelian_id ? { ...p, status: "Selesai" } : p));
   };
 
+  // 👇 TAMBAHAN FUNGSI BARU: updateSortir 👇
+  const updateSortir = async (id: string, data: Partial<InvSortir>) => {
+    const record = await pb.collection("inv_sortir").update(id, data);
+    setSortirs(prev => prev.map(s => s.id === id ? record as unknown as InvSortir : s));
+  };
+
   const addPengiriman = async (data: Partial<InvPengiriman>) => {
     const record = await pb.collection("inv_pengiriman").create(data);
     setPengirimans(prev => [record as unknown as InvPengiriman, ...prev]);
@@ -115,7 +125,6 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // ── TAMBAHAN FUNGSI BARU ──
   const addBandar = async (data: Partial<MasterBandar>) => {
     const record = await pb.collection("master_bandar").create(data);
     setBandars(prev => [...prev, record as unknown as MasterBandar].sort((a, b) => a.nama.localeCompare(b.nama)));
@@ -130,6 +139,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     const record = await pb.collection("master_bandar").update(id, data);
     setBandars(prev => prev.map(b => b.id === id ? record as any : b));
   };
+  
   const updateBuyer = async (id: string, data: Partial<MasterBuyer>) => {
     const record = await pb.collection("master_buyer").update(id, data);
     setBuyers(prev => prev.map(b => b.id === id ? record as any : b));
@@ -153,8 +163,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   return (
     <InventoryContext.Provider value={{
       bandars, buyers, pembelians, sortirs, pengirimans, currentStock, isLoading, invoices,
-      addPembelian, addSortir, addPengiriman, updatePengiriman, addBandar, addBuyer, updateBandar, updateBuyer, addInvoice, updateInvoice,
-      generatePembelianId, generatePengirimanId
+      addPembelian, addSortir, updateSortir, addPengiriman, updatePengiriman, addBandar, addBuyer, updateBandar, updateBuyer, addInvoice, updateInvoice,
+      generatePembelianId, generatePengirimanId // 👈 updateSortir disuntikkan ke sini
     }}>
       {children}
     </InventoryContext.Provider>
