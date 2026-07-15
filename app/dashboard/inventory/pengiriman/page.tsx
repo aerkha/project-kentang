@@ -91,7 +91,9 @@ export default function PengirimanPage() {
     try {
       const finalBatchId = doForm.batch_id.trim() !== "" ? doForm.batch_id.trim() : generateDOId(doForm.tanggal);
       const selectedBuyer = buyers.find((b: any) => b.id === doForm.buyer_id);
-      const buyerName = selectedBuyer ? selectedBuyer.nama : "";
+      
+      // 👇 1. UPDATE: Simpan nama perusahaan ke DB jika ada
+      const buyerName = selectedBuyer ? (selectedBuyer.perusahaan || selectedBuyer.nama) : "";
 
       await addPengiriman({
         batch_id: finalBatchId,
@@ -102,7 +104,7 @@ export default function PengirimanPage() {
         qty_grade_b: inputB,
         qty_grade_c: inputC,
         qty_grade_baby: inputBaby,
-        qty_campur: 0, // Form manual DO difokuskan untuk barang gudang/sortir
+        qty_campur: 0, 
         supir: "",
         plat_nomor: "",
         sj_id: ""
@@ -142,9 +144,12 @@ export default function PengirimanPage() {
     if (!d) return;
 
     const matchedBuyer = buyers.find((b: any) => b.id === d.buyer);
-    const namaTujuan = matchedBuyer ? matchedBuyer.nama : (d.tujuan || "Tidak Diketahui");
+    
+    // 👇 2. UPDATE: Tampilkan Perusahaan di PDF Surat Jalan
+    const namaTujuan = matchedBuyer 
+      ? (matchedBuyer.perusahaan ? `${matchedBuyer.perusahaan} (${matchedBuyer.nama})` : matchedBuyer.nama) 
+      : (d.tujuan || "Tidak Diketahui");
 
-    // 👇 qty_campur KINI AKAN MUNCUL DI BARIS PDF 👇
     const items = [
       { name: "Kentang Segar - Grade A", qty: d.qty_grade_a || 0 },
       { name: "Kentang Segar - Grade B", qty: d.qty_grade_b || 0 },
@@ -288,12 +293,16 @@ export default function PengirimanPage() {
               </thead>
               <tbody>
                 {pengirimans.map(p => {
-                  // 👇 TOTAL BERAT KINI MENCAKUP qty_campur 👇
                   const totalBerat = (p.qty_grade_a || 0) + (p.qty_grade_b || 0) + (p.qty_grade_c || 0) + (p.qty_grade_baby || 0) + (p.qty_campur || 0);
                   const pAny = p as any;
                   
                   const matchedBuyer = buyers.find((b: any) => b.id === p.buyer);
-                  const displayTujuan = matchedBuyer ? matchedBuyer.nama : (p.tujuan || p.buyer);
+                  
+                  // 👇 3. UPDATE: Tampilkan Perusahaan di Tabel Utama
+                  const displayTujuan = matchedBuyer 
+                    ? (matchedBuyer.perusahaan ? `${matchedBuyer.perusahaan} (${matchedBuyer.nama})` : matchedBuyer.nama) 
+                    : (p.tujuan || p.buyer);
+                  
                   const hasSj = !!p.sj_id && !!p.supir;
 
                   return (
@@ -307,7 +316,6 @@ export default function PengirimanPage() {
                       <td className="p-4 align-top pt-5">{p.tanggal.slice(0,10)}</td>
                       <td className="p-4 align-top pt-5 font-semibold uppercase">
                         {displayTujuan} 
-                        {/* Label Badge untuk barang Campur Cross-Docking */}
                         {(p.qty_campur || 0) > 0 && <span className="ml-2 bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded-full border border-purple-200">Cross-Docking</span>}
                       </td>
                       <td className="p-4 align-top pt-5 font-semibold">{formatKg(totalBerat)}</td>
@@ -371,7 +379,11 @@ export default function PengirimanPage() {
                     {buyers.length === 0 ? (
                       <SelectItem value="empty" disabled>Belum ada data pembeli</SelectItem>
                     ) : (
-                      buyers.map((b: any) => <SelectItem key={b.id} value={b.id}>{b.nama}</SelectItem>)
+                      // 👇 4. UPDATE: Tampilkan Perusahaan di Dropdown Input Form
+                      buyers.map((b: any) => {
+                        const displayLabel = b.perusahaan ? `${b.perusahaan} (${b.nama})` : b.nama;
+                        return <SelectItem key={b.id} value={b.id}>{displayLabel}</SelectItem>;
+                      })
                     )}
                   </SelectContent>
                 </Select>
@@ -476,7 +488,11 @@ export default function PengirimanPage() {
           
           {previewData && (() => {
             const matchedBuyer = buyers.find((b: any) => b.id === previewData.buyer);
-            const displayTujuan = matchedBuyer ? matchedBuyer.nama : (previewData.tujuan || previewData.buyer);
+            
+            // 👇 5. UPDATE: Tampilkan Perusahaan di Modal Pratinjau
+            const displayTujuan = matchedBuyer 
+              ? (matchedBuyer.perusahaan ? `${matchedBuyer.perusahaan} (${matchedBuyer.nama})` : matchedBuyer.nama) 
+              : (previewData.tujuan || previewData.buyer);
             
             return (
               <div className="bg-white text-black p-6 font-sans border rounded-lg shadow-sm">
