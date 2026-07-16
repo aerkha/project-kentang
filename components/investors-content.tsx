@@ -1775,7 +1775,7 @@ export function InvestorsContent() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Investors</h1>
-          <p className="text-muted-foreground">Kelola data investor dan investasi</p>
+          <p className="text-muted-foreground">Kelola data investor dan broker</p>
         </div>
         <div className="flex items-center gap-2">
           {/* ── Tambah Broker (admin only) ── */}

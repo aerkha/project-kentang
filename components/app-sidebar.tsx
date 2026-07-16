@@ -60,7 +60,7 @@ export function AppSidebar() {
     ];
   } else {
     // Transaksi & Operasional (Default)
-    moduleTitle = "Transaksi & Operasional";
+    moduleTitle = "Investasi & Mapping Modal";
     currentMenus = [
       { name: "Dashboard Analitik", href: "/dashboard", icon: BarChart3, show: true },
       { name: "Investor & Broker", href: "/dashboard/investors", icon: Users, show: true },
