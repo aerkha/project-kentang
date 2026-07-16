@@ -86,14 +86,32 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   }, [sortirs, pengirimans]);
 
   const addPembelian = async (data: Partial<InvPembelian>) => {
-    // m-14: pastikan batch_id terisi secara konsisten dari ID generate. Jika
-    // caller tidak mengisi, fallback ke auto-generated id dari server.
-    const enriched = {
-      ...data,
-      batch_id: data.batch_id ?? `PB-AUTO-${Date.now().toString(36).toUpperCase()}`,
-    };
-    const record = await pb.collection("inv_pembelian").create(enriched);
-    setPembelians(prev => [record as unknown as InvPembelian, ...prev]);
+    // m-14 + m-4: pastikan batch_id terisi dan tambahkan retry pada konflik unique
+    // (mirip pola addInvestor/addMou). generatePembelianId sudah ditambahkan
+    // di InventoryContextType untuk konsistensi, namun caller dapat override.
+    const baseId = data.batch_id;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const enriched = {
+        ...data,
+        batch_id: baseId ?? `PB-AUTO-${Date.now().toString(36).toUpperCase()}`,
+      };
+      try {
+        const record = await pb.collection("inv_pembelian").create(enriched);
+        setPembelians(prev => [record as unknown as InvPembelian, ...prev]);
+        return;
+      } catch (err) {
+        const msg = String(err);
+        if (/validation_not_unique|UNIQUE constraint/i.test(msg) && attempt < 4) {
+          // Paksa regenerate batch_id pada attempt berikutnya
+          if (baseId) {
+            (data as { batch_id?: string }).batch_id = undefined;
+          }
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error("addPembelian: gagal membuat batch_id unik setelah 5 percobaan");
   };
 
   const addSortir = async (data: Partial<InvSortir>) => {
@@ -101,6 +119,24 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     // `data.pembelian_id!` akan melempar error samar.
     if (!data.pembelian_id) {
       throw new Error("addSortir: pembelian_id wajib diisi");
+    }
+    // Validasi: total sortir (grade_a/b/c/baby/reject) tidak boleh melebihi tonase_gudang.
+    const pembelian = pembelians.find(p => p.id === data.pembelian_id);
+    if (pembelian) {
+      const totalSortir =
+        (data.grade_a    ?? 0) +
+        (data.grade_b    ?? 0) +
+        (data.grade_c    ?? 0) +
+        (data.grade_baby ?? 0) +
+        (data.grade_reject ?? 0);
+      if (totalSortir > pembelian.tonase_gudang + 0.01) {
+        throw new Error(
+          `Total sortir (${totalSortir.toFixed(2)} kg) melebihi tonase gudang pembelian (${pembelian.tonase_gudang.toFixed(2)} kg).`
+        );
+      }
+      if ((data.susut ?? 0) < 0) {
+        throw new Error("Susut tidak boleh negatif.");
+      }
     }
     const record = await pb.collection("inv_sortir").create(data);
     await pb.collection("inv_pembelian").update(data.pembelian_id, { status: "Selesai" });
@@ -160,8 +196,9 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   };
 
   const formatYYMMDD = (dateStr: string) => {
-    const d = new Date(dateStr);
-    return d.toISOString().slice(2, 10).replace(/-/g, "");
+    const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number);
+    // Hindari Date timezone shift: bangun string YYMMDD langsung dari komponen.
+    return `${String(y).slice(-2)}${String(m).padStart(2, "0")}${String(d).padStart(2, "0")}`;
   };
 
   const generatePembelianId = (bandarKode: string, date: string) => {

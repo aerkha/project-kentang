@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
+import { isSameOriginRequest } from "@/lib/pb-error";
 
 function fmtRp(n: number) {
   return new Intl.NumberFormat("id-ID", {
@@ -138,12 +139,23 @@ async function sendWhatsApp(phone: string, message: string): Promise<ChannelStat
     body: new URLSearchParams({ target: normalized, message, countryCode: "62" }),
   });
   if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
+  // Fonnte kadang return HTTP 200 dengan body { status: false, reason: "..." }.
+  // Parse body dan throw jika gagal agar caller tidak salah anggap "sent".
+  const data = await res.json().catch(() => null);
+  if (data && data.status === false) {
+    throw new Error(`Fonnte: ${data.reason || data.detail || "ditolak"}`);
+  }
   return "sent";
 }
 
 // ── Route handler ──────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  // 0. m-23: tolak cross-origin request yang tidak memiliki Origin/Referer cocok.
+  if (!isSameOriginRequest(req)) {
+    return NextResponse.json({ error: "Forbidden: invalid origin" }, { status: 403 });
+  }
+
   const authHeader = req.headers.get("authorization");
   const pbToken    = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
   if (!pbToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

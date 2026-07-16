@@ -18,6 +18,9 @@ export interface TransaksiInvestorEntry {
 }
 
 export type TransaksiStatus = "berjalan" | "perbarui" | "selesai" | "bermasalah";
+// m-21: termasuk "rencana" dan "batal" untuk backward-compat dengan data lama.
+// Status "rencana"/"batal" ditampilkan sebagai "berjalan" (lihat normalizeStatus).
+export type TransaksiStatusRaw = TransaksiStatus | "rencana" | "batal";
 
 export const TRANSAKSI_STATUS_LABEL: Record<TransaksiStatus, string> = {
   berjalan:   "Berjalan",
@@ -111,10 +114,10 @@ interface TransaksiContextType {
 
 const TransaksiContext = createContext<TransaksiContextType | undefined>(undefined);
 
-const VALID_STATUSES = new Set<TransaksiStatus>(["berjalan", "perbarui", "selesai", "bermasalah"]);
+const VALID_STATUSES = new Set<TransaksiStatusRaw>(["berjalan", "perbarui", "selesai", "bermasalah", "rencana", "batal"]);
 function normalizeStatus(s: string): TransaksiStatus {
-  if (VALID_STATUSES.has(s as TransaksiStatus)) return s as TransaksiStatus;
-  if (s === "rencana" || s === "batal") return "berjalan";
+  if (s === "selesai" || s === "bermasalah") return s;
+  // "berjalan", "perbarui", "rencana", "batal", dan nilai tak dikenal → "berjalan"
   return "berjalan";
 }
 

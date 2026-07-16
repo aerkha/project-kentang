@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
 import { useMou, investorPkPct } from "@/lib/mou-context";
-import { useTransaksi, calcTransaksi, activeInvestorIds, type Transaksi, type TransaksiStatus } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, activeInvestorIds, type Transaksi } from "@/lib/transaksi-context";
 import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -49,6 +49,8 @@ import {
   LabelList,
 } from "recharts";
 
+
+const MONTHS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
 
 // ─── Rekap helpers ────────────────────────────────────────────────────────────
 
@@ -131,8 +133,6 @@ function calcMouDistribution(
 
   return { totalProfit, owner, hasanah, investor, trader, minbun, brokerI, brokerII, effectivePct };
 }
-
-const MONTHS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
 
 function monthLabel(ym: string) {
   const [year, month] = ym.split("-");

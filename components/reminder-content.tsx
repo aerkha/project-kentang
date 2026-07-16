@@ -1,7 +1,14 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
+
+// Helper untuk revoke object URL agar tidak memory leak.
+function revokePreview(url: string) {
+  if (url && url.startsWith("blob:")) {
+    try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+  }
+}
 import { useMou, type MoU } from "@/lib/mou-context";
 import { todayWibStr } from "@/lib/utils";
 import { useTransaksi, calcTransaksi, effectiveStatus, type Transaksi } from "@/lib/transaksi-context";
@@ -1075,7 +1082,7 @@ export function ReminderContent() {
     if (e.target.files && e.target.files.length > 0) {
       const newFiles = Array.from(e.target.files);
       setInternalUploadFiles((prev) => [...prev, ...newFiles]);
-      
+
       const newPreviews = newFiles.map(f => {
         if (f.type.startsWith("image/")) return URL.createObjectURL(f);
         return "📄 Dokumen PDF";
@@ -1086,14 +1093,18 @@ export function ReminderContent() {
   };
 
   const removeInternalUploadFile = (idx: number) => {
+    setInternalUploadPreviews(prev => {
+      const removed = prev[idx];
+      if (removed) revokePreview(removed);
+      return prev.filter((_, i) => i !== idx);
+    });
     setInternalUploadFiles(prev => prev.filter((_, i) => i !== idx));
-    setInternalUploadPreviews(prev => prev.filter((_, i) => i !== idx));
   };
 
   const clearInternalUploadDialog = () => {
+    setInternalUploadPreviews(prev => { prev.forEach(revokePreview); return []; });
     setInternalTarget(null);
     setInternalUploadFiles([]);
-    setInternalUploadPreviews([]);
   };
 
   const handleConfirmInternal = async () => {
@@ -1135,7 +1146,7 @@ export function ReminderContent() {
     if (e.target.files && e.target.files.length > 0) {
       const newFiles = Array.from(e.target.files);
       setUploadFiles((prev) => [...prev, ...newFiles]);
-      
+
       const newPreviews = newFiles.map(f => {
         if (f.type.startsWith("image/")) return URL.createObjectURL(f);
         return "📄 Dokumen PDF";
@@ -1146,15 +1157,27 @@ export function ReminderContent() {
   };
 
   const removeUploadFile = (idx: number) => {
+    setUploadPreviews(prev => {
+      const removed = prev[idx];
+      if (removed) revokePreview(removed);
+      return prev.filter((_, i) => i !== idx);
+    });
     setUploadFiles(prev => prev.filter((_, i) => i !== idx));
-    setUploadPreviews(prev => prev.filter((_, i) => i !== idx));
   };
 
   const clearUploadDialog = () => {
+    setUploadPreviews(prev => { prev.forEach(revokePreview); return []; });
     setUploadTarget(null);
     setUploadFiles([]);
-    setUploadPreviews([]);
   };
+
+  // Cleanup object URLs saat komponen unmount agar tidak ada memory leak.
+  useEffect(() => {
+    return () => {
+      setInternalUploadPreviews(prev => { prev.forEach(revokePreview); return prev; });
+      setUploadPreviews(prev => { prev.forEach(revokePreview); return prev; });
+    };
+  }, []);
 
   const handleConfirmUpload = async () => {
     if (!uploadTarget) return;

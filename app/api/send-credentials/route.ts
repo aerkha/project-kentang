@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import nodemailer from "nodemailer";
+import { isSameOriginRequest } from "@/lib/pb-error";
 
 export async function POST(req: NextRequest) {
   try {
+    // 0. m-23: tolak cross-origin request.
+    if (!isSameOriginRequest(req)) {
+      return NextResponse.json({ error: "Forbidden: invalid origin" }, { status: 403 });
+    }
+
     // 1. Verifikasi Keamanan (Pastikan yang memanggil adalah aplikasi kita)
     const authHeader = req.headers.get("authorization");
     if (!authHeader?.startsWith("Bearer ")) {

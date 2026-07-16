@@ -215,8 +215,11 @@ async function buildInvestorsMap(pb: PocketBase, trxPbIds: string): Promise<Map<
 
 // Helper: Process Bagi Hasil transaksi
 async function processBagiHasilTasks(pb: PocketBase, tasks: PendingTask[]): Promise<void> {
+  // m-21: status "batal" sekarang di-normalize ke "berjalan" oleh klien, tapi
+  // di server tetap exclude "batal" eksplisit agar tidak perlu dikirim reminder.
+  // Termasuk exclude "rencana" agar hanya transaksi yang sudah dimulai saja.
   const trxs = await pb.collection("transaksis").getFullList<any>({
-    filter: `bagiHasilDone = false && status != "batal"`,
+    filter: `bagiHasilDone = false && status != "batal" && status != "rencana"`,
     sort: "date",
   });
 

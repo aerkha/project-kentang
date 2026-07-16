@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
+import { isSameOriginRequest } from "@/lib/pb-error";
 
 /**
  * POST /api/admin/change-password
@@ -20,6 +21,11 @@ interface ChangePasswordBody {
 }
 
 export async function POST(req: NextRequest) {
+  // 0. m-23: tolak cross-origin request.
+  if (!isSameOriginRequest(req)) {
+    return NextResponse.json({ error: "Forbidden: invalid origin" }, { status: 403 });
+  }
+
   // 1. Verifikasi caller adalah admin menggunakan token mereka
   const authHeader = req.headers.get("authorization");
   const pbToken    = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
