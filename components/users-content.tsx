@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import * as React from "react";
+import { useState, useEffect, useMemo, type FormEvent } from "react";
 import pb from "@/lib/pocketbase";
 import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context"; // <-- DITAMBAHKAN
@@ -349,7 +350,7 @@ export function UsersContent() {
     setIsEditOpen(true);
   };
 
-  const handleEdit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleEdit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selected) return;
     setFormError("");

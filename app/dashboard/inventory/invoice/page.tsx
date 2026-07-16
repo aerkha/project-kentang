@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, type FormEvent } from "react";
 import { useInventory } from "@/lib/inventory-context";
 import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -79,7 +79,7 @@ export default function InvoicePage() {
     }));
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!isFormValid) return toast.error("Pilih Minimal 1 Surat Jalan, isi Jatuh Tempo & Harga!");
 

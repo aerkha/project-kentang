@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, type FormEvent } from "react";
 import { toast } from "sonner";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, type Broker } from "@/lib/brokers-context";
@@ -1709,7 +1709,7 @@ export function InvestorsContent() {
     }
   };
 
-  const handleEditBroker = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleEditBroker = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedBroker) return;
     setIsSaving(true);

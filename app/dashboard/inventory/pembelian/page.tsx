@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useInventory } from "@/lib/inventory-context";
 import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -92,7 +92,7 @@ export default function PembelianPage() {
     return `${prefix}${String(todayDO.length + 1).padStart(3, "0")}`;
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!isAlokasiValid) return toast.error("Total alokasi harus sama dengan Tonase Aktual!");
     

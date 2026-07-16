@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { useInventory } from "@/lib/inventory-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -99,7 +99,7 @@ export default function MasterDataPage() {
   // -----------------------------------------------------------------
   if (isLoading) return <div className="animate-pulse p-8 text-center text-primary font-medium">Memuat Data Master...</div>;
 
-  const handleSimpanBandar = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSimpanBandar = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
       const payload = { ...formBandar, kode: formBandar.kode.toUpperCase() };
@@ -120,7 +120,7 @@ export default function MasterDataPage() {
     } catch { toast.error("Gagal menyimpan data Bandar."); }
   };
 
-  const handleSimpanBuyer = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSimpanBuyer = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
       const payload = { ...formBuyer, kode: formBuyer.kode.toUpperCase() };

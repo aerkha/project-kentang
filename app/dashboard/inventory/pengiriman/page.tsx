@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useInventory } from "@/lib/inventory-context";
 import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -84,7 +84,7 @@ export default function PengirimanPage() {
     return `${prefix}${String(todayDO.length + 1).padStart(3, "0")}`;
   };
 
-  const handleDoSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleDoSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!isDoFormValid) return toast.error("Periksa kembali form DO. Stok tidak mencukupi atau pembeli kosong!");
 
@@ -151,11 +151,11 @@ export default function PengirimanPage() {
       : (d.tujuan || "Tidak Diketahui");
 
     const items = [
-      { name: "Kentang Segar - Grade A", qty: d.qty_grade_a || 0 },
-      { name: "Kentang Segar - Grade B", qty: d.qty_grade_b || 0 },
-      { name: "Kentang Segar - Grade C", qty: d.qty_grade_c || 0 },
-      { name: "Kentang Segar - Baby", qty: d.qty_grade_baby || 0 },
-      { name: "Kentang Segar - Campur (Karungan)", qty: d.qty_campur || 0 }, 
+      { name: "Kentang Granola - Grade A", qty: d.qty_grade_a || 0 },
+      { name: "Kentang Granola - Grade B", qty: d.qty_grade_b || 0 },
+      { name: "Kentang Granola - Grade C", qty: d.qty_grade_c || 0 },
+      { name: "Kentang Granola - Baby", qty: d.qty_grade_baby || 0 },
+      { name: "Kentang Granola - Campur (Karungan)", qty: d.qty_campur || 0 }, 
     ].filter(item => item.qty > 0);
 
     const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
@@ -533,11 +533,11 @@ export default function PengirimanPage() {
                     </thead>
                     <tbody>
                       {[
-                        { name: "Kentang Segar - Grade A", qty: previewData.qty_grade_a || 0 },
-                        { name: "Kentang Segar - Grade B", qty: previewData.qty_grade_b || 0 },
-                        { name: "Kentang Segar - Grade C", qty: previewData.qty_grade_c || 0 },
-                        { name: "Kentang Segar - Baby", qty: previewData.qty_grade_baby || 0 },
-                        { name: "Kentang Segar - Campur (Karungan)", qty: previewData.qty_campur || 0 },
+                        { name: "Kentang Granola - Grade A", qty: previewData.qty_grade_a || 0 },
+                        { name: "Kentang Granola - Grade B", qty: previewData.qty_grade_b || 0 },
+                        { name: "Kentang Granola - Grade C", qty: previewData.qty_grade_c || 0 },
+                        { name: "Kentang Granola - Baby", qty: previewData.qty_grade_baby || 0 },
+                        { name: "Kentang Granola - Campur (Karungan)", qty: previewData.qty_campur || 0 },
                       ].filter(item => item.qty > 0).map((item, index) => (
                         <tr key={index}>
                           <td className="py-1.5 px-2 border-b border-black text-xs text-center">{index + 1}</td>

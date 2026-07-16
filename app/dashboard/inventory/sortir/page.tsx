@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useInventory } from "@/lib/inventory-context";
 import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -75,7 +75,7 @@ export default function SortirPage() {
     setIsOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const pb = pembelians.find(p => p.id === form.pembelian_id);
     if (!pb) return;

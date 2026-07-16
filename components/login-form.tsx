@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import * as React from "react";
+import { useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth-context";
 import pb from "@/lib/pocketbase";
 import { Button } from "@/components/ui/button";
