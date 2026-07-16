@@ -397,7 +397,7 @@ export default function PembelianPage() {
       <Dialog open={!!previewData} onOpenChange={() => setPreviewData(null)}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-4 border-b pb-4 sticky top-0 bg-background z-10">
-            <DialogTitle>Pratinjau Nota Terima</DialogTitle>
+            <DialogTitle>Pratinjau Nota Beli</DialogTitle>
             <Button onClick={() => handlePrint(null)} className="bg-blue-600 hover:bg-blue-700">
               <Printer className="w-4 h-4 mr-2"/> Cetak / Simpan PDF
             </Button>
@@ -411,16 +411,16 @@ export default function PembelianPage() {
                   <p className="text-sm text-gray-600">Distributor Komoditas Hasil Bumi</p>
                 </div>
                 <div className="sm:text-right">
-                  <h2 className="text-xl sm:text-2xl font-bold text-gray-800 uppercase tracking-widest">Nota Terima</h2>
+                  <h2 className="text-xl sm:text-2xl font-bold text-gray-800 uppercase tracking-widest">Nota Beli</h2>
                   <p className="text-sm font-mono mt-1 text-gray-600">ID: {previewData.batch_id}</p>
                   <p className="text-sm text-gray-600">Tanggal: {new Date(previewData.tanggal).toLocaleDateString("id-ID", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                 </div>
               </div>
 
               <div className="mb-6">
-                <p className="text-sm text-gray-600 mb-1">Diterima dari Bandar:</p>
+                <p className="text-sm text-gray-600 mb-1">Diterima dari Pemasok/Petani:</p>
                 <p className="text-lg font-bold">{previewData.bndr?.nama || "Tidak Diketahui"}</p>
-                <p className="text-sm text-gray-600">Kode Bandar: {previewData.bndr?.kode || "-"}</p>
+                <p className="text-sm text-gray-600">Kode Pemasok/Petani: {previewData.bndr?.kode || "-"}</p>
               </div>
 
               <div className="overflow-x-auto mb-6">
@@ -456,11 +456,11 @@ export default function PembelianPage() {
                 
                 <div className="flex gap-8 sm:gap-16 text-center w-full sm:w-auto justify-around sm:justify-end">
                   <div>
-                    <p className="text-sm mb-12 sm:mb-16">Pihak Bandar</p>
+                    <p className="text-sm mb-12 sm:mb-16">Pihak Pemasok/Petani</p>
                     <p className="text-sm font-bold border-b border-black pb-1 inline-block min-w-[100px] sm:min-w-[120px]">{previewData.bndr?.nama}</p>
                   </div>
                   <div>
-                    <p className="text-sm mb-12 sm:mb-16">Admin MinBun</p>
+                    <p className="text-sm mb-12 sm:mb-16">Direktur</p>
                     <p className="text-sm font-bold border-b border-black pb-1 inline-block min-w-[100px] sm:min-w-[120px]">_____________</p>
                   </div>
                 </div>
