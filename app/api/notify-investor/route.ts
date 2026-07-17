@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
 import { isSameOriginRequest } from "@/lib/pb-error";
+import { todayWibStr } from "@/lib/utils";
 
 function pbEsc(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -34,6 +35,11 @@ const MONTHS_ID = [
   "Juli","Agustus","September","Oktober","November","Desember",
 ];
 
+/**
+ * Format tanggal "YYYY-MM-DD" ke format Indonesia "DD Bulan YYYY".
+ * Catatan: input date string diperlakukan sebagai hari kalender literal (UTC).
+ * Untuk tanggal hari ini, gunakan todayWibStr() agar konsisten dengan zona WIB.
+ */
 function fmtDate(s: string) {
   const [y, m, d] = s.slice(0, 10).split("-").map(Number);
   return `${d} ${MONTHS_ID[m - 1]} ${y}`;
@@ -233,7 +239,7 @@ function buildWaMessage(opts: {
   tanggal:      string;
 }): string {
   const { investorName, brokerName, noPks, modal, jumlah, buktiUrl, tanggal } = opts;
-  
+
   const lines = [
     `Selamat malam,`,
     `berikut bagi hasil atas nama Kak *${investorName}*, broker Kak *${brokerName}* dengan detail sbb:`,
@@ -248,7 +254,7 @@ function buildWaMessage(opts: {
     `Alhamdulillah, semoga berkah untuk kita semua.`,
     `Terima kasih sudah percaya pada Mimin Berkebun dan *PT Madani Agri Lestari*.`
   ];
-  
+
   return lines.join("\n");
 }
 
@@ -277,27 +283,6 @@ async function sendWhatsApp(phone: string, opts: Parameters<typeof buildWaMessag
 
   const normalized = phone.replace(/^0/, "62").replace(/\D/g, "");
 
-  // =========================================================================
-  // BLOK PENGIRIMAN STIKER (Hapus tanda komentar /* */ untuk mengaktifkan)
-  // Syarat Fonnte: Anda harus mengupload file Stiker .webp Anda ke 
-  // hosting/Google Drive/Cloud lalu tempel URL publiknya di bawah ini.
-  // =========================================================================
-  /*
-  await fetch("https://api.fonnte.com/send", {
-    method: "POST",
-    headers: { Authorization: token },
-    body: new URLSearchParams({
-      target: normalized,
-      url: "https://domain-anda.com/WhatsApp-Sticker-2026-07-17-at-13.11.21.webp", // Ganti dengan URL stiker Anda
-      type: "webp",
-      countryCode: "62",
-    }),
-  }).catch((err) => console.log("Gagal kirim stiker, lanjut teks", err));
-  */
-
-  // Jeda 1 detik agar stiker terkirim duluan sebelum teks (Opsional tapi disarankan)
-  // await new Promise((resolve) => setTimeout(resolve, 1000));
-
   // --- KIRIM PESAN TEKS UTAMA ---
   const res = await fetch("https://api.fonnte.com/send", {
     method: "POST",
@@ -308,9 +293,9 @@ async function sendWhatsApp(phone: string, opts: Parameters<typeof buildWaMessag
       countryCode: "62",
     }),
   });
-  
+
   if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
-  
+
   const data = await res.json().catch(() => null);
   if (data && data.status === false) {
     throw new Error(`Fonnte: ${data.reason || data.detail || "ditolak"}`);
@@ -349,7 +334,7 @@ export async function POST(req: NextRequest) {
 
   const { transaksiId, keterangan, investorId, buktiUrl } = body;
   const jumlah: number = typeof body.jumlah === "number" && body.jumlah >= 0 ? body.jumlah : 0;
-  
+
   if (!transaksiId || !keterangan || !investorId) {
     return NextResponse.json({ error: "Field wajib kurang" }, { status: 400 });
   }
@@ -374,18 +359,27 @@ export async function POST(req: NextRequest) {
   const history     = await buildHistory(pb, investorId);
   const historyHtml = buildHistoryTableHtml(history);
 
-  // LOGIKA CERDAS: Mencari Nilai Modal (Investasi) dari riwayat transaksi yang cocok
-  const modalDariHistory = history.find(h => h.transaksiId === transaksiId)?.nilaiInvestasi || 0;
+  // LOGIKA CERDAS: Mencari Nilai Modal dari history.
+  // transaksiId body bisa berisi multi-ID (mis. "TRX-0001A, TRX-0002") saat
+  // user menuntaskan banyak TRX sekaligus. Ambil token pertama saja, dan jika
+  // tidak ketemu, pakai history record pertama sebagai fallback.
+  const txFirstId    = transaksiId.split(",")[0].trim();
+  const modalFromHist =
+    history.find((h) => h.transaksiId === txFirstId)?.nilaiInvestasi ||
+    history[0]?.nilaiInvestasi ||
+    0;
 
   // Persiapan Variabel Baru (Fallback / Aman)
   const brokerName = body.brokerName || "Pusat";
-  const noPks      = body.noPks || transaksiId; // Gunakan Transaksi ID sebagai default PKS
-  const modal      = body.modal || modalDariHistory;
-  const tanggal    = fmtDate(new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10));
+  const noPks      = body.noPks || transaksiId;
+  const modal      = body.modal ?? modalFromHist;
+  // Pakai todayWibStr() agar konsisten dengan zona waktu aplikasi (WIB),
+  // bukan hardcode UTC+7 yang rapuh untuk deployment di zona lain.
+  const tanggal    = fmtDate(todayWibStr());
 
   // Opsi Khusus WhatsApp (Menggunakan format baru)
   const waOpts = { investorName, brokerName, noPks, modal, jumlah, buktiUrl, tanggal };
-  
+
   // Opsi Khusus Email (Dipertahankan format lamanya)
   const emailOpts = { investorName, transaksiId, keterangan, jumlah, buktiUrl, tanggal, historyHtml };
 
@@ -413,7 +407,7 @@ export async function POST(req: NextRequest) {
     errorMessage: errors.join(" | "),
     triggeredBy:  "notifikasi",
     keterangan,
-    jumlah:       jumlah ?? 0,
+    jumlah,
   }).catch(() => {});
 
   return NextResponse.json({

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import { isSameOriginRequest } from "@/lib/pb-error";
+import { todayWibStr } from "@/lib/utils";
 
 function pbEsc(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -16,7 +17,7 @@ interface NotifyBrokerBody {
 
 const MONTHS_ID = [
   "Januari","Februari","Maret","April","Mei","Juni",
-  "Juli","Agustus","September","Oktober","November","Desember",
+  "Juli","Agustus","September","Oktober","November","Disember",
 ];
 
 function fmtDate(s: string) {
@@ -32,7 +33,7 @@ function fmtRp(n: number) {
 
 function buildWaMessageBroker(opts: NotifyBrokerBody & { tanggal: string }): string {
   const { brokerName, investorList, noPks, jumlah, buktiUrl, tanggal } = opts;
-  
+
   const lines = [
     `Selamat malam Kak *${brokerName}*,`,
     `Berikut pencairan *Fee Broker* dari MinBun dengan detail sbb:`,
@@ -47,8 +48,41 @@ function buildWaMessageBroker(opts: NotifyBrokerBody & { tanggal: string }): str
     `Alhamdulillah, semoga berkah untuk kita semua.`,
     `Terima kasih sudah bekerjasama dengan Mimin Berkebun dan *PT Madani Agri Lestari*.`
   ];
-  
+
   return lines.join("\n");
+}
+
+/**
+ * Catat attempt pengiriman ke reminder_logs.
+ * Dipanggil oleh route handler pada kedua jalur sukses DAN gagal,
+ * agar log UI Riwayat Reminder akurat.
+ */
+async function logAttempt(
+  pb: PocketBase,
+  data: {
+    brokerName: string;
+    noPks:      string;
+    jumlah:     number;
+    waStatus:   "sent" | "failed" | "skipped";
+    errorMessage: string;
+  },
+): Promise<void> {
+  try {
+    await pb.collection("reminder_logs").create({
+      mouCustomId:  data.noPks,
+      cycleNumber:  0,
+      sentAt:       new Date().toISOString(),
+      investorName: `Broker: ${data.brokerName}`,
+      emailStatus:  "skipped",
+      waStatus:     data.waStatus,
+      errorMessage: data.errorMessage,
+      triggeredBy:  "notifikasi",
+      keterangan:   "Pencairan Fee Broker",
+      jumlah:       data.jumlah,
+    });
+  } catch {
+    /* silent — failure logging tidak boleh menggagalkan alur utama */
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -82,26 +116,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Nama Broker kosong" }, { status: 400 });
   }
 
-  // 1. Cari Data Broker di Database untuk mendapatkan nomor HP
-  let brokerPhone = "";
+  // 1. Cari Data Broker — pisahkan dua skenario gagal:
+  //    - broker tidak ada di DB → 404
+  //    - broker ada tapi nomor HP kosong → 400 (bukan 404)
+  let brokerRecord: { phone?: unknown } | null = null;
   try {
-    const brokerRecord = await pb.collection("brokers").getFirstListItem(
+    brokerRecord = await pb.collection("brokers").getFirstListItem(
       `name = "${pbEsc(body.brokerName)}"`,
       { fields: "phone" }
     );
-    brokerPhone = (brokerRecord.phone as string) || "";
   } catch {
     return NextResponse.json({ error: `Broker "${body.brokerName}" tidak ditemukan di database` }, { status: 404 });
   }
 
-  const token = process.env.FONNTE_TOKEN;
-  if (!token || !brokerPhone) {
-    return NextResponse.json({ success: false, reason: "No token or phone" }, { status: 400 });
+  const brokerPhone = (brokerRecord?.phone as string | undefined) || "";
+  const token       = process.env.FONNTE_TOKEN;
+
+  if (!token) {
+    await logAttempt(pb, { ...body, waStatus: "skipped", errorMessage: "FONNTE_TOKEN kosong" });
+    return NextResponse.json({ success: false, reason: "FONNTE_TOKEN belum dikonfigurasi" }, { status: 400 });
+  }
+  if (!brokerPhone) {
+    await logAttempt(pb, { ...body, waStatus: "skipped", errorMessage: "Nomor HP broker kosong" });
+    return NextResponse.json({ success: false, reason: "Nomor HP broker belum diisi" }, { status: 400 });
   }
 
   // 2. Siapkan Data
   const normalizedPhone = brokerPhone.replace(/^0/, "62").replace(/\D/g, "");
-  const tanggal = fmtDate(new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10));
+  // todayWibStr() konsisten dengan zona aplikasi, tidak rapuh untuk deploy di zona lain.
+  const tanggal = fmtDate(todayWibStr());
   const msgText = buildWaMessageBroker({ ...body, tanggal });
 
   // 3. Kirim Pesan via Fonnte
@@ -115,25 +158,24 @@ export async function POST(req: NextRequest) {
         countryCode: "62",
       }),
     });
-    
+
     if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
-    
-    // 4. Catat ke log reminder
-    await pb.collection("reminder_logs").create({
-      mouCustomId:  body.noPks,
-      cycleNumber:  0,
-      sentAt:       new Date().toISOString(),
-      investorName: `Broker: ${body.brokerName}`,
-      emailStatus:  "skipped",
-      waStatus:     "sent",
-      errorMessage: "",
-      triggeredBy:  "notifikasi",
-      keterangan:   "Pencairan Fee Broker",
-      jumlah:       body.jumlah,
-    }).catch(() => {});
+
+    // Fonnte kadang return HTTP 200 dengan body { status: false, reason: ... }.
+    // Tangani juga agar log tidak salah tandai "sent".
+    const data = await res.json().catch(() => null);
+    if (data && data.status === false) {
+      throw new Error(`Fonnte: ${data.reason || data.detail || "ditolak"}`);
+    }
+
+    await logAttempt(pb, { ...body, waStatus: "sent", errorMessage: "" });
 
     return NextResponse.json({ success: true, waStatus: "sent" });
-  } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[notify-broker] gagal kirim:", message);
+    await logAttempt(pb, { ...body, waStatus: "failed", errorMessage: message });
+    // Return generic message agar detail internal tidak bocor ke client.
+    return NextResponse.json({ success: false, reason: "Gagal mengirim WhatsApp" }, { status: 500 });
   }
 }

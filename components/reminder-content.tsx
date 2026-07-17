@@ -731,10 +731,11 @@ async function processUploadEntity({
         noPks: finalNoPks
       }),
     }).catch((err) => console.error("Gagal panggil API WA Investor:", err));
-  } 
-  // KONDISI 2: JIKA PENERIMA ADALAH BROKER
-  else if (entity.roles.includes("Broker")) {
-    
+  }
+  // KONDISI 2: JIKA PENERIMA ADALAH BROKER (khusus entitas fee broker murni,
+  // tanpa investorId — entitas campuran investor+broker sudah ditangani KONDISI 1).
+  else if (!entity.investorId && entity.roles.includes("Broker")) {
+
     // Ekstrak nama-nama klien/investor yang terkait dengan broker ini
     const affiliatedInvestors = new Set<string>();
     
@@ -1014,9 +1015,13 @@ export function ReminderContent() {
       const filteredItems = ent.items.filter((i) => i.isDone === showDone);
       if (filteredItems.length > 0) {
         const totalAmount = filteredItems.reduce((s, i) => s + i.jumlah, 0);
+        // Jika semua item adalah Broker fee, roles hanya berisi ["Broker"].
+        // Jika campuran (seperti investor + broker dari transaksi yg sama),
+        // roles akan berisi beberapa nilai dan entity tetap dianggap investor
+        // karena priority routing ada di processUploadEntity (cek investorId dulu).
         const uniqueRoles = Array.from(new Set(filteredItems.map(i => i.type)));
         const isInternal = filteredItems.some(i => i.keterangan === "MinBun" || (i.keterangan === "Investor" && ent.investorId && internalInvestorIds.has(ent.investorId)));
-        
+
         result.push({ ...ent, filteredItems, totalAmount, roles: uniqueRoles, isInternal });
       }
     });
@@ -1105,6 +1110,8 @@ export function ReminderContent() {
     }
   };
 
+// TS union discriminator tidak otomatis narrow `item.mou` di dalam blok ini,
+// jadi pakai variabel lokal `mou` yang sudah pasti bertipe MoU.
   const handleUndoBulk = async (entity: ProcessedEntity) => {
     setToggling(entity.id);
     try {
@@ -1115,10 +1122,11 @@ export function ReminderContent() {
           await updateTransaksi(trx.id, { bagiHasilChecks: checks, bagiHasilDone: false, status: "berjalan" });
           setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trx.id}__${item.checkKey}`); return s; });
         } else if (item.type === "Pengembalian Modal" && item.mou) {
-          await updateMou(item.mou.id, { isTerminated: false });
-          const inv = investors.find(i => i.id === item.mou!.investorId);
+          const mou = item.mou;
+          await updateMou(mou.id, { isTerminated: false });
+          const inv = investors.find(i => i.id === mou.investorId);
           if (inv) {
-            await updateInvestor(inv.id, { investmentAmount: inv.investmentAmount + item.mou!.investmentAmount });
+            await updateInvestor(inv.id, { investmentAmount: inv.investmentAmount + mou.investmentAmount });
           }
           setDoneKeys((prev) => { const s = new Set(prev); s.delete(item.checkKey); return s; });
         }
