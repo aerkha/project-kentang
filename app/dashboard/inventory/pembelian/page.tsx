@@ -15,13 +15,27 @@ import { toast } from "sonner";
 const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n || 0)} Kg`;
 const formatRp = (n: number) => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(n || 0);
 
+// 👇 KONSTANTA OPSI PERUSAHAAN (KOP SURAT) 👇
+const COMPANY_OPTIONS = {
+  berkah: {
+    name: "PT. BERKAH SEJAHTERA FARM",
+    address: "JL. PTPN VIII, Kp Rancamanyar Margamukti, Kec Pangalengan, Kab Bandung",
+  },
+  madani: {
+    name: "PT. MADANI AGRI LESTARI",
+    address: "Kp Rancamanyar, Desa Margamukti, Kec Pangalengan, Kab Bandung",
+  },
+};
+
 export default function PembelianPage() {
-  // 👇 Hapus generatePembelianId dari sini karena kita akan menggunakan fungsi lokal
   const { bandars, pembelians, addPembelian, isLoading, addPengiriman, pengirimans, buyers = [] } = useInventory();
   
   const [isOpen, setIsOpen] = useState(false);
   const [fileTf, setFileTf] = useState<File | null>(null);
   const [previewData, setPreviewData] = useState<any>(null);
+  
+  // 👇 STATE UNTUK PILIHAN KOP SURAT 👇
+  const [headerCompany, setHeaderCompany] = useState<"berkah" | "madani">("berkah");
 
   const [form, setForm] = useState({ 
     tanggal: todayWibStr().slice(0, 10), 
@@ -60,11 +74,8 @@ export default function PembelianPage() {
     autoStatus = "Menunggu Sortir";
   }
 
-  // 👇 FUNGSI BARU: Generator ID Pembelian Lokal
   const generateBatchIdLocal = (tanggalStr: string, bandarKode: string) => {
     if (!tanggalStr) return "";
-    
-    // Ubah format menjadi YYMMDD
     const dateObj = new Date(tanggalStr);
     const yy = String(dateObj.getFullYear()).slice(-2);
     const mm = String(dateObj.getMonth() + 1).padStart(2, "0");
@@ -72,13 +83,9 @@ export default function PembelianPage() {
     const dateStr = `${yy}${mm}${dd}`;
     
     const prefixHariIni = `PB-${dateStr}`;
-
-    // Filter SEMUA transaksi di hari ini (Abaikan kode bandar)
     const transaksiHariIni = pembelians.filter((p: any) => 
       p.batch_id && p.batch_id.startsWith(prefixHariIni)
     );
-
-    // Nomor urut global per hari
     const urutan = transaksiHariIni.length + 1;
     const suffix = String(urutan).padStart(3, "0");
 
@@ -104,7 +111,6 @@ export default function PembelianPage() {
     if (!bandar) return toast.error("Pilih Bandar!");
     
     try {
-      // 👇 Gunakan Fungsi Lokal di Sini
       const batchId = generateBatchIdLocal(form.tanggal, bandar.kode);
 
       const dataToSubmit: Record<string, any> = {
@@ -166,6 +172,9 @@ export default function PembelianPage() {
     const d = dataObj || previewData;
     if (!d) return;
 
+    // 👇 Ambil profil perusahaan berdasarkan state pilihan 👇
+    const comp = COMPANY_OPTIONS[headerCompany];
+
     const html = `
       <!DOCTYPE html>
       <html lang="id">
@@ -182,21 +191,21 @@ export default function PembelianPage() {
       </head>
       <body class="bg-white text-black font-sans p-8">
         <div class="flex flex-col sm:flex-row justify-between items-start border-b-2 border-black pb-4 mb-6">
-          <div class="mb-4 sm:mb-0">
-            <h1 class="text-3xl font-black tracking-tight uppercase">MINBUN ERP</h1>
-            <p class="text-sm text-gray-600">Distributor Komoditas Hasil Bumi</p>
+          <div class="mb-4 sm:mb-0 w-2/3">
+            <h1 class="text-2xl font-black tracking-tight uppercase">${comp.name}</h1>
+            <p class="text-sm text-gray-600 mt-1 max-w-sm">${comp.address}</p>
           </div>
-          <div class="text-right">
-            <h2 class="text-2xl font-bold text-gray-800 uppercase tracking-widest">Nota Terima</h2>
+          <div class="text-right w-1/3">
+            <h2 class="text-2xl font-bold text-gray-800 uppercase tracking-widest">Nota Beli</h2>
             <p class="text-sm font-mono mt-1 text-gray-600">ID: ${d.batch_id}</p>
             <p class="text-sm text-gray-600">Tanggal: ${new Date(d.tanggal).toLocaleDateString("id-ID", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
           </div>
         </div>
 
         <div class="mb-6">
-          <p class="text-sm text-gray-600 mb-1">Diterima dari Bandar:</p>
+          <p class="text-sm text-gray-600 mb-1">Diterima dari Pemasok/Petani:</p>
           <p class="text-lg font-bold">${d.bndr?.nama || "Tidak Diketahui"}</p>
-          <p class="text-sm text-gray-600">Kode Bandar: ${d.bndr?.kode || "-"}</p>
+          <p class="text-sm text-gray-600">Kode Pemasok/Petani: ${d.bndr?.kode || "-"}</p>
         </div>
 
         <table class="w-full mb-8 border-collapse">
@@ -230,11 +239,11 @@ export default function PembelianPage() {
           
           <div class="flex gap-16 text-center w-1/2 justify-end">
             <div>
-              <p class="text-sm mb-20">Pihak Bandar</p>
+              <p class="text-sm mb-20">Pihak Pemasok/Petani</p>
               <p class="text-sm font-bold border-b border-black pb-1 inline-block min-w-[120px]">${d.bndr?.nama || ""}</p>
             </div>
             <div>
-              <p class="text-sm mb-20">Admin MinBun</p>
+              <p class="text-sm mb-20">Direktur</p>
               <p class="text-sm font-bold border-b border-black pb-1 inline-block min-w-[120px]">_____________</p>
             </div>
           </div>
@@ -396,21 +405,37 @@ export default function PembelianPage() {
 
       <Dialog open={!!previewData} onOpenChange={() => setPreviewData(null)}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <div className="flex justify-between items-center mb-4 border-b pb-4 sticky top-0 bg-background z-10">
+          {/* 👇 HEADER MODAL DENGAN DROPDOWN PILIHAN KOP SURAT 👇 */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 border-b pb-4 sticky top-0 bg-background z-10 gap-4">
             <DialogTitle>Pratinjau Nota Beli</DialogTitle>
-            <Button onClick={() => handlePrint(null)} className="bg-blue-600 hover:bg-blue-700">
-              <Printer className="w-4 h-4 mr-2"/> Cetak / Simpan PDF
-            </Button>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Label className="text-xs text-muted-foreground whitespace-nowrap">Kop Surat:</Label>
+                <Select value={headerCompany} onValueChange={(v: "berkah" | "madani") => setHeaderCompany(v)}>
+                  <SelectTrigger className="w-[180px] h-8 text-xs bg-white">
+                    <SelectValue placeholder="Pilih PT" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="berkah">PT Berkah Sejahtera</SelectItem>
+                    <SelectItem value="madani">PT Madani Agri</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={() => handlePrint(null)} className="bg-blue-600 hover:bg-blue-700 h-8">
+                <Printer className="w-4 h-4 mr-2"/> Cetak / Simpan PDF
+              </Button>
+            </div>
           </div>
           
           {previewData && (
             <div className="bg-white text-black p-6 sm:p-8 font-sans border rounded-lg shadow-sm">
               <div className="flex flex-col sm:flex-row justify-between items-start border-b-2 border-black pb-4 mb-6">
-                <div className="mb-4 sm:mb-0">
-                  <h1 className="text-2xl sm:text-3xl font-black tracking-tight uppercase">MINBUN ERP</h1>
-                  <p className="text-sm text-gray-600">Distributor Komoditas Hasil Bumi</p>
+                <div className="mb-4 sm:mb-0 w-2/3">
+                  {/* 👇 MENAMPILKAN KOP SURAT SESUAI PILIHAN 👇 */}
+                  <h1 className="text-2xl font-black tracking-tight uppercase text-blue-900">{COMPANY_OPTIONS[headerCompany].name}</h1>
+                  <p className="text-sm text-gray-600 max-w-sm mt-1">{COMPANY_OPTIONS[headerCompany].address}</p>
                 </div>
-                <div className="sm:text-right">
+                <div className="sm:text-right w-1/3">
                   <h2 className="text-xl sm:text-2xl font-bold text-gray-800 uppercase tracking-widest">Nota Beli</h2>
                   <p className="text-sm font-mono mt-1 text-gray-600">ID: {previewData.batch_id}</p>
                   <p className="text-sm text-gray-600">Tanggal: {new Date(previewData.tanggal).toLocaleDateString("id-ID", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>

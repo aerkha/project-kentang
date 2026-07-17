@@ -16,11 +16,26 @@ import { toast } from "sonner";
 const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n || 0)} Kg`;
 const formatRp = (n: number) => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(n || 0);
 
+// 👇 KONSTANTA OPSI PERUSAHAAN (KOP SURAT) 👇
+const COMPANY_OPTIONS = {
+  berkah: {
+    name: "PT. BERKAH SEJAHTERA FARM",
+    address: "JL. PTPN VIII, Kp Rancamanyar Margamukti, Kec Pangalengan, Kab Bandung",
+  },
+  madani: {
+    name: "PT. MADANI AGRI LESTARI",
+    address: "Kp Rancamanyar, Desa Margamukti, Kec Pangalengan, Kab Bandung",
+  },
+};
+
 export default function InvoicePage() {
-  // Asumsi 'invoices' dan 'addInvoice' sudah Anda tambahkan di context
   const { buyers = [], pengirimans = [], invoices = [], addInvoice, updateInvoice, isLoading } = useInventory();
   
   const [isOpen, setIsOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<any>(null);
+  
+  // 👇 STATE UNTUK PILIHAN KOP SURAT 👇
+  const [headerCompany, setHeaderCompany] = useState<"berkah" | "madani">("berkah");
 
   const [form, setForm] = useState({ 
     tanggal: todayWibStr().slice(0, 10),
@@ -30,13 +45,11 @@ export default function InvoicePage() {
     harga_a: "", harga_b: "", harga_c: "", harga_baby: "", harga_campur: ""
   });
 
-  // 1. FILTER: Cari Surat Jalan (Pengiriman) yang sudah jalan (punya SJ ID) untuk buyer yang dipilih
   const availableSj = useMemo(() => {
     if (!form.buyer_id) return [];
     return pengirimans.filter(p => p.buyer === form.buyer_id && p.sj_id !== "");
   }, [form.buyer_id, pengirimans]);
 
-  // 2. REKAP TOTAL KG DARI SJ YANG DICEKLIS
   const rekap = useMemo(() => {
     const selectedSjData = pengirimans.filter(p => form.selected_sj.includes(p.id));
     return {
@@ -49,7 +62,6 @@ export default function InvoicePage() {
     };
   }, [form.selected_sj, pengirimans]);
 
-  // 3. KALKULASI TAGIHAN
   const hgA = parseFloat(form.harga_a) || 0;
   const hgB = parseFloat(form.harga_b) || 0;
   const hgC = parseFloat(form.harga_c) || 0;
@@ -62,7 +74,6 @@ export default function InvoicePage() {
 
   const isFormValid = form.buyer_id !== "" && form.selected_sj.length > 0 && form.jatuh_tempo !== "" && totalTagihan > 0;
 
-  // GENERATOR ID INVOICE
   const generateInvoiceId = (dateStr: string) => {
     const ym = dateStr.slice(2, 10).replace(/-/g, ""); 
     const prefix = `INV-${ym}-`;
@@ -116,7 +127,6 @@ export default function InvoicePage() {
   };
 
   const handleMarkLunas = async (id: string, currentInvoiceId: string) => {
-    // Memunculkan konfirmasi dialog bawaan browser
     if (window.confirm(`Apakah Anda yakin ingin menandai Invoice ${currentInvoiceId} menjadi LUNAS?`)) {
       try {
         if (updateInvoice) {
@@ -129,8 +139,8 @@ export default function InvoicePage() {
     }
   };
 
-  const handlePrint = (dataObj: any) => {
-    const d = dataObj
+  const handlePrint = () => {
+    const d = previewData;
     if (!d) return;
 
     const matchedBuyer = buyers.find((b: any) => b.id === d.buyer);
@@ -138,6 +148,9 @@ export default function InvoicePage() {
     const namaPerusahaan = matchedBuyer?.perusahaan ? matchedBuyer.perusahaan : namaTujuan;
     const alamatTujuan = matchedBuyer ? matchedBuyer.alamat : "-";
     const npwpTujuan = matchedBuyer?.npwp ? matchedBuyer.npwp : "-";
+    
+    // 👇 Ambil profil perusahaan berdasarkan state pilihan 👇
+    const comp = COMPANY_OPTIONS[headerCompany];
 
     const items = [
       { name: "Kentang granola - Grade A", qty: d.qty_a || 0, price: d.harga_a || 0 },
@@ -174,12 +187,11 @@ export default function InvoicePage() {
       <body class="bg-white text-black font-sans p-4">
         
         <div class="flex justify-between items-start border-b-4 border-slate-800 pb-4 mb-6">
-          <div>
-            <h1 class="text-4xl font-black tracking-tight uppercase text-slate-800">MINBUN ERP</h1>
-            <p class="text-sm text-gray-600 font-medium">Distributor Komoditas Hasil Bumi</p>
-            <p class="text-xs text-gray-500 mt-1">Jl. Raya Pasar Induk No. 123, Jawa Barat</p>
+          <div class="w-2/3 pr-4">
+            <h1 class="text-3xl font-black tracking-tight uppercase text-slate-800">${comp.name}</h1>
+            <p class="text-sm text-gray-600 font-medium mt-1">${comp.address}</p>
           </div>
-          <div class="text-right">
+          <div class="text-right w-1/3">
             <h2 class="text-3xl font-bold text-blue-800 uppercase tracking-widest mb-1">INVOICE</h2>
             <table class="text-sm text-right ml-auto">
               <tr><td class="text-gray-500 pr-3">No. Invoice:</td><td class="font-bold text-slate-800">${d.invoice_id}</td></tr>
@@ -189,7 +201,7 @@ export default function InvoicePage() {
           </div>
         </div>
 
-        <div class="flex justify-between mb-8">
+        <div class="flex justify-between mb-8 gap-4">
           <div class="w-1/2 bg-slate-50 p-4 rounded-lg border border-slate-200">
             <p class="text-xs text-gray-500 mb-1 uppercase font-bold tracking-wider">Ditagihkan Kepada:</p>
             <p class="text-lg font-black uppercase text-slate-800">${namaPerusahaan}</p>
@@ -236,12 +248,13 @@ export default function InvoicePage() {
             <div class="bg-blue-50 p-3 rounded-lg border border-blue-100 text-sm">
               <p class="text-gray-600 mb-1">Mohon lakukan transfer ke rekening berikut:</p>
               <p class="font-bold text-slate-800">Bank BCA - 1234567890</p>
-              <p class="font-bold text-slate-800">a.n. PT. MINBUN NUSANTARA</p>
+              <p class="font-bold text-slate-800 uppercase">a.n. ${comp.name}</p>
             </div>
           </div>
           <div class="w-1/3 text-center">
             <p class="text-sm mb-16">Hormat Kami,</p>
-            <p class="text-sm font-bold border-b border-black pb-1 inline-block min-w-[150px]">Finance MinBun</p>
+            <p class="text-sm font-bold border-b border-black pb-1 inline-block min-w-[150px]">Finance</p>
+            <p class="text-[10px] text-gray-500 uppercase mt-1">${comp.name}</p>
           </div>
         </div>
 
@@ -295,7 +308,7 @@ export default function InvoicePage() {
               <tbody>
                 {invoices.map((inv: any) => {
                   const matchedBuyer = buyers.find((b: any) => b.id === inv.buyer);
-                  const displayTujuan = matchedBuyer ? matchedBuyer.nama : "-";
+                  const displayTujuan = matchedBuyer ? (matchedBuyer.perusahaan || matchedBuyer.nama) : "-";
                   const isLunas = inv.status === "Lunas";
 
                   return (
@@ -333,8 +346,8 @@ export default function InvoicePage() {
                           <Button 
                             variant="outline" 
                             size="icon"
-                            title="Cetak PDF Invoice" 
-                            onClick={() => handlePrint(inv)} 
+                            title="Pratinjau / Cetak PDF" 
+                            onClick={() => setPreviewData(inv)} 
                             className="h-8 w-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
                           >
                             <Printer className="w-4 h-4" />
@@ -368,7 +381,10 @@ export default function InvoicePage() {
                 <Select value={form.buyer_id} onValueChange={v=>{ setForm({...form, buyer_id: v, selected_sj: []}); }} required>
                   <SelectTrigger className="bg-white"><SelectValue placeholder="Pilih Buyer..." /></SelectTrigger>
                   <SelectContent>
-                    {buyers.map((b: any) => <SelectItem key={b.id} value={b.id}>{b.nama}</SelectItem>)}
+                    {buyers.map((b: any) => {
+                      const displayLabel = b.perusahaan ? `${b.perusahaan} (${b.nama})` : b.nama;
+                      return <SelectItem key={b.id} value={b.id}>{displayLabel}</SelectItem>;
+                    })}
                   </SelectContent>
                 </Select>
               </div>
@@ -463,6 +479,139 @@ export default function InvoicePage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL PRATINJAU INVOICE */}
+      <Dialog open={!!previewData} onOpenChange={() => setPreviewData(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 border-b pb-4 sticky top-0 bg-background z-10 gap-4">
+            <DialogTitle>Pratinjau Invoice</DialogTitle>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Label className="text-xs text-muted-foreground whitespace-nowrap">Kop Surat & Rekening:</Label>
+                <Select value={headerCompany} onValueChange={(v: "berkah" | "madani") => setHeaderCompany(v)}>
+                  <SelectTrigger className="w-[180px] h-8 text-xs bg-white border-indigo-200 text-indigo-800">
+                    <SelectValue placeholder="Pilih PT" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="berkah">PT Berkah Sejahtera</SelectItem>
+                    <SelectItem value="madani">PT Madani Agri</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={handlePrint} className="bg-indigo-600 hover:bg-indigo-700 h-8">
+                <Printer className="w-4 h-4 mr-2"/> Cetak / Simpan PDF
+              </Button>
+            </div>
+          </div>
+          
+          {previewData && (() => {
+            const matchedBuyer = buyers.find((b: any) => b.id === previewData.buyer);
+            const namaTujuan = matchedBuyer ? matchedBuyer.nama : "Tidak Diketahui";
+            const namaPerusahaan = matchedBuyer?.perusahaan ? matchedBuyer.perusahaan : namaTujuan;
+            const alamatTujuan = matchedBuyer ? matchedBuyer.alamat : "-";
+            const npwpTujuan = matchedBuyer?.npwp ? matchedBuyer.npwp : "-";
+            
+            // 👇 Ambil profil perusahaan berdasarkan state pilihan 👇
+            const comp = COMPANY_OPTIONS[headerCompany];
+
+            const items = [
+              { name: "Kentang granola - Grade A", qty: previewData.qty_a || 0, price: previewData.harga_a || 0 },
+              { name: "Kentang granola - Grade B", qty: previewData.qty_b || 0, price: previewData.harga_b || 0 },
+              { name: "Kentang granola - Grade C", qty: previewData.qty_c || 0, price: previewData.harga_c || 0 },
+              { name: "Kentang granola - Baby", qty: previewData.qty_baby || 0, price: previewData.harga_baby || 0 },
+              { name: "Kentang granola - Campur", qty: previewData.qty_campur || 0, price: previewData.harga_campur || 0 },
+            ].filter(item => item.qty > 0);
+
+            return (
+              <div className="bg-white text-black p-6 sm:p-8 font-sans border rounded-lg shadow-sm">
+                <div className="flex flex-col sm:flex-row justify-between items-start border-b-4 border-slate-800 pb-4 mb-6 gap-4">
+                  <div className="w-full sm:w-2/3">
+                    <h1 className="text-3xl font-black tracking-tight uppercase text-slate-800">{comp.name}</h1>
+                    <p className="text-sm text-gray-600 font-medium mt-1">{comp.address}</p>
+                  </div>
+                  <div className="w-full sm:w-1/3 sm:text-right">
+                    <h2 className="text-3xl font-bold text-blue-800 uppercase tracking-widest mb-1">INVOICE</h2>
+                    <table className="text-sm sm:ml-auto w-full sm:w-auto mt-2">
+                      <tbody>
+                        <tr><td className="text-gray-500 pr-3 text-left sm:text-right py-0.5">No. Invoice:</td><td className="font-bold text-slate-800 text-right">{previewData.invoice_id}</td></tr>
+                        <tr><td className="text-gray-500 pr-3 text-left sm:text-right py-0.5">Tanggal:</td><td className="font-bold text-right">{new Date(previewData.tanggal).toLocaleDateString("id-ID")}</td></tr>
+                        <tr><td className="text-gray-500 pr-3 text-left sm:text-right py-0.5">Jatuh Tempo:</td><td className="font-bold text-red-600 text-right">{new Date(previewData.jatuh_tempo).toLocaleDateString("id-ID")}</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row justify-between mb-8 gap-4">
+                  <div className="w-full sm:w-1/2 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <p className="text-xs text-gray-500 mb-1 uppercase font-bold tracking-wider">Ditagihkan Kepada:</p>
+                    <p className="text-lg font-black uppercase text-slate-800">{namaPerusahaan}</p>
+                    {matchedBuyer?.perusahaan && <p className="text-sm font-semibold text-gray-700 mt-0.5">Attn: {namaTujuan}</p>}
+                    <p className="text-sm text-gray-600 mt-1">{alamatTujuan}</p>
+                    <p className="text-sm text-gray-600 font-mono mt-1 font-semibold">NPWP: {npwpTujuan}</p>
+                  </div>
+                  <div className="w-full sm:w-1/2 sm:text-right flex flex-col justify-end items-start sm:items-end">
+                    <p className="text-xs text-gray-500 mb-0.5">Referensi Surat Jalan (DO):</p>
+                    <p className="text-sm font-mono font-semibold bg-blue-50 text-blue-800 p-2 rounded border border-blue-100 mt-1">{previewData.ref_sj}</p>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto mb-6">
+                  <table className="w-full min-w-[500px] border-collapse">
+                    <thead>
+                      <tr className="bg-slate-800 text-white">
+                        <th className="py-2.5 px-3 text-center text-sm font-bold w-12 rounded-tl-lg">No</th>
+                        <th className="py-2.5 px-3 text-left text-sm font-bold">Deskripsi Barang</th>
+                        <th className="py-2.5 px-3 text-center text-sm font-bold w-24">Kuantitas</th>
+                        <th className="py-2.5 px-3 text-right text-sm font-bold w-32">Harga / Kg</th>
+                        <th className="py-2.5 px-3 text-right text-sm font-bold w-40 rounded-tr-lg">Jumlah</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((item, index) => (
+                        <tr key={index}>
+                          <td className="py-2 px-3 border-b border-gray-300 text-sm text-center">{index + 1}</td>
+                          <td className="py-2 px-3 border-b border-gray-300 text-sm font-medium">{item.name}</td>
+                          <td className="py-2 px-3 border-b border-gray-300 text-sm text-center">{item.qty} Kg</td>
+                          <td className="py-2 px-3 border-b border-gray-300 text-sm text-right">{formatRp(item.price)}</td>
+                          <td className="py-2 px-3 border-b border-gray-300 text-sm text-right font-bold">{formatRp(item.qty * item.price)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex justify-end mb-8">
+                  <div className="w-full sm:w-1/2 md:w-1/3 border-b-2 border-slate-800 py-2">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-slate-800">TOTAL TAGIHAN</span>
+                      <span className="font-black text-xl text-blue-800">{formatRp(previewData.total_tagihan)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end border-t border-gray-300 pt-6 mt-12 gap-8">
+                  <div className="w-full sm:w-2/3">
+                    <p className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-1.5">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-landmark"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7 12 2"/></svg>
+                      Instruksi Pembayaran
+                    </p>
+                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-sm">
+                      <p className="text-gray-600 mb-1">Mohon lakukan transfer ke rekening berikut:</p>
+                      <p className="font-bold text-slate-800">Bank BCA - 1234567890</p>
+                      <p className="font-bold text-slate-800 uppercase">a.n. {comp.name}</p>
+                    </div>
+                  </div>
+                  <div className="w-full sm:w-1/3 text-center mt-6 sm:mt-0">
+                    <p className="text-sm mb-16">Hormat Kami,</p>
+                    <p className="text-sm font-bold border-b border-black pb-1 inline-block min-w-[150px]">Finance</p>
+                    <p className="text-[10px] text-gray-500 uppercase mt-1">{comp.name}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>

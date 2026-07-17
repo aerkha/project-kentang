@@ -14,6 +14,18 @@ import { toast } from "sonner";
 
 const formatKg = (n: number) => `${new Intl.NumberFormat("id-ID").format(n || 0)} Kg`;
 
+// 👇 KONSTANTA OPSI PERUSAHAAN (KOP SURAT) 👇
+const COMPANY_OPTIONS = {
+  berkah: {
+    name: "PT. BERKAH SEJAHTERA FARM",
+    address: "JL. PTPN VIII, Kp Rancamanyar Margamukti, Kec Pangalengan, Kab Bandung",
+  },
+  madani: {
+    name: "PT. MADANI AGRI LESTARI",
+    address: "Kp Rancamanyar, Desa Margamukti, Kec Pangalengan, Kab Bandung",
+  },
+};
+
 export default function PengirimanPage() {
   const { pengirimans, sortirs, addPengiriman, updatePengiriman, isLoading, buyers = [] } = useInventory();
   
@@ -33,6 +45,9 @@ export default function PengirimanPage() {
   const [sjForm, setSjForm] = useState({ supir: "", plat_nomor: "" });
 
   const [previewData, setPreviewData] = useState<any>(null);
+
+  // 👇 STATE UNTUK PILIHAN KOP SURAT 👇
+  const [headerCompany, setHeaderCompany] = useState<"berkah" | "madani">("berkah");
 
   if (isLoading) return <div className="animate-pulse">Memuat...</div>;
 
@@ -92,7 +107,6 @@ export default function PengirimanPage() {
       const finalBatchId = doForm.batch_id.trim() !== "" ? doForm.batch_id.trim() : generateDOId(doForm.tanggal);
       const selectedBuyer = buyers.find((b: any) => b.id === doForm.buyer_id);
       
-      // 👇 1. UPDATE: Simpan nama perusahaan ke DB jika ada
       const buyerName = selectedBuyer ? (selectedBuyer.perusahaan || selectedBuyer.nama) : "";
 
       await addPengiriman({
@@ -144,11 +158,12 @@ export default function PengirimanPage() {
     if (!d) return;
 
     const matchedBuyer = buyers.find((b: any) => b.id === d.buyer);
-    
-    // 👇 2. UPDATE: Tampilkan Perusahaan di PDF Surat Jalan
     const namaTujuan = matchedBuyer 
       ? (matchedBuyer.perusahaan ? `${matchedBuyer.perusahaan} (${matchedBuyer.nama})` : matchedBuyer.nama) 
       : (d.tujuan || "Tidak Diketahui");
+
+    // 👇 Ambil profil perusahaan berdasarkan state pilihan 👇
+    const comp = COMPANY_OPTIONS[headerCompany];
 
     const items = [
       { name: "Kentang Granola - Grade A", qty: d.qty_grade_a || 0 },
@@ -186,11 +201,11 @@ export default function PengirimanPage() {
       <body class="bg-white text-black font-sans">
         
         <div class="flex justify-between items-start border-b-2 border-black pb-2 mb-3">
-          <div>
-            <h1 class="text-xl font-black tracking-tight uppercase">MINBUN ERP</h1>
-            <p class="text-[10px] text-gray-600">Distributor Komoditas Hasil Bumi</p>
+          <div class="w-2/3">
+            <h1 class="text-xl font-black tracking-tight uppercase">${comp.name}</h1>
+            <p class="text-[10px] text-gray-600 mt-0.5 pr-4">${comp.address}</p>
           </div>
-          <div class="text-right">
+          <div class="text-right w-1/3">
             <h2 class="text-lg font-bold text-gray-800 uppercase tracking-widest">Surat Jalan</h2>
             <p class="text-xs font-mono mt-0.5 text-gray-600">No. SJ: ${d.sj_id}</p>
             <p class="text-xs font-mono text-gray-600">Ref DO: ${d.batch_id}</p>
@@ -246,8 +261,8 @@ export default function PengirimanPage() {
           </div>
           <div class="w-1/3">
             <p class="text-xs mb-10">Hormat Kami,</p>
-            <p class="text-xs font-bold border-b border-black pb-0.5 inline-block min-w-[120px]">Gudang MinBun</p>
-            <p class="text-[10px] mt-1 text-gray-500">(Bagian Pengiriman)</p>
+            <p class="text-xs font-bold border-b border-black pb-0.5 inline-block min-w-[120px]">Bag. Pengiriman</p>
+            <p class="text-[9px] mt-1 text-gray-500 max-w-[120px] mx-auto uppercase">${comp.name}</p>
           </div>
         </div>
 
@@ -297,8 +312,6 @@ export default function PengirimanPage() {
                   const pAny = p as any;
                   
                   const matchedBuyer = buyers.find((b: any) => b.id === p.buyer);
-                  
-                  // 👇 3. UPDATE: Tampilkan Perusahaan di Tabel Utama
                   const displayTujuan = matchedBuyer 
                     ? (matchedBuyer.perusahaan ? `${matchedBuyer.perusahaan} (${matchedBuyer.nama})` : matchedBuyer.nama) 
                     : (p.tujuan || p.buyer);
@@ -379,7 +392,6 @@ export default function PengirimanPage() {
                     {buyers.length === 0 ? (
                       <SelectItem value="empty" disabled>Belum ada data pembeli</SelectItem>
                     ) : (
-                      // 👇 4. UPDATE: Tampilkan Perusahaan di Dropdown Input Form
                       buyers.map((b: any) => {
                         const displayLabel = b.perusahaan ? `${b.perusahaan} (${b.nama})` : b.nama;
                         return <SelectItem key={b.id} value={b.id}>{displayLabel}</SelectItem>;
@@ -479,17 +491,30 @@ export default function PengirimanPage() {
 
       <Dialog open={!!previewData} onOpenChange={() => setPreviewData(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <div className="flex justify-between items-center mb-4 border-b pb-4 sticky top-0 bg-background z-10">
+          {/* 👇 HEADER MODAL DENGAN DROPDOWN PILIHAN KOP SURAT 👇 */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 border-b pb-4 sticky top-0 bg-background z-10 gap-4">
             <DialogTitle>Pratinjau Surat Jalan</DialogTitle>
-            <Button onClick={() => handlePrintSJ(null)} className="bg-blue-600 hover:bg-blue-700">
-              <Printer className="w-4 h-4 mr-2"/> Cetak / Simpan PDF
-            </Button>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Label className="text-xs text-muted-foreground whitespace-nowrap">Kop Surat:</Label>
+                <Select value={headerCompany} onValueChange={(v: "berkah" | "madani") => setHeaderCompany(v)}>
+                  <SelectTrigger className="w-[180px] h-8 text-xs bg-white">
+                    <SelectValue placeholder="Pilih PT" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="berkah">PT Berkah Sejahtera</SelectItem>
+                    <SelectItem value="madani">PT Madani Agri</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={() => handlePrintSJ(null)} className="bg-blue-600 hover:bg-blue-700 h-8">
+                <Printer className="w-4 h-4 mr-2"/> Cetak / Simpan PDF
+              </Button>
+            </div>
           </div>
           
           {previewData && (() => {
             const matchedBuyer = buyers.find((b: any) => b.id === previewData.buyer);
-            
-            // 👇 5. UPDATE: Tampilkan Perusahaan di Modal Pratinjau
             const displayTujuan = matchedBuyer 
               ? (matchedBuyer.perusahaan ? `${matchedBuyer.perusahaan} (${matchedBuyer.nama})` : matchedBuyer.nama) 
               : (previewData.tujuan || previewData.buyer);
@@ -497,11 +522,12 @@ export default function PengirimanPage() {
             return (
               <div className="bg-white text-black p-6 font-sans border rounded-lg shadow-sm">
                 <div className="flex justify-between items-start border-b-2 border-black pb-2 mb-4">
-                  <div>
-                    <h1 className="text-xl font-black tracking-tight uppercase">MINBUN ERP</h1>
-                    <p className="text-[10px] text-gray-600">Distributor Komoditas Hasil Bumi</p>
+                  <div className="w-2/3">
+                    {/* 👇 MENAMPILKAN KOP SURAT SESUAI PILIHAN 👇 */}
+                    <h1 className="text-xl font-black tracking-tight uppercase text-blue-900">{COMPANY_OPTIONS[headerCompany].name}</h1>
+                    <p className="text-[10px] text-gray-600 mt-0.5 pr-4">{COMPANY_OPTIONS[headerCompany].address}</p>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right w-1/3">
                     <h2 className="text-lg font-bold text-gray-800 uppercase tracking-widest">Surat Jalan</h2>
                     <p className="text-xs font-mono mt-0.5 text-gray-600">No. SJ: {previewData.sj_id}</p>
                     <p className="text-xs font-mono text-gray-600">Ref DO: {previewData.batch_id}</p>
@@ -570,8 +596,8 @@ export default function PengirimanPage() {
                   </div>
                   <div className="w-full sm:w-1/3">
                     <p className="text-xs mb-10">Hormat Kami,</p>
-                    <p className="text-xs font-bold border-b border-black pb-0.5 inline-block min-w-[120px]">Gudang MinBun</p>
-                    <p className="text-[10px] mt-1 text-gray-500">(Bagian Pengiriman)</p>
+                    <p className="text-xs font-bold border-b border-black pb-0.5 inline-block min-w-[120px]">Bag. Pengiriman</p>
+                    <p className="text-[9px] mt-1 text-gray-500 uppercase max-w-[120px] mx-auto">{COMPANY_OPTIONS[headerCompany].name}</p>
                   </div>
                 </div>
               </div>
