@@ -66,7 +66,7 @@ export function LoginForm() {
             <Sprout className="w-8 h-8 text-primary-foreground" />
           </div>
           <h1 className="text-2xl font-bold text-foreground">MinBun ERP</h1>
-          <p className="text-muted-foreground text-sm">Agriculture Investment Management</p>
+          <p className="text-muted-foreground text-sm">Agriculture Investment & Supply Chain Management</p>
         </div>
 
         <Card className="border-border shadow-lg">
