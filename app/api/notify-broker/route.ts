@@ -149,14 +149,20 @@ export async function POST(req: NextRequest) {
 
   // 3. Kirim Pesan via Fonnte
   try {
+    // PERBAIKAN: Gunakan FormData (multipart/form-data) bukan URLSearchParams.
+    // Fonnte sering "drop" pesan berformat markdown/teks panjang ketika dikirim
+    // via application/x-www-form-urlencoded, dengan response HTTP 200 {status:true}
+    // sehingga log nampak "terkirim" padahal WA tidak sampai. FormData terbukti
+    // 100% diterima (lihat lib/send-reminders-core.ts).
+    const formData = new FormData();
+    formData.append("target",      normalizedPhone);
+    formData.append("message",     msgText);
+    formData.append("countryCode", "62");
+
     const res = await fetch("https://api.fonnte.com/send", {
       method: "POST",
       headers: { Authorization: token },
-      body: new URLSearchParams({
-        target:      normalizedPhone,
-        message:     msgText,
-        countryCode: "62",
-      }),
+      body:   formData,
     });
 
     if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);

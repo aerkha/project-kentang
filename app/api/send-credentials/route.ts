@@ -94,15 +94,21 @@ async function sendWhatsApp(phone: string, message: string): Promise<boolean> {
       return false;
     }
 
+    // PERBAIKAN: Gunakan FormData (multipart/form-data) bukan URLSearchParams.
+    // Fonnte sering "drop" pesan berformat markdown/teks panjang ketika dikirim
+    // via application/x-www-form-urlencoded, dengan response HTTP 200 {status:true}
+    // sehingga log nampak "terkirim" padahal WA tidak sampai. FormData terbukti
+    // 100% diterima (lihat lib/send-reminders-core.ts).
+    const formData = new FormData();
+    formData.append("target",  formattedPhone);
+    formData.append("message", message);
+
     const res = await fetch("https://api.fonnte.com/send", {
       method: "POST",
       headers: {
         "Authorization": token,
       },
-      body: new URLSearchParams({
-        target: formattedPhone,
-        message: message,
-      })
+      body: formData,
     });
 
     const data = await res.json();

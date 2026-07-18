@@ -283,15 +283,20 @@ async function sendWhatsApp(phone: string, opts: Parameters<typeof buildWaMessag
 
   const normalized = phone.replace(/^0/, "62").replace(/\D/g, "");
 
-  // --- KIRIM PESAN TEKS UTAMA ---
+  // PERBAIKAN: Gunakan FormData (multipart/form-data) bukan URLSearchParams.
+  // Fonnte secara historis sering "drop" pesan berformat markdown/teks panjang
+  // ketika dikirim via application/x-www-form-urlencoded, dengan response
+  // HTTP 200 {status:true} sehingga log nampak "terkirim" padahal WA gagal
+  // diterima device. FormData terbukti 100% diterima (lihat lib/send-reminders-core.ts).
+  const formData = new FormData();
+  formData.append("target",      normalized);
+  formData.append("message",     buildWaMessage(opts));
+  formData.append("countryCode", "62");
+
   const res = await fetch("https://api.fonnte.com/send", {
     method: "POST",
     headers: { Authorization: token },
-    body: new URLSearchParams({
-      target:      normalized,
-      message:     buildWaMessage(opts),
-      countryCode: "62",
-    }),
+    body:   formData,
   });
 
   if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
