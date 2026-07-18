@@ -407,8 +407,18 @@ async function sendWhatsApp(tasks: PendingTask[], date: string): Promise<Channel
     headers: { Authorization: token },
     body: formData,
   });
-  
+
   if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
+
+  // SINKRONISASI: Pola yang sama dengan notify-investor / notify-broker /
+  // notify-owner — Fonnte kadang return HTTP 200 dengan body { status: false,
+  // reason: "..." }. Tanpa cek ini, log akan keliru menandai "sent" padahal
+  // pesan tidak terkirim ke device admin (mis. gateway WA offline, nomor
+  // tidak terdaftar WA, dst).
+  const data = await res.json().catch(() => null);
+  if (data && data.status === false) {
+    throw new Error(`Fonnte: ${data.reason || data.detail || "ditolak"}`);
+  }
   return "sent";
 }
 
