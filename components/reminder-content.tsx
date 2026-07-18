@@ -715,22 +715,49 @@ async function processUploadEntity({
     });
     const finalNoPks = Array.from(new Set(pksList)).join(", ");
 
-    await fetch("/api/notify-investor", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${pb.authStore.token}`,
-      },
-      body: JSON.stringify({
-        transaksiId: entity.filteredItems.map((i) => i.sourceId).join(", "),
-        keterangan: entity.roles.join(" & "),
-        investorId: entity.investorId,
-        jumlah: entity.totalAmount,
-        buktiUrl: combinedUrls,
-        brokerName: brokerName,
-        noPks: finalNoPks
-      }),
-    }).catch((err) => console.error("Gagal panggil API WA Investor:", err));
+    // PERBAIKAN: Cek response notifikasi. Sebelumnya error 400 hanya dicatat
+    // ke console, sehingga user tidak tahu notifikasi gagal — DB tetap commit
+    // sukses (item pindah ke tab Selesai) tapi WA/email tidak terkirim.
+    try {
+      const res = await fetch("/api/notify-investor", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${pb.authStore.token}`,
+        },
+        body: JSON.stringify({
+          transaksiId: entity.filteredItems.map((i) => i.sourceId).join(", "),
+          keterangan: entity.roles.join(" & "),
+          investorId: entity.investorId,
+          jumlah: entity.totalAmount,
+          buktiUrl: combinedUrls,
+          brokerName: brokerName,
+          noPks: finalNoPks
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(
+          `Notifikasi investor HTTP ${res.status}` +
+          (errBody?.error ? `: ${errBody.error}` : ""),
+        );
+      }
+      const result = await res.json().catch(() => ({}));
+      if (result?.waStatus === "failed" || result?.emailStatus === "failed") {
+        const parts: string[] = [];
+        if (result?.waStatus === "failed")  parts.push("WhatsApp gagal");
+        if (result?.emailStatus === "failed") parts.push("Email gagal");
+        throw new Error(`Notifikasi investor — ${parts.join(", ")}${result?.errors?.length ? `. ${result.errors.join("; ")}` : ""}`);
+      }
+    } catch (err) {
+      // Jangan rollback DB — uang sudah ditransfer. Hanya laporkan ke user
+      // agar mereka bisa kirim ulang manual via tombol "Kirim Sekarang".
+      toast.error(
+        `Pembayaran tersimpan, tapi notifikasi ke investor ${entity.nama} GAGAL: ` +
+        String((err as Error)?.message ?? err),
+      );
+      console.error("[notify-investor] error:", err);
+    }
   }
   // KONDISI 2: JIKA PENERIMA ADALAH BROKER (khusus entitas fee broker murni,
   // tanpa investorId — entitas campuran investor+broker sudah ditangani KONDISI 1).
@@ -758,20 +785,35 @@ async function processUploadEntity({
     });
     const finalNoPks = Array.from(new Set(pksList)).join(", ");
 
-    await fetch("/api/notify-broker", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${pb.authStore.token}`,
-      },
-      body: JSON.stringify({
-        brokerName: entity.nama,
-        investorList: investorList,
-        jumlah: entity.totalAmount,
-        buktiUrl: combinedUrls,
-        noPks: finalNoPks
-      }),
-    }).catch((err) => console.error("Gagal panggil API WA Broker:", err));
+    // PERBAIKAN: Sama seperti KONDISI 1, cek response notifikasi broker
+    // agar user tahu jika gagal (sebelumnya silent).
+    try {
+      const res = await fetch("/api/notify-broker", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${pb.authStore.token}`,
+        },
+        body: JSON.stringify({
+          brokerName: entity.nama,
+          investorList: investorList,
+          jumlah: entity.totalAmount,
+          buktiUrl: combinedUrls,
+          noPks: finalNoPks
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(`Notifikasi broker HTTP ${res.status}` + (errBody?.error ? `: ${errBody.error}` : "") + (errBody?.reason ? `: ${errBody.reason}` : ""));
+      }
+      const result = await res.json().catch(() => ({}));
+      if (result?.waStatus === "failed") {
+        throw new Error(`Notifikasi broker gagal: WhatsApp GAGAL${result?.reason ? ` (${result.reason})` : ""}`);
+      }
+    } catch (err) {
+      toast.error(`Pembayaran tersimpan, tapi notifikasi ke broker ${entity.nama} GAGAL: ` + String((err as Error)?.message ?? err));
+      console.error("[notify-broker] error:", err);
+    }
   }
 }
 
