@@ -657,10 +657,16 @@ async function processUploadEntity({
   triggerAutorenewalFn,
   setDoneKeysFn,
 }: ProcessUploadEntityParams) {
+  // PERBAIKAN: Two-phase commit. Fase 1 — upload bukti & kirim notifikasi
+  // (semua side-effect eksternal). Fase 2 — commit DB PocketBase.
+  // Jika fase 1 gagal, DB TIDAK ter-update dan item tetap di tab Pending.
+  // Sebelumnya: DB commit duluan, kalau notify gagal, item sudah pindah ke
+  // tab Selesai tapi notifikasi tidak terkirim.
   const fileUrls: string[] = [];
   const validFiles = uploadFiles.filter(Boolean);
   const triggeredRenewals = new Set<string>();
 
+  // FASE 1A: Upload bukti untuk setiap item.
   for (let i = 0; i < entity.filteredItems.length; i++) {
     const item: any = entity.filteredItems[i];
     const url = await uploadProofForItem({
@@ -670,9 +676,17 @@ async function processUploadEntity({
       uploadBuktiTransaksiFn,
       uploadBuktiPengembalianFn,
     });
-
     if (url) fileUrls.push(url);
+  }
+  const combinedUrls = Array.from(new Set(fileUrls)).join(",");
 
+  // FASE 1B: Kirim notifikasi. Kalau gagal → throw (DB belum berubah,
+  // item tetap di tab Pending).
+  await sendBulkNotifications(entity, combinedUrls, uploadBuktiTransaksiFn);
+
+  // FASE 2: Commit ke PocketBase (update bagiHasilChecks, status, dll).
+  for (let i = 0; i < entity.filteredItems.length; i++) {
+    const item: any = entity.filteredItems[i];
     if (item.type === "Bagi Hasil" && item.trx) {
       await processBagiHasilItem({
         item,
@@ -696,9 +710,17 @@ async function processUploadEntity({
       });
     }
   }
+}
 
-  const combinedUrls = Array.from(new Set(fileUrls)).join(",");
-
+/**
+ * Kirim notifikasi bulk ke investor / broker. Throw error jika ada yang gagal,
+ * sehingga fase 2 (DB commit) tidak akan dieksekusi — item tetap di tab Pending.
+ */
+async function sendBulkNotifications(
+  entity: ProcessedEntity,
+  combinedUrls: string,
+  _uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>,
+): Promise<void> {
   // KONDISI 1: JIKA PENERIMA ADALAH INVESTOR
   if (entity.investorId) {
     let brokerName = "Pusat";
@@ -715,57 +737,45 @@ async function processUploadEntity({
     });
     const finalNoPks = Array.from(new Set(pksList)).join(", ");
 
-    // PERBAIKAN: Cek response notifikasi. Sebelumnya error 400 hanya dicatat
-    // ke console, sehingga user tidak tahu notifikasi gagal — DB tetap commit
-    // sukses (item pindah ke tab Selesai) tapi WA/email tidak terkirim.
-    try {
-      const res = await fetch("/api/notify-investor", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${pb.authStore.token}`,
-        },
-        body: JSON.stringify({
-          transaksiId: entity.filteredItems.map((i) => i.sourceId).join(", "),
-          keterangan: entity.roles.join(" & "),
-          investorId: entity.investorId,
-          jumlah: entity.totalAmount,
-          buktiUrl: combinedUrls,
-          brokerName: brokerName,
-          noPks: finalNoPks
-        }),
-      });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(
-          `Notifikasi investor HTTP ${res.status}` +
-          (errBody?.error ? `: ${errBody.error}` : ""),
-        );
-      }
-      const result = await res.json().catch(() => ({}));
-      if (result?.waStatus === "failed" || result?.emailStatus === "failed") {
-        const parts: string[] = [];
-        if (result?.waStatus === "failed")  parts.push("WhatsApp gagal");
-        if (result?.emailStatus === "failed") parts.push("Email gagal");
-        throw new Error(`Notifikasi investor — ${parts.join(", ")}${result?.errors?.length ? `. ${result.errors.join("; ")}` : ""}`);
-      }
-    } catch (err) {
-      // Jangan rollback DB — uang sudah ditransfer. Hanya laporkan ke user
-      // agar mereka bisa kirim ulang manual via tombol "Kirim Sekarang".
-      toast.error(
-        `Pembayaran tersimpan, tapi notifikasi ke investor ${entity.nama} GAGAL: ` +
-        String((err as Error)?.message ?? err),
+    const res = await fetch("/api/notify-investor", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${pb.authStore.token}`,
+      },
+      body: JSON.stringify({
+        transaksiId: entity.filteredItems.map((i) => i.sourceId).join(", "),
+        keterangan: entity.roles.join(" & "),
+        investorId: entity.investorId,
+        jumlah: entity.totalAmount,
+        buktiUrl: combinedUrls,
+        brokerName: brokerName,
+        noPks: finalNoPks,
+      }),
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(
+        `Notifikasi investor HTTP ${res.status}` +
+        (errBody?.error ? `: ${errBody.error}` : ""),
       );
-      console.error("[notify-investor] error:", err);
     }
+    const result = await res.json().catch(() => ({}));
+    if (result?.waStatus === "failed" || result?.emailStatus === "failed") {
+      const parts: string[] = [];
+      if (result?.waStatus === "failed")    parts.push("WhatsApp gagal");
+      if (result?.emailStatus === "failed") parts.push("Email gagal");
+      throw new Error(
+        `Notifikasi investor — ${parts.join(", ")}` +
+        (result?.errors?.length ? `. ${result.errors.join("; ")}` : ""),
+      );
+    }
+    return;
   }
-  // KONDISI 2: JIKA PENERIMA ADALAH BROKER (khusus entitas fee broker murni,
-  // tanpa investorId — entitas campuran investor+broker sudah ditangani KONDISI 1).
-  else if (!entity.investorId && entity.roles.includes("Broker")) {
 
-    // Ekstrak nama-nama klien/investor yang terkait dengan broker ini
+  // KONDISI 2: JIKA PENERIMA ADALAH BROKER (tanpa investorId, entitas murni broker)
+  if (!entity.investorId && entity.roles.includes("Broker")) {
     const affiliatedInvestors = new Set<string>();
-    
     entity.filteredItems.forEach((i: any) => {
       if (i.type === "Bagi Hasil" && i.trx) {
         i.trx.investorEntries.forEach((e: any) => {
@@ -775,44 +785,41 @@ async function processUploadEntity({
         });
       }
     });
-    
     const investorList = Array.from(affiliatedInvestors).join(", ");
-    
-    // Kumpulkan Nomor PKS Referensi
     const pksList = entity.filteredItems.map((i: any) => {
       if (i.type === "Bagi Hasil" && i.trx) return i.trx.customId || i.trx.id;
       return i.sourceId;
     });
     const finalNoPks = Array.from(new Set(pksList)).join(", ");
 
-    // PERBAIKAN: Sama seperti KONDISI 1, cek response notifikasi broker
-    // agar user tahu jika gagal (sebelumnya silent).
-    try {
-      const res = await fetch("/api/notify-broker", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${pb.authStore.token}`,
-        },
-        body: JSON.stringify({
-          brokerName: entity.nama,
-          investorList: investorList,
-          jumlah: entity.totalAmount,
-          buktiUrl: combinedUrls,
-          noPks: finalNoPks
-        }),
-      });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(`Notifikasi broker HTTP ${res.status}` + (errBody?.error ? `: ${errBody.error}` : "") + (errBody?.reason ? `: ${errBody.reason}` : ""));
-      }
-      const result = await res.json().catch(() => ({}));
-      if (result?.waStatus === "failed") {
-        throw new Error(`Notifikasi broker gagal: WhatsApp GAGAL${result?.reason ? ` (${result.reason})` : ""}`);
-      }
-    } catch (err) {
-      toast.error(`Pembayaran tersimpan, tapi notifikasi ke broker ${entity.nama} GAGAL: ` + String((err as Error)?.message ?? err));
-      console.error("[notify-broker] error:", err);
+    const res = await fetch("/api/notify-broker", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${pb.authStore.token}`,
+      },
+      body: JSON.stringify({
+        brokerName: entity.nama,
+        investorList,
+        jumlah: entity.totalAmount,
+        buktiUrl: combinedUrls,
+        noPks: finalNoPks,
+      }),
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(
+        `Notifikasi broker HTTP ${res.status}` +
+        (errBody?.error ? `: ${errBody.error}` : "") +
+        (errBody?.reason ? `: ${errBody.reason}` : ""),
+      );
+    }
+    const result = await res.json().catch(() => ({}));
+    if (result?.waStatus === "failed") {
+      throw new Error(
+        `Notifikasi broker gagal: WhatsApp GAGAL` +
+        (result?.reason ? ` (${result.reason})` : ""),
+      );
     }
   }
 }
@@ -1309,8 +1316,13 @@ export function ReminderContent() {
 
       toast.success(`Pembayaran massal untuk ${uploadTarget.nama} berhasil diselesaikan.`);
       clearUploadDialog();
-    } catch {
-      toast.error("Gagal menyimpan pembayaran. Coba lagi.");
+    } catch (err) {
+      // Tampilkan error message asli, bukan generic toast, agar user tahu
+      // root cause (mis. HTTP 400 dari PocketBase validasi, atau error lain).
+      console.error("[handleConfirmUpload] error:", err);
+      toast.error(
+        `Gagal menyimpan pembayaran: ${String((err as Error)?.message ?? err)}`,
+      );
     } finally {
       setIsUploading(false);
       setToggling(null);

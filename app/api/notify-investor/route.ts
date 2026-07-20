@@ -348,16 +348,28 @@ export async function POST(req: NextRequest) {
   let investorEmail = "";
   let investorName  = "";
 
+  // PERBAIKAN: Investor dari `transaksi_investors.investorId` bisa berupa
+  // PocketBase record ID (15-char hash, mis. "abc123def456ghi") atau
+  // `customId` (string bisnis, mis. "INV-0001"). Client `processUploadEntity`
+  // mengirim `investorId` dari `entity.investorId` yang asalnya adalah PB ID.
+  // Deteksi PB ID dengan regex 15-char alfanumerik; query dengan filter OR
+  // untuk mencari di kedua kolom sehingga endpoint tidak return 400/404.
+  const looksLikePbId = /^[a-z0-9]{15}$/i.test(investorId);
+  const filter = looksLikePbId
+    ? `(id = "${pbEsc(investorId)}") || (customId = "${pbEsc(investorId)}")`
+    : `customId = "${pbEsc(investorId)}"`;
   try {
-    const inv = await pb.collection("investors").getFirstListItem(
-      `customId = "${pbEsc(investorId)}"`,
-      { fields: "name,phone,email" }
-    );
+    const inv = await pb.collection("investors").getFirstListItem(filter, {
+      fields: "name,phone,email",
+    });
     investorName  = (inv.name  as string) || "";
     investorPhone = (inv.phone as string) || "";
     investorEmail = (inv.email as string) || "";
   } catch {
-    return NextResponse.json({ error: `Investor "${investorId}" tidak ditemukan` }, { status: 404 });
+    return NextResponse.json(
+      { error: `Investor "${investorId}" tidak ditemukan` },
+      { status: 404 }
+    );
   }
 
   // Bangun riwayat transaksi investor
