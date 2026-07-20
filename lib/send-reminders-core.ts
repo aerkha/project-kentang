@@ -139,9 +139,13 @@ async function processAutorenewals(pb: PocketBase) {
       const oldCustomId = old.customId || old.id;
       const newCustomId = nextAutorenewalCustomId(oldCustomId);
 
-      const period = parsePeriodeDays(old.description);
+      // m-5 (cron path): hardcode 30 hari per siklus. Sama seperti di client
+      // (lib/transaksi-context.tsx triggerAutorenewal). Jangan parse dari
+      // deskripsi — user dapat menulis teks bebas (mis. "PT 2025") yang
+      // akan membuat daysMatch=2025 dan meloncat 5,5 tahun.
+      const days = 30;
       const [y, m, d] = (old.date as string).slice(0, 10).split("-").map(Number);
-      const nextDate = new Date(Date.UTC(y, m - 1, d + period)).toISOString().slice(0, 10);
+      const nextDate = new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 
       const oldInvestors = await pb.collection("transaksi_investors").getFullList<any>({
         filter: `transaksiId = "${pbEsc(old.id)}"`

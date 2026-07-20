@@ -1421,10 +1421,17 @@ export function ReminderContent() {
   };
 
   // Cleanup object URLs saat komponen unmount agar tidak ada memory leak.
+  // Pakai ref (bukan setState di cleanup) karena setState di dalam cleanup
+  // unmount tidak akan tereksekusi — komponen sudah di-unmount. Ref tetap
+  // memegang referensi ke array terakhir sehingga revoke benar-benar terjadi.
+  const internalPreviewsRef = useRef<string[]>([]);
+  const uploadPreviewsRef   = useRef<string[]>([]);
+  useEffect(() => { internalPreviewsRef.current = internalUploadPreviews; }, [internalUploadPreviews]);
+  useEffect(() => { uploadPreviewsRef.current   = uploadPreviews;   }, [uploadPreviews]);
   useEffect(() => {
     return () => {
-      setInternalUploadPreviews(prev => { prev.forEach(revokePreview); return prev; });
-      setUploadPreviews(prev => { prev.forEach(revokePreview); return prev; });
+      internalPreviewsRef.current.forEach(revokePreview);
+      uploadPreviewsRef.current.forEach(revokePreview);
     };
   }, []);
 

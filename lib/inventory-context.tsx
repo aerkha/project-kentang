@@ -86,9 +86,15 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   }, [sortirs, pengirimans]);
 
   const addPembelian = async (data: Partial<InvPembelian>) => {
-    // m-14 + m-4: pastikan batch_id terisi dan tambahkan retry pada konflik unique
-    // (mirip pola addInvestor/addMou). generatePembelianId sudah ditambahkan
-    // di InventoryContextType untuk konsistensi, namun caller dapat override.
+    // m-14 + m-4: pastikan batch_id terisi dan tambahkan retry pada konflik unique.
+    // Pola deteksi konflik sama dengan addInvestor/addMou — pakai struktur
+    // error PocketBase, BUKAN String(err) yang selalu return "[object Object]".
+    const isBatchIdConflict = (err: unknown): boolean => {
+      if (!err || typeof err !== "object") return false;
+      const e = err as { data?: { data?: { batch_id?: { code?: string } } } };
+      return e.data?.data?.batch_id?.code === "validation_not_unique";
+    };
+
     const baseId = data.batch_id;
     for (let attempt = 0; attempt < 5; attempt++) {
       const enriched = {
@@ -100,8 +106,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         setPembelians(prev => [record as unknown as InvPembelian, ...prev]);
         return;
       } catch (err) {
-        const msg = String(err);
-        if (/validation_not_unique|UNIQUE constraint/i.test(msg) && attempt < 4) {
+        if (isBatchIdConflict(err) && attempt < 4) {
           // Paksa regenerate batch_id pada attempt berikutnya
           if (baseId) {
             (data as { batch_id?: string }).batch_id = undefined;
@@ -161,8 +166,34 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   };
 
   const addInvoice = async (data: Partial<InvInvoice>) => {
-    const record = await pb.collection("inv_invoice").create(data);
-    setInvoices(prev => [record as unknown as InvInvoice, ...prev]);
+    // Pola retry mirip addPembelian — cegah race condition antar tab di mana
+    // generatePembelianId() lokal menghitung nomor yang sama.
+    const isInvoiceIdConflict = (err: unknown): boolean => {
+      if (!err || typeof err !== "object") return false;
+      const e = err as { data?: { data?: { invoice_id?: { code?: string } } } };
+      return e.data?.data?.invoice_id?.code === "validation_not_unique";
+    };
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const record = await pb.collection("inv_invoice").create(data);
+        setInvoices(prev => [record as unknown as InvInvoice, ...prev]);
+        return;
+      } catch (err) {
+        if (isInvoiceIdConflict(err) && attempt < 4) {
+          // Jika caller tidak menyediakan invoice_id, generate ulang dengan timestamp.
+          if (!data.invoice_id) {
+            data = {
+              ...data,
+              invoice_id: `INV-AUTO-${Date.now().toString(36).toUpperCase()}`,
+            };
+          }
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error("addInvoice: gagal membuat invoice_id unik setelah 5 percobaan");
   };
 
   const updateInvoice = async (id: string, data: Partial<InvInvoice>) => {

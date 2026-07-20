@@ -65,6 +65,8 @@ interface MouContextType {
   deleteMou:           (id: string) => Promise<void>;
   uploadSignedDoc:     (id: string, file: File) => Promise<void>;
   uploadBuktiTransfer: (id: string, keterangan: string, file: File) => Promise<string>;
+  /** Upload bukti pengembalian modal (untuk alur Reminder). */
+  uploadBuktiPengembalian: (id: string, file: File) => Promise<string>;
 }
 
 const MouContext = createContext<MouContextType | undefined>(undefined);
@@ -82,7 +84,10 @@ function base64ToFile(dataUrl: string, fieldName: string): File {
   const ext    = mime.split("/")[1] ?? "png";
   const bytes  = atob(b64);
   const arr    = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.codePointAt(i) ?? 0;
+  // charCodeAt (bukan codePointAt) — base64 selalu ASCII, dan Uint8Array
+  // hanya valid untuk byte 0-255. codePointAt bisa overflow untuk karakter
+  // non-ASCII di header data URL.
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
   return new File([arr], `${fieldName}.${ext}`, { type: mime });
 }
 
@@ -92,19 +97,6 @@ function pbFileUrl(pbRecordId: string, fieldValue: unknown): string {
     ? (fieldValue[0] as string) || ""
     : (fieldValue as string) || "";
   return filename ? `${PB_BASE}/api/files/mous/${pbRecordId}/${filename}` : "";
-}
-
-/** Resolve custom ID (MOU-XXXX) to PocketBase record ID. Returns null if not found. */
-export async function resolvePbId(customId: string): Promise<string | null> {
-  try {
-    const res = await pb.collection("mous").getFirstListItem(
-      `customId = "${customId}"`,
-      { fields: "id" },
-    );
-    return res.id;
-  } catch {
-    return null;
-  }
 }
 
 function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): MoU {
@@ -422,9 +414,22 @@ export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
     setMous(mousRef.current);
   }, [map]);
 
+  /** Upload bukti pengembalian modal — dipanggil dari Reminder. */
+  const uploadBuktiPengembalian = useCallback(async (id: string, file: File): Promise<string> => {
+    const pbId = await resolvePbId(id);
+    if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan.`);
+    const fd = new FormData();
+    fd.append("buktiPengembalian", file);
+    const record     = await pb.collection("mous").update(pbId, fd);
+    const updatedMou = recordToMou(record, map);
+    mousRef.current = mousRef.current.map((m) => (m.id === id ? updatedMou : m));
+    setMous(mousRef.current);
+    return updatedMou.buktiPengembalian ?? "";
+  }, [map]);
+
   const value = useMemo(
-    () => ({ mous, addMou, updateMou, deleteMou, uploadSignedDoc, uploadBuktiTransfer }),
-    [mous, addMou, updateMou, deleteMou, uploadSignedDoc, uploadBuktiTransfer],
+    () => ({ mous, addMou, updateMou, deleteMou, uploadSignedDoc, uploadBuktiTransfer, uploadBuktiPengembalian }),
+    [mous, addMou, updateMou, deleteMou, uploadSignedDoc, uploadBuktiTransfer, uploadBuktiPengembalian],
   );
 
   return (
