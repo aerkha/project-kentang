@@ -154,22 +154,42 @@ export async function POST(req: NextRequest) {
     // via application/x-www-form-urlencoded, dengan response HTTP 200 {status:true}
     // sehingga log nampak "terkirim" padahal WA tidak sampai. FormData terbukti
     // 100% diterima (lihat lib/send-reminders-core.ts).
-    const formData = new FormData();
-    formData.append("target",      normalizedPhone);
-    formData.append("message",     msgText);
-    formData.append("countryCode", "62");
+    const buildBody = () => {
+      const fd = new FormData();
+      fd.append("target",      normalizedPhone);
+      fd.append("message",     msgText);
+      fd.append("countryCode", "62");
+      return fd;
+    };
 
-    const res = await fetch("https://api.fonnte.com/send", {
+    let res  = await fetch("https://api.fonnte.com/send", {
       method: "POST",
       headers: { Authorization: token },
-      body:   formData,
+      body:   buildBody(),
     });
+    let data = await res.json().catch(() => null);
+
+    // PERBAIKAN: Auto-retry 1x setelah 5 detik jika Fonnte return
+    // "disconnected device" — kasus umum saat device WA HP tempat akun Fonnte
+    // terdaftar sedang restart / tidak online.
+    if (data?.status === false) {
+      const reason = (data.reason || data.detail || "").toLowerCase();
+      if (reason.includes("disconnected") || reason.includes("not connected") || reason.includes("not registered")) {
+        console.warn(`[notify-broker] Fonnte disconnected, retry dalam 5 detik untuk ${normalizedPhone}...`);
+        await new Promise((r) => setTimeout(r, 5000));
+        res  = await fetch("https://api.fonnte.com/send", {
+          method: "POST",
+          headers: { Authorization: token },
+          body:   buildBody(),
+        });
+        data = await res.json().catch(() => null);
+      }
+    }
 
     if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
 
     // Fonnte kadang return HTTP 200 dengan body { status: false, reason: ... }.
     // Tangani juga agar log tidak salah tandai "sent".
-    const data = await res.json().catch(() => null);
     if (data && data.status === false) {
       throw new Error(`Fonnte: ${data.reason || data.detail || "ditolak"}`);
     }

@@ -397,16 +397,37 @@ async function sendWhatsApp(tasks: PendingTask[], date: string): Promise<Channel
   ];
 
   // PERBAIKAN: Menggunakan format murni FormData agar 100% diterima oleh Fonnte
-  const formData = new FormData();
-  formData.append("target", adminPhone);
-  formData.append("message", lines.join("\n"));
-  formData.append("countryCode", "62");
+  const buildBody = () => {
+    const fd = new FormData();
+    fd.append("target",      adminPhone);
+    fd.append("message",     lines.join("\n"));
+    fd.append("countryCode", "62");
+    return fd;
+  };
 
-  const res = await fetch("https://api.fonnte.com/send", {
+  let res  = await fetch("https://api.fonnte.com/send", {
     method: "POST",
     headers: { Authorization: token },
-    body: formData,
+    body: buildBody(),
   });
+  let data = await res.json().catch(() => null);
+
+  // PERBAIKAN: Auto-retry 1x setelah 5 detik jika Fonnte return
+  // "disconnected device" — kasus umum saat device WA HP tempat akun Fonnte
+  // terdaftar sedang restart / tidak online.
+  if (data?.status === false) {
+    const reason = (data.reason || data.detail || "").toLowerCase();
+    if (reason.includes("disconnected") || reason.includes("not connected") || reason.includes("not registered")) {
+      console.warn(`[send-reminders] Fonnte disconnected, retry dalam 5 detik untuk admin...`);
+      await new Promise((r) => setTimeout(r, 5000));
+      res  = await fetch("https://api.fonnte.com/send", {
+        method: "POST",
+        headers: { Authorization: token },
+        body: buildBody(),
+      });
+      data = await res.json().catch(() => null);
+    }
+  }
 
   if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
 
@@ -415,7 +436,6 @@ async function sendWhatsApp(tasks: PendingTask[], date: string): Promise<Channel
   // reason: "..." }. Tanpa cek ini, log akan keliru menandai "sent" padahal
   // pesan tidak terkirim ke device admin (mis. gateway WA offline, nomor
   // tidak terdaftar WA, dst).
-  const data = await res.json().catch(() => null);
   if (data && data.status === false) {
     throw new Error(`Fonnte: ${data.reason || data.detail || "ditolak"}`);
   }

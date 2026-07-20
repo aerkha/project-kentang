@@ -277,6 +277,20 @@ async function sendEmail(to: string, opts: Parameters<typeof buildEmailHtml>[0])
 
 // ── Kirim WhatsApp ─────────────────────────────────────────────────────────────
 
+/**
+ * Helper: cek apakah reason Fonnte adalah "disconnected device" — artinya
+ * akun Fonnte terdaftar di HP yang WhatsApp-nya sedang mati / tidak online.
+ * Pattern ini recoverable dengan retry setelah delay, karena device biasanya
+ * sync dalam beberapa detik.
+ */
+function isDeviceDisconnectedReason(reason?: string): boolean {
+  if (!reason) return false;
+  const lc = reason.toLowerCase();
+  return lc.includes("disconnected") ||
+         lc.includes("not connected") ||
+         lc.includes("not registered");
+}
+
 async function sendWhatsApp(phone: string, opts: Parameters<typeof buildWaMessage>[0]): Promise<ChannelStatus> {
   const token = process.env.FONNTE_TOKEN;
   if (!token || !phone) return "skipped";
@@ -288,20 +302,39 @@ async function sendWhatsApp(phone: string, opts: Parameters<typeof buildWaMessag
   // ketika dikirim via application/x-www-form-urlencoded, dengan response
   // HTTP 200 {status:true} sehingga log nampak "terkirim" padahal WA gagal
   // diterima device. FormData terbukti 100% diterima (lihat lib/send-reminders-core.ts).
-  const formData = new FormData();
-  formData.append("target",      normalized);
-  formData.append("message",     buildWaMessage(opts));
-  formData.append("countryCode", "62");
+  const buildBody = () => {
+    const fd = new FormData();
+    fd.append("target",      normalized);
+    fd.append("message",     buildWaMessage(opts));
+    fd.append("countryCode", "62");
+    return fd;
+  };
 
-  const res = await fetch("https://api.fonnte.com/send", {
-    method: "POST",
+  // FASE 1: kirim pertama
+  let res  = await fetch("https://api.fonnte.com/send", {
+    method:  "POST",
     headers: { Authorization: token },
-    body:   formData,
+    body:    buildBody(),
   });
+  let data = await res.json().catch(() => null);
+
+  // PERBAIKAN: Auto-retry 1x setelah 5 detik jika Fonnte return
+  // "disconnected device" — kasus umum saat device WA HP tempat akun Fonnte
+  // terdaftar sedang restart / tidak online. Delay 5 detik cukup untuk
+  // device sync ulang ke Fonnte.
+  if (data?.status === false && isDeviceDisconnectedReason(data?.reason || data?.detail)) {
+    console.warn(`[notify-investor] Fonnte disconnected, retry dalam 5 detik untuk ${normalized}...`);
+    await new Promise((r) => setTimeout(r, 5000));
+    res  = await fetch("https://api.fonnte.com/send", {
+      method:  "POST",
+      headers: { Authorization: token },
+      body:    buildBody(),
+    });
+    data = await res.json().catch(() => null);
+  }
 
   if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
 
-  const data = await res.json().catch(() => null);
   if (data && data.status === false) {
     throw new Error(`Fonnte: ${data.reason || data.detail || "ditolak"}`);
   }

@@ -326,12 +326,52 @@ type ProcessedEntity = {
   sisaTarget: number; 
 };
 
-function ChannelBadge({ status, icon }: Readonly<{ status: string; icon: React.ReactNode }>) {
-  const map: Record<string, string> = { sent: "bg-green-100 text-green-700", failed: "bg-red-100 text-red-700", skipped: "bg-muted text-muted-foreground" };
-  const label: Record<string, string> = { sent: "Terkirim", failed: "Gagal", skipped: "Belum diset" };
+/**
+ * Deteksi error pattern dari Fonnte / email yang menandakan sebenarnya gagal
+ * padahal field `waStatus` / `emailStatus` di DB tercatat "sent".
+ * Ini terjadi karena log lama dibuat sebelum validasi response Fonnte dipasang.
+ * Kita override display agar tidak membingungkan admin.
+ */
+function detectFailedByErrorMessage(errorMessage?: string): boolean {
+  if (!errorMessage) return false;
+  const lc = errorMessage.toLowerCase();
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${map[status] ?? map.skipped}`}>
-      {icon}{label[status] ?? status}
+    lc.includes("disconnected") ||
+    lc.includes("not connected") ||
+    lc.includes("not registered") ||
+    lc.includes("request invalid") ||
+    lc.includes("fonnte:") ||
+    lc.includes("fonnte http") ||
+    lc.includes("email:") ||
+    lc.includes("error")
+  );
+}
+
+function ChannelBadge({
+  status,
+  icon,
+  errorMessage,
+}: Readonly<{ status: string; icon: React.ReactNode; errorMessage?: string }>) {
+  // Jika DB mencatat "sent" tapi errorMessage mengandung pola gagal,
+  // tampilkan sebagai "Gagal" agar UI tidak membingungkan.
+  const displayStatus =
+    status === "sent" && detectFailedByErrorMessage(errorMessage)
+      ? "failed"
+      : status;
+  const map: Record<string, string> = {
+    sent:    "bg-green-100 text-green-700",
+    failed:  "bg-red-100 text-red-700",
+    skipped: "bg-muted text-muted-foreground",
+  };
+  const label: Record<string, string> = {
+    sent: "Terkirim", failed: "Gagal", skipped: "Belum diset",
+  };
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${map[displayStatus] ?? map.skipped}`}
+      title={errorMessage || undefined}
+    >
+      {icon}{label[displayStatus] ?? displayStatus}
     </span>
   );
 }
@@ -1914,8 +1954,8 @@ export function ReminderContent() {
                             </span>
                           )}
                         </td>
-                        <td className="py-2.5 px-4 text-center"><ChannelBadge status={log.emailStatus} icon={<Mail className="h-3 w-3" />} /></td>
-                        <td className="py-2.5 px-4 text-center"><ChannelBadge status={log.waStatus} icon={<MessageCircle className="h-3 w-3" />} /></td>
+                        <td className="py-2.5 px-4 text-center"><ChannelBadge status={log.emailStatus} icon={<Mail className="h-3 w-3" />} errorMessage={log.errorMessage} /></td>
+                        <td className="py-2.5 px-4 text-center"><ChannelBadge status={log.waStatus} icon={<MessageCircle className="h-3 w-3" />} errorMessage={log.errorMessage} /></td>
                         <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">
                           {descriptionContent}
                           {log.errorMessage && <div className="text-red-500 text-[10px] mt-0.5 max-w-[200px] truncate" title={log.errorMessage}>{log.errorMessage}</div>}
