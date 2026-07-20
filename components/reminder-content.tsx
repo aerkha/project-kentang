@@ -788,14 +788,18 @@ async function processUploadEntity({
       }
     }
     // Hapus semua doneKeys yang baru ditambahkan agar UI kembali ke Pending.
+    // doneKeys mengikuti pola `${trxId}__${checkKey}` dan `MOU__${mouId}`.
     setDoneKeysFn((prev) => {
       const next = new Set(prev);
       for (const r of rollbackLog) {
         if (r.trxId) {
-          // Cari semua key yg mengandung trxId ini (tiap checkKey punya row sendiri).
-          // Tapi kita tidak tahu checkKey yg dipakai, jadi biarkan cleanup di UI
-          // saat refetch. Untuk sekarang, biarkan set apa adanya.
-          // (Refresh data PocketBase akan meng-overwrite state.)
+          // Hapus semua key yang prefix-nya trxId (semua checkKey dalam TRX ini)
+          for (const k of Array.from(prev)) {
+            if (k.startsWith(`${r.trxId}__`)) next.delete(k);
+          }
+        }
+        if (r.mouId) {
+          next.delete(`MOU__${r.mouId}`);
         }
       }
       return next;
@@ -1412,8 +1416,12 @@ export function ReminderContent() {
       // Tampilkan error message asli, bukan generic toast, agar user tahu
       // root cause (mis. HTTP 400 dari PocketBase validasi, atau error lain).
       console.error("[handleConfirmUpload] error:", err);
-      toast.error(
-        `Gagal menyimpan pembayaran: ${String((err as Error)?.message ?? err)}`,
+      const msg = String((err as Error)?.message ?? err);
+      toast.error(`Gagal menyimpan pembayaran: ${msg}`);
+      // Jika proses sempat menulis ke DB lalu rollback, ingatkan user untuk
+      // refresh halaman agar state UI sinkron dengan PocketBase.
+      toast.info(
+        "Database sudah di-rollback. Refresh halaman untuk melihat status terbaru.",
       );
     } finally {
       setIsUploading(false);
