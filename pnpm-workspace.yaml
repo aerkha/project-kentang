@@ -1,2 +1,6 @@
-allowBuilds:
-  sharp: set this to true or false
+# Pakai `onlyBuiltDependencies` (pnpm 10+) untuk whitelist native build scripts.
+# Sebelumnya pakai `allowBuilds` yang sudah deprecated di pnpm 10.
+# Daftar paket yang diizinkan menjalankan postinstall script (compile native
+# binary, download platform-specific asset, dsb.) saat install.
+onlyBuiltDependencies:
+  - sharp

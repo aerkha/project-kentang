@@ -5,6 +5,16 @@ import { useRouter } from "next/navigation";
 import pb from "./pocketbase";
 import { TreeLoader } from "@/components/ui/tree-loader";
 
+/**
+ * Failsafe: lepas loading screen setelah N ms meskipun authRefresh masih
+ * menggantung. Mencegah UI stuck selamanya kalau PocketBase unreachable
+ * (mis. Cloudflare Tunnel mati saat deploy ke Vercel, atau PB server down).
+ *
+ * 8 detik sudah cukup untuk kebanyakan respons PB; di atas itu kita anggap
+ * unreachable dan lepas loading agar user bisa login ulang.
+ */
+const AUTH_TIMEOUT_MS = 8_000;
+
 interface User {
   username:   string;
   name:       string;
@@ -67,6 +77,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(record ? modelToUser(record as Record<string, string>) : null);
     });
 
+    // Failsafe: lepas loading screen setelah AUTH_TIMEOUT_MS agar UI tidak
+    // menggantung selamanya kalau PocketBase unreachable.
+    const failsafe = setTimeout(() => {
+      setIsLoading((current) => {
+        if (current) console.warn("[auth] authRefresh timeout — releasing loading screen");
+        return false;
+      });
+    }, AUTH_TIMEOUT_MS);
+
     // Restore session: validasi token ke server supaya tidak pakai token stale
     const restore = async () => {
       if (pb.authStore.isValid) {
@@ -80,7 +99,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (err) {
           // C-2: Hanya bersihkan auth pada token benar-benar invalid/expired
           // (status 401/403). Untuk error lain (network, koleksi belum ada,
-          // dsb.) JANGAN logout paksa — biarkan user mencoba recover.
+          // dsb.) JANGAN logout paksa — biarkan user mencoba recover, atau
+          // biarkan user login ulang dari halaman login (loading screen
+          // sudah terlepas via failsafe / finally di bawah).
           const status = (err as { status?: number } | null)?.status;
           if (status === 401 || status === 403) {
             pb.authStore.clear();
@@ -92,12 +113,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           applyingRef.current = false;
         }
       }
+      clearTimeout(failsafe);
       setIsLoading(false);
     };
 
     restore();
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(failsafe);
+      unsubscribe();
+    };
   }, []);
 
   const login = async (username: string, password: string): Promise<boolean> => {
