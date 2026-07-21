@@ -24,25 +24,38 @@ const PB_WS = PB_ORIGIN.replace(/^http/, "ws");
 // values where the protocol isn't critical.
 const SELF = process.env.NEXT_PUBLIC_APP_URL || PB_ORIGIN;
 
+// We deliberately DO NOT use `'strict-dynamic'` because in CSP Level 3 it
+// overrides `'unsafe-inline'` and `'self'` for script-src — meaning any
+// inline script injected by Next.js (RSC payloads, hydration bootstrap,
+// `__NEXT_DATA__`, dev-mode devtools, etc.) would be blocked unless we
+// start emitting per-request nonces (which requires a custom server or
+// middleware that signs every request). For an app hosted on Vercel and
+// served as a static SPA-style bundle, `unsafe-inline` + `unsafe-eval` is
+// the pragmatic and well-supported baseline. Tighten this with nonces
+// later if a security audit requires it.
+//
+// The `https://vercel.live` and `https://*.vercel.com` entries are only
+// needed when the Vercel Toolbar / dev overlay is active. They are harmless
+// in production.
 const csp = [
   `default-src 'self'`,
-  // Scripts: Next.js needs 'unsafe-inline' for some inline bootstrap scripts
-  // and 'unsafe-eval' in dev (webpack HMR). 'strict-dynamic' allows
-  // nonce-loaded scripts to load further scripts.
-  `script-src 'self' 'unsafe-inline' 'unsafe-eval' 'strict-dynamic'`,
+  // Scripts: Next.js needs 'unsafe-inline' for inline bootstrap scripts
+  // (RSC, hydration, __NEXT_DATA__) and 'unsafe-eval' in dev (webpack HMR).
+  `script-src 'self' 'unsafe-inline' 'unsafe-eval' https://vercel.live https://*.vercel.com`,
   // Styles: Next.js injects inline styles for CSS-in-JS and font fallbacks.
   `style-src 'self' 'unsafe-inline'`,
   // Images: allow data: (inline previews), blob: (object URLs for uploads),
   // and PocketBase file URLs.
-  `img-src 'self' data: blob: ${PB_ORIGIN}`,
+  `img-src 'self' data: blob: ${PB_ORIGIN} https://vercel.live https://*.vercel.com`,
   // Fonts: Google Fonts (next/font/google) is self-hosted at build time, but
   // we still allow gstatic as a safety net + data: for inline font data.
   `font-src 'self' data: https://fonts.gstatic.com`,
-  // XHR/fetch: same-origin + PocketBase (REST + realtime WebSocket).
-  `connect-src 'self' ${PB_ORIGIN} ${PB_WS} ws: wss:`,
+  // XHR/fetch: same-origin + PocketBase (REST + realtime WebSocket) +
+  // Vercel toolbar telemetry.
+  `connect-src 'self' ${PB_ORIGIN} ${PB_WS} ws: wss: https://vercel.live https://*.vercel.com`,
   // Frames/embeds: only self. If you embed PocketBase Admin in an iframe,
-  // add ${PB_ORIGIN} here.
-  `frame-src 'self'`,
+  // add ${PB_ORIGIN} here. Vercel toolbar mounts an iframe in dev preview.
+  `frame-src 'self' https://vercel.live https://*.vercel.com`,
   `frame-ancestors 'none'`,
   // Forms: only submit to ourselves (login, API routes, etc.).
   `form-action 'self'`,
