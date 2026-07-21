@@ -291,17 +291,18 @@ function isDeviceDisconnectedReason(reason?: string): boolean {
          lc.includes("not registered");
 }
 
+// PATCH (sementara): WhatsApp notification dinonaktifkan sementara sampai
+// user bisa memenuhi syarat Meta WhatsApp Business API. Untuk mengaktifkan
+// kembali: hapus komentar /* ... */ wrapper di bawah.
 async function sendWhatsApp(phone: string, opts: Parameters<typeof buildWaMessage>[0]): Promise<ChannelStatus> {
+  return "skipped";
+
+  /* ── KODE ASLI — NONAKTIF SEMENTARA ───────────────────────────────────────
   const token = process.env.FONNTE_TOKEN;
   if (!token || !phone) return "skipped";
 
   const normalized = phone.replace(/^0/, "62").replace(/\D/g, "");
 
-  // PERBAIKAN: Gunakan FormData (multipart/form-data) bukan URLSearchParams.
-  // Fonnte secara historis sering "drop" pesan berformat markdown/teks panjang
-  // ketika dikirim via application/x-www-form-urlencoded, dengan response
-  // HTTP 200 {status:true} sehingga log nampak "terkirim" padahal WA gagal
-  // diterima device. FormData terbukti 100% diterima (lihat lib/send-reminders-core.ts).
   const buildBody = () => {
     const fd = new FormData();
     fd.append("target",      normalized);
@@ -310,7 +311,6 @@ async function sendWhatsApp(phone: string, opts: Parameters<typeof buildWaMessag
     return fd;
   };
 
-  // FASE 1: kirim pertama
   let res  = await fetch("https://api.fonnte.com/send", {
     method:  "POST",
     headers: { Authorization: token },
@@ -318,10 +318,6 @@ async function sendWhatsApp(phone: string, opts: Parameters<typeof buildWaMessag
   });
   let data = await res.json().catch(() => null);
 
-  // PERBAIKAN: Auto-retry 1x setelah 5 detik jika Fonnte return
-  // "disconnected device" — kasus umum saat device WA HP tempat akun Fonnte
-  // terdaftar sedang restart / tidak online. Delay 5 detik cukup untuk
-  // device sync ulang ke Fonnte.
   if (data?.status === false && isDeviceDisconnectedReason(data?.reason || data?.detail)) {
     console.warn(`[notify-investor] Fonnte disconnected, retry dalam 5 detik untuk ${normalized}...`);
     await new Promise((r) => setTimeout(r, 5000));
@@ -339,6 +335,7 @@ async function sendWhatsApp(phone: string, opts: Parameters<typeof buildWaMessag
     throw new Error(`Fonnte: ${data.reason || data.detail || "ditolak"}`);
   }
   return "sent";
+  ─────────────────────────────────────────────────────────────────────────── */
 }
 
 // ── Route handler ──────────────────────────────────────────────────────────────

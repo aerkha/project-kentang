@@ -147,13 +147,17 @@ export async function POST(req: NextRequest) {
   const tanggal = fmtDate(todayWibStr());
   const msgText = buildWaMessageBroker({ ...body, tanggal });
 
-  // 3. Kirim Pesan via Fonnte
+// 3. Kirim Pesan via Fonnte
+  // PATCH (sementara): WhatsApp notification dinonaktifkan.
+  // User saat ini belum bisa memenuhi syarat Meta WhatsApp Business API.
+  // Untuk mengaktifkan kembali: hapus komentar /* ... */ wrapper di bawah
+  // dan aktifkan blok kode WA + hapus baris `return` placeholder.
   try {
-    // PERBAIKAN: Gunakan FormData (multipart/form-data) bukan URLSearchParams.
-    // Fonnte sering "drop" pesan berformat markdown/teks panjang ketika dikirim
-    // via application/x-www-form-urlencoded, dengan response HTTP 200 {status:true}
-    // sehingga log nampak "terkirim" padahal WA tidak sampai. FormData terbukti
-    // 100% diterima (lihat lib/send-reminders-core.ts).
+    // PATCH (sementara): simulasi sukses agar alur broker lunas tidak gagal.
+    await logAttempt(pb, { ...body, waStatus: "skipped", errorMessage: "WA dinonaktifkan sementara" });
+    return NextResponse.json({ success: true, waStatus: "skipped", reason: "WA dinonaktifkan sementara (sudah di-komentari)" });
+
+    /* ── KODE ASLI — NONAKTIF SEMENTARA ───────────────────────────────────────
     const buildBody = () => {
       const fd = new FormData();
       fd.append("target",      normalizedPhone);
@@ -169,9 +173,6 @@ export async function POST(req: NextRequest) {
     });
     let data = await res.json().catch(() => null);
 
-    // PERBAIKAN: Auto-retry 1x setelah 5 detik jika Fonnte return
-    // "disconnected device" — kasus umum saat device WA HP tempat akun Fonnte
-    // terdaftar sedang restart / tidak online.
     if (data?.status === false) {
       const reason = (data.reason || data.detail || "").toLowerCase();
       if (reason.includes("disconnected") || reason.includes("not connected") || reason.includes("not registered")) {
@@ -188,8 +189,6 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
 
-    // Fonnte kadang return HTTP 200 dengan body { status: false, reason: ... }.
-    // Tangani juga agar log tidak salah tandai "sent".
     if (data && data.status === false) {
       throw new Error(`Fonnte: ${data.reason || data.detail || "ditolak"}`);
     }
@@ -197,11 +196,11 @@ export async function POST(req: NextRequest) {
     await logAttempt(pb, { ...body, waStatus: "sent", errorMessage: "" });
 
     return NextResponse.json({ success: true, waStatus: "sent" });
+    ─────────────────────────────────────────────────────────────────────────── */
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[notify-broker] gagal kirim:", message);
     await logAttempt(pb, { ...body, waStatus: "failed", errorMessage: message });
-    // Return generic message agar detail internal tidak bocor ke client.
     return NextResponse.json({ success: false, reason: "Gagal mengirim WhatsApp" }, { status: 500 });
   }
 }

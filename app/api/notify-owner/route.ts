@@ -129,21 +129,22 @@ async function sendEmail(to: string, html: string, subject: string): Promise<Cha
   return "sent";
 }
 
+// PATCH (sementara): WhatsApp notification dinonaktifkan.
+// User saat ini belum bisa memenuhi syarat Meta WhatsApp Business API.
+// Untuk mengaktifkan kembali: hapus komentar /* ... */ wrapper.
 async function sendWhatsApp(phone: string, message: string): Promise<ChannelStatus> {
+  return "skipped";
+
+  /* ── KODE ASLI — NONAKTIF SEMENTARA ───────────────────────────────────────
   const token = process.env.FONNTE_TOKEN;
   if (!token || !phone) return "skipped";
+
   const normalized = phone.replace(/^0/, "62").replace(/\D/g, "");
 
-  // PERBAIKAN: Gunakan FormData (multipart/form-data) bukan URLSearchParams.
-  // Fonnte sering "drop" pesan berformat markdown/teks panjang ketika dikirim
-  // via application/x-www-form-urlencoded, dengan response HTTP 200 {status:true}
-  // sehingga log nampak "terkirim" padahal WA tidak sampai. FormData terbukti
-  // 100% diterima (lihat lib/send-reminders-core.ts).
   const buildBody = () => {
     const fd = new FormData();
-    fd.append("target",      normalized);
-    fd.append("message",     message);
-    fd.append("countryCode", "62");
+    fd.append("target",  normalized);
+    fd.append("message", message);
     return fd;
   };
 
@@ -154,9 +155,6 @@ async function sendWhatsApp(phone: string, message: string): Promise<ChannelStat
   });
   let data = await res.json().catch(() => null);
 
-  // PERBAIKAN: Auto-retry 1x setelah 5 detik jika Fonnte return
-  // "disconnected device" — kasus umum saat device WA HP tempat akun Fonnte
-  // terdaftar sedang restart / tidak online.
   if (data?.status === false) {
     const reason = (data.reason || data.detail || "").toLowerCase();
     if (reason.includes("disconnected") || reason.includes("not connected") || reason.includes("not registered")) {
@@ -171,12 +169,11 @@ async function sendWhatsApp(phone: string, message: string): Promise<ChannelStat
     }
   }
   if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
-  // Fonnte kadang return HTTP 200 dengan body { status: false, reason: "..." }.
-  // Parse body dan throw jika gagal agar caller tidak salah anggap "sent".
   if (data && data.status === false) {
     throw new Error(`Fonnte: ${data.reason || data.detail || "ditolak"}`);
   }
   return "sent";
+  ─────────────────────────────────────────────────────────────────────────── */
 }
 
 // ── Route handler ──────────────────────────────────────────────────────────────

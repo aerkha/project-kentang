@@ -91,11 +91,15 @@ export async function POST(req: NextRequest) {
 // FUNGSI PENGIRIMAN FONNTE & GMAIL
 // ──────────────────────────────────────────────────────────────────────────
 
+// PATCH (sementara): WhatsApp notification dinonaktifkan.
+// User saat ini belum bisa memenuhi syarat Meta WhatsApp Business API.
+// Untuk mengaktifkan kembali: hapus komentar /* ... */ wrapper.
 async function sendWhatsApp(phone: string, message: string): Promise<boolean> {
   if (!phone) return false;
-  
+  return true; // PATCH (sementara): pretend sukses agar alur onboarding tidak gagal.
+
+  /* ── KODE ASLI — NONAKTIF SEMENTARA ───────────────────────────────────────
   try {
-    // Format ke standar 62
     let formattedPhone = phone.replace(/\D/g, "");
     if (formattedPhone.startsWith("0")) {
       formattedPhone = "62" + formattedPhone.substring(1);
@@ -107,20 +111,13 @@ async function sendWhatsApp(phone: string, message: string): Promise<boolean> {
       return false;
     }
 
-    // PERBAIKAN: Gunakan FormData (multipart/form-data) bukan URLSearchParams.
-    // Fonnte sering "drop" pesan berformat markdown/teks panjang ketika dikirim
-    // via application/x-www-form-urlencoded, dengan response HTTP 200 {status:true}
-    // sehingga log nampak "terkirim" padahal WA tidak sampai. FormData terbukti
-    // 100% diterima (lihat lib/send-reminders-core.ts).
     const formData = new FormData();
     formData.append("target",  formattedPhone);
     formData.append("message", message);
 
     const res = await fetch("https://api.fonnte.com/send", {
       method: "POST",
-      headers: {
-        "Authorization": token,
-      },
+      headers: { "Authorization": token },
       body: formData,
     });
 
@@ -129,12 +126,12 @@ async function sendWhatsApp(phone: string, message: string): Promise<boolean> {
       console.error("Fonnte menolak pengiriman:", data.reason || data.detail);
       return false;
     }
-
     return true;
   } catch (err) {
     console.error("Gagal request ke API Fonnte:", err);
     return false;
   }
+  ─────────────────────────────────────────────────────────────────────────── */
 }
 
 async function sendEmail(email: string, subject: string, html: string): Promise<boolean> {

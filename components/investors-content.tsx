@@ -1381,7 +1381,11 @@ export function InvestorsContent() {
           }),
         }).catch((err) => console.error("Gagal panggil API send-credentials:", err));
 
-        toast.success(`Akun login otomatis dibuat! (Pass: ${randomPass})`);
+// PATCH (sementara): password WA dinonaktifkan + password tidak di-expose ke
+// toast UI (security). Saat ini WA tidak aktif, jadi password tampil hanya
+// di email notifikasi saja. Saat WA diaktifkan kembali, restore toast
+// ini dengan menghapus komentar.
+toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email investor/broker.`);
       } catch (err) {
         console.error("Gagal membuat akun otomatis:", err);
         toast.error("Data investor tersimpan, namun gagal membuat akun login (Email/No.HP mungkin sudah dipakai).");

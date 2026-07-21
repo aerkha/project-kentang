@@ -470,11 +470,21 @@ async function sendAdminEmail(tasks: PendingTask[], todayStr: string): Promise<C
 }
 
 // ─── WhatsApp via Fonnte (ke admin) ────────────────────────────────────────────
-
+// PATCH (sementara): WhatsApp notification dinonaktifkan.
+// User saat ini belum bisa memenuhi syarat Meta untuk WhatsApp Business API
+// (perlu verifikasi bisnis Meta). Saat ini kode di-komentari agar:
+// - Build Vercel tidak gagal tanpa FONNTE_TOKEN
+// - Log cron job tidak dipenuhi error Fonnte missing token
+// - Kode tetap visible untuk dokumentasi & referensi saat WA sudah aktif
+// Untuk mengaktifkan kembali: hapus komentar /* ... */ wrapper di bawah.
 async function sendWhatsApp(tasks: PendingTask[], date: string): Promise<ChannelStatus> {
+  // PATCH (sementara): seluruh body dinonaktifkan sampai Meta WA API siap.
+  return "skipped";
+
+  /* ── KODE ASLI — NONAKTIF SEMENTARA ───────────────────────────────────────
   const token      = process.env.FONNTE_TOKEN?.trim();
   const adminPhone = process.env.ADMIN_PHONE?.trim();
-  
+
   if (!token || !adminPhone) return "skipped";
 
   const lines = [
@@ -491,7 +501,6 @@ async function sendWhatsApp(tasks: PendingTask[], date: string): Promise<Channel
     `_Silakan proses pelunasan secara massal melalui halaman Reminder._`,
   ];
 
-  // PERBAIKAN: Menggunakan format murni FormData agar 100% diterima oleh Fonnte
   const buildBody = () => {
     const fd = new FormData();
     fd.append("target",      adminPhone);
@@ -507,9 +516,6 @@ async function sendWhatsApp(tasks: PendingTask[], date: string): Promise<Channel
   });
   let data = await res.json().catch(() => null);
 
-  // PERBAIKAN: Auto-retry 1x setelah 5 detik jika Fonnte return
-  // "disconnected device" — kasus umum saat device WA HP tempat akun Fonnte
-  // terdaftar sedang restart / tidak online.
   if (data?.status === false) {
     const reason = (data.reason || data.detail || "").toLowerCase();
     if (reason.includes("disconnected") || reason.includes("not connected") || reason.includes("not registered")) {
@@ -526,15 +532,11 @@ async function sendWhatsApp(tasks: PendingTask[], date: string): Promise<Channel
 
   if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
 
-  // SINKRONISASI: Pola yang sama dengan notify-investor / notify-broker /
-  // notify-owner — Fonnte kadang return HTTP 200 dengan body { status: false,
-  // reason: "..." }. Tanpa cek ini, log akan keliru menandai "sent" padahal
-  // pesan tidak terkirim ke device admin (mis. gateway WA offline, nomor
-  // tidak terdaftar WA, dst).
   if (data && data.status === false) {
     throw new Error(`Fonnte: ${data.reason || data.detail || "ditolak"}`);
   }
   return "sent";
+  ─────────────────────────────────────────────────────────────────────────── */
 }
 
 // ─── Hasil Eksekusi ──────────────────────────────────────────────────────────
