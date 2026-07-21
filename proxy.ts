@@ -57,7 +57,7 @@ function withRateLimitHeaders(res: NextResponse, opts: {
   return res;
 }
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
 
   // Belt-and-braces: matcher already restricts this, but be defensive.
