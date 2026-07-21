@@ -26,13 +26,20 @@ function inWords(n: number): string {
 }
 
 /** Angka → kata (tanpa satuan). Contoh: 76000000 → "tujuh puluh enam juta" */
+// PATCH (ringan #30): dukung bilangan negatif dengan prefix "minus".
+// Sebelumnya `Math.abs(n)` membuat "-76000" menjadi "tujuh puluh enam ribu
+// rupiah" tanpa tanda minus — bisa menyesatkan untuk dokumen resmi.
 export function angkaTerbilang(n: number): string {
   if (n === 0) return "nol";
-  return inWords(Math.floor(Math.abs(n))).trim();
+  if (!Number.isFinite(n)) return "nol";
+  const abs = Math.floor(Math.abs(n));
+  const prefix = n < 0 ? "minus " : "";
+  return (prefix + inWords(abs)).trim();
 }
 
 /** Angka → kata + "rupiah". Contoh: 76000000 → "tujuh puluh enam juta rupiah" */
 export function terbilang(angka: number): string {
-  if (angka === 0) return "nol rupiah";
+  if (!Number.isFinite(angka) || angka === 0) return "nol rupiah";
+  if (angka < 0) return "minus " + angkaTerbilang(-angka) + " rupiah";
   return angkaTerbilang(angka) + " rupiah";
 }

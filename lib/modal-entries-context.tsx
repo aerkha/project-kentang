@@ -74,12 +74,19 @@ export function ModalEntriesProvider({ children }: { children: ReactNode }) {
       `customId = "${investorCustomId}"`,
       { fields: "id,customId" }
     );
+    // PATCH (sedang #22): sebelumnya PocketBase menghasilkan `created` dan `updated`
+    // otomatis, tapi bisa undefined jika collection rules. Sekarang kita
+    // sertakan explicit `created`/`updated` di payload create agar `recordedAt`
+    // selalu tersedia untuk UI.
+    const nowIso = new Date().toISOString();
     const record = await pb.collection("modal_entries").create({
       investorId:  inv.id,
       amount:      data.amount,
       date:        data.date,
       type:        data.type,
       keterangan:  data.keterangan ?? "",
+      created:     nowIso,
+      updated:     nowIso,
     });
     // Gunakan referensi lokal `inv.customId` daripada round-trip fetch ulang.
     const full: PbRecord = {

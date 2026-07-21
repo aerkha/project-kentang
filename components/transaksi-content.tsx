@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useMemo, useRef, type Dispatch, type SetStateAction } from "react";
+// PATCH (sedang #19): tambah useEffect untuk sync openJalurs. Sebelumnya
+// useState di-init dengan Set kosong dan tidak pernah di-update.
+import { useEffect, useState, useMemo, useRef, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import { ErrorDialog } from "@/components/ui/error-dialog";
 import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
@@ -246,15 +248,26 @@ function TrxFormFields({
   investors, activeMous, committedModal,
   isSaving = false,
 }: TrxFormProps) {
-  const [openJalurs, setOpenJalurs] = useState<Set<InvestorJalur>>(() => {
-    const s = new Set<InvestorJalur>();
-    formData.investorEntries.forEach((e) => {
-      if (!e.investorId) return;
-      const inv = investors.find((x) => x.id === e.investorId);
-      if (inv) s.add(getJalur(inv));
+  // PATCH (sedang #19): sebelumnya `openJalurs` hanya di-init pada mount
+  // dengan state kosong, dan tidak pernah di-update saat `investorEntries`
+  // berubah (mis. user pilih investor baru). Sekarang kita pakai `useEffect`
+  // yang sinkron dengan `formData.investorEntries` — saat ada investor
+  // baru dipilih, jalur yang relevan otomatis terbuka.
+  const [openJalurs, setOpenJalurs] = useState<Set<InvestorJalur>>(new Set());
+  useEffect(() => {
+    setOpenJalurs((prev) => {
+      const next = new Set<InvestorJalur>(prev);
+      formData.investorEntries.forEach((e) => {
+        if (!e.investorId) return;
+        const inv = investors.find((x) => x.id === e.investorId);
+        if (inv) next.add(getJalur(inv));
+      });
+      return next;
     });
-    return s;
-  });
+  // Hanya re-sync saat investorEntries referensi berubah (length/id). Jangan
+  // jalankan saat `investors` berubah untuk hindari loop.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.investorEntries.length, formData.investorEntries.map((e) => e.investorId).join("|")]);
 
   const sisaModal = (inv: Investor) =>
     Math.max(0, inv.investmentAmount - (committedModal.get(inv.id) ?? 0));

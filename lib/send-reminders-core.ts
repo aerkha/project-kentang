@@ -105,28 +105,53 @@ function endDatePks(mou: any) {
 
 // Generate the next customId for an autorenewal clone.
 // If the old id already ends with "-autorenew-N" increment N, otherwise append "-autorenew-1".
+// PATCH (ringan #27): handle overflow suffix (Z → "AA"). Sebelumnya `Z`
+// ditambah 1 jadi `[` (charCode 91) — karakter invalid untuk identifier.
+// Sekarang: jika suffix berisi Z semua, append huruf A baru.
 function nextAutorenewalCustomId(oldId: string): string {
   if (!oldId) return "TRX-0000A"; // Fallback aman jika kosong
 
   // Memisahkan "TRX-0004" dan huruf di belakangnya (misal "A")
   const match = oldId.match(/(TRX-\d+)([A-Z]*)/i);
-  
+
   // Jika formatnya sama sekali tidak dikenali
-  if (!match) return oldId + "A"; 
-  
+  if (!match) return oldId + "A";
+
   const base = match[1];   // Menangkap bagian "TRX-0004"
   const suffix = match[2]; // Menangkap bagian huruf "A", "B", dsb. (jika ada)
-  
+
   // Jika transaksi awal belum punya huruf (termasuk jika ID lamanya masih mengandung "-autorenew-1")
   if (!suffix) return base + "A";
-  
+
+  // Cek overflow: jika semua suffix adalah "Z", tambah "A" baru.
+  if (/^Z+$/i.test(suffix)) return base + suffix + "A";
+
   // Naikkan huruf terakhir (A -> B, B -> C, dst)
   const lastChar = suffix.slice(-1);
-  const nextChar = String.fromCharCode(lastChar.charCodeAt(0) + 1);
+  const code = lastChar.toUpperCase().charCodeAt(0);
+  if (code >= 90) {
+    // Z (90) + 1 = 91 ("[") — overflow. Carry-over ke char sebelumnya.
+    // Contoh: "AZ" -> "BA", "BZ" -> "CA", "ZZ" -> "AAA" (sudah di-handle di atas).
+    const head = suffix.slice(0, -1);
+    return base + nextAutorenewalCustomId._incSuffix(head) + "A";
+  }
+  const nextChar = String.fromCharCode(code + 1);
   const newSuffix = suffix.slice(0, -1) + nextChar;
-  
+
   return base + newSuffix;
 }
+
+// Helper privat untuk increment suffix dengan carry-over (mis. "AZ" -> "BA")
+nextAutorenewalCustomId._incSuffix = function (s: string): string {
+  if (!s) return "A";
+  if (/^Z+$/i.test(s)) return "A" + s; // overflow total
+  const last = s.slice(-1);
+  const code = last.toUpperCase().charCodeAt(0);
+  if (code >= 90) {
+    return nextAutorenewalCustomId._incSuffix(s.slice(0, -1)) + "A";
+  }
+  return s.slice(0, -1) + String.fromCharCode(code + 1);
+};
 
 async function processAutorenewals(pb: PocketBase) {
   const today = todayWibStr();
@@ -257,10 +282,14 @@ async function processAutorenewals(pb: PocketBase) {
 // ─── Core Logic Pencarian Tagihan ─────────────────────────────────────────────
 
 // Helper: Build map of investors from entries
+// PATCH (ringan #26): sebelumnya `catch { /* ignore */ }` menelan SEMUA error
+// tanpa log. Sekarang kita catat error ke console.warn dengan konteks (TRX
+// count) agar admin tahu ada masalah konfigurasi/permission, tapi tidak
+// menggagalkan alur reminder.
 async function buildInvestorsMap(pb: PocketBase, trxPbIds: string): Promise<Map<string, any[]>> {
   const entriesMap = new Map<string, any[]>();
   if (!trxPbIds) return entriesMap;
-  
+
   try {
     const entries = await pb.collection("transaksi_investors").getFullList<any>({
       filter: trxPbIds,
@@ -271,8 +300,11 @@ async function buildInvestorsMap(pb: PocketBase, trxPbIds: string): Promise<Map<
       list.push(e);
       entriesMap.set(e.transaksiId, list);
     }
-  } catch { /* ignore */ }
-  
+  } catch (err) {
+    const count = (trxPbIds.match(/\|\|/g) ?? []).length + 1;
+    console.warn(`[buildInvestorsMap] gagal load entries untuk ${count} TRX:`, err);
+  }
+
   return entriesMap;
 }
 

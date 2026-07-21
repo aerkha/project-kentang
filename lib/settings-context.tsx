@@ -120,8 +120,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }).finally(() => setIsLoading(false));
   }, []);
 
+  // PATCH (sedang #21): sebelumnya `updateMinbun` langsung optimistic-update
+  // state dari payload yang diberikan, tanpa fallback ke default. Sekarang
+  // kita handle field kosong dengan fallback ke DEFAULT_MINBUN/TRADER agar
+  // UI tidak pernah menampilkan state invalid.
   const updateMinbun = async (data: Partial<InternalAccount>) => {
-    const updated = { ...minbun, ...data };
+    const updated: InternalAccount = { ...DEFAULT_MINBUN, ...minbun, ...data };
     await setSetting("minbun_account", JSON.stringify(updated));
     setMinbun(updated);
   };
