@@ -239,24 +239,31 @@ export default function InvoicePage() {
           </div>
         </div>
 
-        <div class="flex justify-between items-end border-t border-gray-300 pt-6 mt-12">
-          <div class="w-2/3">
-            <p class="text-sm font-bold text-slate-800 mb-2 flex items-center gap-1.5">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-landmark"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7 12 2"/></svg>
-              Instruksi Pembayaran
-            </p>
-            <div class="bg-blue-50 p-3 rounded-lg border border-blue-100 text-sm">
-              <p class="text-gray-600 mb-1">Mohon lakukan transfer ke rekening berikut:</p>
-              <p class="font-bold text-slate-800">Bank BCA - 1234567890</p>
-              <p class="font-bold text-slate-800 uppercase">a.n. ${comp.name}</p>
-            </div>
-          </div>
-          <div class="w-1/3 text-center">
-            <p class="text-sm mb-16">Hormat Kami,</p>
-            <p class="text-sm font-bold border-b border-black pb-1 inline-block min-w-[150px]">Finance</p>
-            <p class="text-[10px] text-gray-500 uppercase mt-1">${comp.name}</p>
-          </div>
-        </div>
+         <div class="flex justify-between items-end border-t border-gray-300 pt-6 mt-12">
+           <div class="w-2/3">
+             {/*
+              * PATCH (sementara): bagian "Instruksi Pembayaran, nomor & pemilik
+              * rekening" dinonaktifkan karena user belum memberikan info terkait.
+              * Saat sudah ada info rekening resmi, hapus komentar /* */ dan
+              * aktifkan kembali blok di bawah.
+              *
+             <p class="text-sm font-bold text-slate-800 mb-2 flex items-center gap-1.5">
+               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-landmark"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7 12 2"/></svg>
+               Instruksi Pembayaran
+             </p>
+             <div class="bg-blue-50 p-3 rounded-lg border border-blue-100 text-sm">
+               <p class="text-gray-600 mb-1">Mohon lakukan transfer ke rekening berikut:</p>
+               <p class="font-bold text-slate-800">Bank BCA - 1234567890</p>
+               <p class="font-bold text-slate-800 uppercase">a.n. ${comp.name}</p>
+             </div>
+             */}
+           </div>
+           <div class="w-1/3 text-center">
+             <p class="text-sm mb-16">Hormat Kami,</p>
+             <p class="text-sm font-bold border-b border-black pb-1 inline-block min-w-[150px]">Finance</p>
+             <p class="text-[10px] text-gray-500 uppercase mt-1">${comp.name}</p>
+           </div>
+         </div>
 
         <script>
           window.onload = function() {
@@ -593,6 +600,10 @@ export default function InvoicePage() {
 
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end border-t border-gray-300 pt-6 mt-12 gap-8">
                   <div className="w-full sm:w-2/3">
+                    {/* PATCH (sementara): bagian "Instruksi Pembayaran, nomor &
+                        pemilik rekening" dinonaktifkan karena user belum
+                        memberikan info terkait. Saat sudah ada info rekening
+                        resmi, hapus komentar di bawah dan aktifkan kembali.
                     <p className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-1.5">
                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-landmark"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7 12 2"/></svg>
                       Instruksi Pembayaran
@@ -602,6 +613,7 @@ export default function InvoicePage() {
                       <p className="font-bold text-slate-800">Bank BCA - 1234567890</p>
                       <p className="font-bold text-slate-800 uppercase">a.n. {comp.name}</p>
                     </div>
+                    */}
                   </div>
                   <div className="w-full sm:w-1/3 text-center mt-6 sm:mt-0">
                     <p className="text-sm mb-16">Hormat Kami,</p>

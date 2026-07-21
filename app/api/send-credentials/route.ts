@@ -1,4 +1,9 @@
+// PATCH (sedang #send-credentials-auth): tambah validasi token ke PocketBase
+// untuk memastikan caller benar-benar login. Sebelumnya endpoint hanya cek
+// adanya header Bearer tanpa memverifikasi token, sehingga siapa pun yang
+// mengetahui endpoint + body shape bisa kirim kredensial ke sembarang email.
 import { NextRequest, NextResponse } from "next/server";
+import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
 import { isSameOriginRequest } from "@/lib/pb-error";
 
@@ -9,10 +14,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: invalid origin" }, { status: 403 });
     }
 
-    // 1. Verifikasi Keamanan (Pastikan yang memanggil adalah aplikasi kita)
+    // 1. Verifikasi token: harus ada DAN valid (cek ke PocketBase).
     const authHeader = req.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
+    const pbToken    = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!pbToken) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
+    }
+    try {
+      const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+      pb.authStore.save(pbToken, null);
+      await pb.collection("users").authRefresh();
+    } catch {
+      return NextResponse.json({ error: "Token tidak valid atau sudah kedaluwarsa" }, { status: 401 });
     }
 
     // 2. Tangkap data dari Frontend
