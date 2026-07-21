@@ -406,9 +406,11 @@ async function processInternalEntity({
   const triggeredRenewals = new Set<string>();
   const validFiles = uploadFiles.filter(Boolean);
 
+// PATCH (refactor `as any`): EntitySummaryItem sudah didefinisikan di atas
+// sebagai union type. Sekarang kita gunakan type tersebut untuk `item` di loop
+// — TS akan narrow otomatis berdasarkan `item.type` di setiap branch.
   for (let i = 0; i < entity.filteredItems.length; i++) {
-    // 👇 Penyesuaian ke any agar bypass error trx/customId
-    const item: any = entity.filteredItems[i];
+    const item = entity.filteredItems[i];
 
     const fileToUpload = validFiles[i % validFiles.length];
     if (fileToUpload) {
@@ -452,8 +454,15 @@ async function processInternalEntity({
   }
 }
 
+// PATCH (refactor `as any`): ganti `item: any` ke `item: EntitySummaryItem`
+// agar TS bisa narrow type otomatis. `item.trx` dan `item.mou` akan
+// ter-typed sesuai variant "Bagi Hasil" atau "Pengembalian Modal".
+// Kita bungkus dengan Extract<Exclude<EntitySummaryItem, { type: "Pengembalian Modal" }>>
+// agar di function ini `item.trx` selalu ada (bukan `| undefined`).
+type BagiHasilItem = Extract<EntitySummaryItem, { type: "Bagi Hasil" }>;
+
 type ProcessInternalProfitItemParams = {
-  item: any; // bypass
+  item: BagiHasilItem;
   entity: ProcessedEntity;
   mous: MoU[];
   investors: Investor[];
@@ -485,9 +494,9 @@ async function processInternalProfitItem({
   triggeredRenewals,
   today,
 }: ProcessInternalProfitItemParams) {
-  const isMinBun = item.keterangan === "MinBun";
-  if (!item.trx) return; 
+  // PATCH: `item` sekarang typed `BagiHasilItem`, sehingga `item.trx` non-null.
   const trx = item.trx;
+  const isMinBun = item.keterangan === "MinBun";
   const trxId = trx.id;
   const tag = isMinBun
     ? `[Reminder] TRX ${trxId} · MinBun`
@@ -506,7 +515,7 @@ async function processInternalProfitItem({
 
   const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
   const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
-  
+
   const bagiHasilDone = allRows.every((r) => checks[r.checkKey]);
 
   const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
@@ -523,8 +532,12 @@ async function processInternalProfitItem({
   }
 }
 
+// PATCH (refactor `as any`): ganti `item: any` ke `item: PengembalianModalItem`
+// agar TS narrow otomatis. `item.mou` selalu non-null di function ini.
+type PengembalianModalItem = Extract<EntitySummaryItem, { type: "Pengembalian Modal" }>;
+
 type ProcessPengembalianModalItemParams = {
-  item: any; // bypass
+  item: PengembalianModalItem;
   entity: ProcessedEntity;
   investors: Investor[];
   cashflowTagRecordedFn: (tag: string) => boolean;
@@ -546,12 +559,14 @@ async function processPengembalianModalItem({
   setDoneKeysFn,
   today,
 }: ProcessPengembalianModalItemParams) {
-  const tag = `[Internal-Return:${entity.investorId}:${item.mou.id}]`;
+  // PATCH: `item` typed → `item.mou` non-null.
+  const mou = item.mou;
+  const tag = `[Internal-Return:${entity.investorId}:${mou.id}]`;
 
   if (!cashflowTagRecordedFn(tag)) {
     await addPengeluaranFn({
       date: today,
-      deskripsi: `Pengembalian Modal Internal — ${entity.nama} — PKS ${item.mou.id}`,
+      deskripsi: `Pengembalian Modal Internal — ${entity.nama} — PKS ${mou.id}`,
       debet: item.jumlah,
       kredit: 0,
       kategori: "Pengembalian Modal",
@@ -559,11 +574,11 @@ async function processPengembalianModalItem({
     });
   }
 
-  await updateMouFn(item.mou.id, { isTerminated: true });
+  await updateMouFn(mou.id, { isTerminated: true });
 
-  const inv = investors.find((i) => i.id === item.mou.investorId);
+  const inv = investors.find((i) => i.id === mou.investorId);
   if (inv) {
-    const newAmount = Math.max(0, inv.investmentAmount - item.mou.investmentAmount);
+    const newAmount = Math.max(0, inv.investmentAmount - mou.investmentAmount);
     await updateInvestorFn(inv.id, { investmentAmount: newAmount });
   }
 
@@ -587,6 +602,9 @@ type ProcessUploadEntityParams = {
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 };
 
+// PATCH (refactor `as any`): gunakan discriminated union EntitySummaryItem.
+// TS akan narrow otomatis: `item.trx` di branch "Bagi Hasil", `item.mou` di
+// branch "Pengembalian Modal". Tidak perlu `as any` lagi.
 async function uploadProofForItem({
   item,
   validFiles,
@@ -594,7 +612,7 @@ async function uploadProofForItem({
   uploadBuktiTransaksiFn,
   uploadBuktiPengembalianFn,
 }: {
-  item: any; // bypass
+  item: EntitySummaryItem;
   validFiles: File[];
   index: number;
   uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>;
@@ -605,16 +623,21 @@ async function uploadProofForItem({
   const fileToUpload = validFiles[index % validFiles.length];
   if (!fileToUpload) return "";
 
-  if (item.type === "Pengembalian Modal" && item.mou && uploadBuktiPengembalianFn) {
+  if (item.type === "Pengembalian Modal" && uploadBuktiPengembalianFn) {
+    // PATCH: `item.type` narrowed → `item.mou` non-null.
     return await uploadBuktiPengembalianFn(item.mou.id, fileToUpload);
   }
 
-  if (item.type === "Bagi Hasil" && item.trx) {
+  if (item.type === "Bagi Hasil") {
+    // PATCH: `item.type` narrowed → `item.trx` non-null.
     return await uploadBuktiTransaksiFn(item.trx.id, item.keterangan, fileToUpload);
   }
 
   return "";
 }
+
+// PATCH (refactor `as any`): gunakan type alias yang sudah didefinisikan.
+type UploadItem = EntitySummaryItem;
 
 async function processBagiHasilItem({
   item,
@@ -628,7 +651,7 @@ async function processBagiHasilItem({
   setDoneKeysFn,
   triggeredRenewals,
 }: {
-  item: any; // bypass
+  item: BagiHasilItem;
   mous: MoU[];
   investors: Investor[];
   brokers: Broker[];
@@ -639,23 +662,29 @@ async function processBagiHasilItem({
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
   triggeredRenewals: Set<string>;
 }) {
-  const checks = { ...item.trx.bagiHasilChecks, [item.checkKey]: true };
-  const allRows = buildTransaksiRows(item.trx, mous, investors, brokers, minbun, trader);
+  // PATCH: item typed sebagai BagiHasilItem → item.trx non-null.
+  const trx = item.trx;
+  const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
+  const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
   const bagiHasilDone = allRows.every((r) => checks[r.checkKey]);
 
   const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
   if (bagiHasilDone) {
-    updates.status = item.trx.isAutorenewal ? "perbarui" : "selesai";
+    updates.status = trx.isAutorenewal ? "perbarui" : "selesai";
   }
 
-  await updateTransaksiFn(item.trx.id, updates);
-  setDoneKeysFn((prev) => new Set(prev).add(`${item.trx.id}__${item.checkKey}`));
+  await updateTransaksiFn(trx.id, updates);
+  setDoneKeysFn((prev) => new Set(prev).add(`${trx.id}__${item.checkKey}`));
 
-  if (item.trx.isAutorenewal && bagiHasilDone && !triggeredRenewals.has(item.trx.id)) {
-    triggeredRenewals.add(item.trx.id);
-    await triggerAutorenewalFn(item.trx.id);
+  if (trx.isAutorenewal && bagiHasilDone && !triggeredRenewals.has(trx.id)) {
+    triggeredRenewals.add(trx.id);
+    await triggerAutorenewalFn(trx.id);
   }
 }
+
+// type alias untuk callback di-upload-proof (item bisa BagiHasilItem
+// atau PengembalianModalItem; kita union-kan di sini).
+type _UploadProofItem = UploadItem;
 
 async function processPengembalianModalUploadItem({
   item,
@@ -664,17 +693,19 @@ async function processPengembalianModalUploadItem({
   updateInvestorFn,
   setDoneKeysFn,
 }: {
-  item: any; // bypass
+  item: PengembalianModalItem;
   investors: Investor[];
   updateMouFn: (id: string, data: any) => Promise<void>;
   updateInvestorFn: (id: string, data: any) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 }) {
-  await updateMouFn(item.mou.id, { isTerminated: true });
+  // PATCH: item typed → item.mou non-null.
+  const mou = item.mou;
+  await updateMouFn(mou.id, { isTerminated: true });
 
-  const inv = investors.find((i) => i.id === item.mou.investorId);
+  const inv = investors.find((i) => i.id === mou.investorId);
   if (inv) {
-    const newAmount = Math.max(0, inv.investmentAmount - item.mou.investmentAmount);
+    const newAmount = Math.max(0, inv.investmentAmount - mou.investmentAmount);
     await updateInvestorFn(inv.id, { investmentAmount: newAmount });
   }
 
@@ -706,9 +737,10 @@ async function processUploadEntity({
   const validFiles = uploadFiles.filter(Boolean);
   const triggeredRenewals = new Set<string>();
 
-  // FASE 1A: Upload bukti untuk setiap item.
+// PATCH (refactor `as any`): `item` typed EntitySummaryItem; TS akan narrow
+// otomatis `item.trx` vs `item.mou` berdasarkan discriminator `item.type`.
   for (let i = 0; i < entity.filteredItems.length; i++) {
-    const item: any = entity.filteredItems[i];
+    const item: EntitySummaryItem = entity.filteredItems[i];
     const url = await uploadProofForItem({
       item,
       validFiles,
@@ -765,7 +797,8 @@ async function processUploadEntity({
 
   try {
     for (let i = 0; i < entity.filteredItems.length; i++) {
-      const item: any = entity.filteredItems[i];
+      // PATCH: typed EntitySummaryItem; TS akan narrow otomatis.
+      const item: EntitySummaryItem = entity.filteredItems[i];
       if (item.type === "Bagi Hasil" && item.trx) {
         await processBagiHasilItem({
           item,
