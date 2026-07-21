@@ -8,8 +8,9 @@ import {
 } from "@/lib/rate-limit";
 
 /**
- * Edge middleware that applies a per-IP sliding-window rate limit to every
- * /api/* route, with policy buckets defined in lib/rate-limit.ts.
+ * Next.js 16 "proxy" file (formerly `middleware.ts`). Runs on the Node.js
+ * runtime and applies a per-IP sliding-window rate limit to every
+ * /api/* request, with policy buckets defined in lib/rate-limit.ts.
  *
  * Headers added to every response (limited or allowed):
  *   - X-RateLimit-Limit
@@ -23,17 +24,23 @@ import {
  * Notes:
  *  - The bucket key is `<policy>:<clientKey>` so the same IP cannot exhaust
  *    one policy and be denied in another.
- *  - For Vercel: middleware runs per-region, so this is best-effort global
+ *  - For Vercel: this proxy runs per-region, so this is best-effort global
  *    limiting. Swap to Upstash if you need strict cross-region accuracy
  *    (see lib/rate-limit.ts bottom).
  *  - We intentionally do NOT skip non-mutating methods, because notify/*
  *    etc. are POST and we want a uniform layer; GET routes are cheap to
  *    count anyway.
+ *
+ * Migration note (from `middleware.ts` to `proxy.ts`):
+ *   - File renamed: middleware.ts -> proxy.ts
+ *   - Exported function renamed: middleware -> proxy
+ *   - Same `config = { matcher }` syntax
+ *   - See: https://nextjs.org/docs/messages/middleware-to-proxy
  */
 
 export const config = {
-  // Run middleware only for /api/*. Static assets and pages are excluded
-  // because Next.js applies middleware to matched paths only.
+  // Run only for /api/*. Static assets and pages are excluded because
+  // Next.js applies the matcher before invoking the function.
   matcher: ["/api/:path*"],
 };
 
@@ -50,7 +57,7 @@ function withRateLimitHeaders(res: NextResponse, opts: {
   return res;
 }
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
 
   // Belt-and-braces: matcher already restricts this, but be defensive.
