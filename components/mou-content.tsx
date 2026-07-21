@@ -246,6 +246,31 @@ function MouFormFields({
                 onChange={(e) => set("endDate", e.target.value)}
                 required
               />
+              {(() => {
+                // Keterangan kecil: hitung jumlah hari dari tanggal mulai ke
+                // tanggal berakhir agar user tahu durasi PKS yang akan dibuat.
+                if (!formData.date || !formData.endDate) return null;
+                const [sy, sm, sd] = formData.date.slice(0, 10).split("-").map(Number);
+                const [ey, em, ed] = formData.endDate.slice(0, 10).split("-").map(Number);
+                const startMs = Date.UTC(sy, sm - 1, sd);
+                const endMs   = Date.UTC(ey, em - 1, ed);
+                if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+                const days = Math.round((endMs - startMs) / 86_400_000);
+                if (days < 0) {
+                  return (
+                    <p className="text-[11px] text-destructive">
+                      ⚠ Tanggal berakhir lebih awal dari tanggal mulai ({Math.abs(days)} hari sebelum mulai).
+                    </p>
+                  );
+                }
+                return (
+                  <p className="text-[11px] text-muted-foreground">
+                    {days === 0
+                      ? "Durasi: hari yang sama (0 hari)."
+                      : `Durasi: ${days} hari (≈ ${(days / 30).toFixed(1)} bulan).`}
+                  </p>
+                );
+              })()}
             </div>
           </div>
           <div className="space-y-1.5">
