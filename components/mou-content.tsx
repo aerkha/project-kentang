@@ -860,7 +860,7 @@ export function MouContent() {
     const total =
       (Number.parseFloat(form.bagiHasilPP1)  || 0) +
       (Number.parseFloat(form.bagiHasilPP2)  || 0) +
-      (form.brokerId ? (Number.parseFloat(form.bagiHasilPP3) || 0) : 0) + // << VALIDASI PP3 DIKEMBALIKAN
+      (form.brokerId ? (Number.parseFloat(form.bagiHasilPP3) || 0) : 0) +
       (Number.parseFloat(form.bagiHasilPK)   || 0);
     if (total !== 100) {
       setErrorInfo({

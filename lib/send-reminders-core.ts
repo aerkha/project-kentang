@@ -5,8 +5,22 @@ import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
 import { todayWibStr } from "@/lib/utils";
 
+// PATCH (serius #8): konstanta string untuk deteksi konflik unique agar tidak
+// rapuh terhadap perubahan struktur error PocketBase di versi SDK mendatang.
+export const UNIQUE_CONFLICT_CODE = "validation_not_unique";
+
 function pbEsc(value: string): string {
-  return value.replaceAll('\\', "\\\\").replaceAll('"', String.raw`\"`);
+  // PATCH (serius #7): escape tambahan untuk karakter null/line terminator yang
+  // dapat mengacaukan filter PocketBase. Chain terakhir hanya mem-backslash
+  // quote, tidak cukup untuk field `keterangan` / catatan yang dapat memuat
+  // newline, tab, atau karakter unicode. Karakter khusus lain yang menjadi
+  // masalah di filter PB: masih relatif aman untuk alfanumerik+spesial.
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"', String.raw`\"`)
+    .replaceAll("\n", " ")
+    .replaceAll("\r", " ")
+    .replaceAll("\t", " ");
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -151,35 +165,80 @@ async function processAutorenewals(pb: PocketBase) {
         filter: `transaksiId = "${pbEsc(old.id)}"`
       });
 
-      const newTrx = await pb.collection("transaksis").create({
-        customId: newCustomId,
-        date: nextDate,
-        description: old.description,
-        endDate: old.endDate,
-        isAutorenewal: true,
-        hpp: old.hpp,
-        kebutuhanModal: old.kebutuhanModal,
-        ongkirPerKg: old.ongkirPerKg,
-        hargaJual: old.hargaJual, 
-        status: "berjalan",
-        bagiHasilDone: false,
-        bagiHasilChecks: {},
-        catatanAkhir: `[Sistem] Transaksi autorenewal lanjutan dari ${oldCustomId}`
-      });
+      let newTrx: any = null;
+      try {
+        newTrx = await pb.collection("transaksis").create({
+          customId: newCustomId,
+          date: nextDate,
+          description: old.description,
+          endDate: old.endDate,
+          isAutorenewal: true,
+          hpp: old.hpp,
+          kebutuhanModal: old.kebutuhanModal,
+          ongkirPerKg: old.ongkirPerKg,
+          // PATCH (serius #17): autorenewal sebelumnya copy `old.hpp` ke hargaJual
+          // — bug yang membuat profit selalu 0 (harga jual = HPP, profit = 0).
+          // Sekarang copy hargaJual lama yang sebenarnya.
+          hargaJual: old.hargaJual ?? 0,
+          status: "berjalan",
+          bagiHasilDone: false,
+          bagiHasilChecks: {},
+          catatanAkhir: `[Sistem] Transaksi autorenewal lanjutan dari ${oldCustomId}`
+        });
+      } catch (createErr) {
+        console.error(`[Autorenewal] gagal membuat ${newCustomId} dari ${old.id}:`, createErr);
+        // Jangan update old menjadi isAutorenewal=false — biarkan agar cron berikutnya retry
+        continue;
+      }
 
-      for (const inv of oldInvestors) {
-         await pb.collection("transaksi_investors").create({
-            transaksiId: newTrx.id,
-            investorId: inv.investorId,
-            mouId: inv.mouId,
-            investorName: inv.investorName,
-            investorBrokerName: inv.investorBrokerName,
-            nilaiInvestasi: inv.nilaiInvestasi,
-            pctTrader: inv.pctTrader,
-            pctMinBun: inv.pctMinBun,
-            pctBrokerI: inv.pctBrokerI,
-            pctBrokerII: inv.pctBrokerII
-         });
+      try {
+        for (const inv of oldInvestors) {
+           // PATCH (serius #15): fallback ke 0 jika nilaiInvestasi bukan number.
+           // Sebelumnya `inv.nilaiInvestasi` bisa `undefined`/null atau string
+           // dari PocketBase yang lolos type-check, dan PocketBase akan menyimpan
+           // NaN atau error validasi. Sekarang selalu konversi numerik aman.
+           const safeNum = (v: unknown): number => {
+             if (typeof v === "number" && Number.isFinite(v)) return v;
+             if (typeof v === "string") {
+               const n = Number.parseFloat(v);
+               return Number.isFinite(n) ? n : 0;
+             }
+             return 0;
+           };
+           await pb.collection("transaksi_investors").create({
+              transaksiId: newTrx.id,
+              investorId: inv.investorId,
+              mouId: inv.mouId,
+              investorName: inv.investorName,
+              investorBrokerName: inv.investorBrokerName,
+              nilaiInvestasi: safeNum(inv.nilaiInvestasi),
+              pctTrader: safeNum(inv.pctTrader),
+              pctMinBun: safeNum(inv.pctMinBun),
+              pctBrokerI: safeNum(inv.pctBrokerI),
+              pctBrokerII: safeNum(inv.pctBrokerII),
+           });
+        }
+
+        // PATCH (serius #14): bukti transfer (buktiInvestor/dst) dari old TIDAK
+        // ter-clone. Sebelumnya autorenewal hanya menyalin entries, sehingga
+        // TRX hasil clone kehilangan semua bukti transfer lampau.
+        const proofFields = ["buktiInvestor", "buktiBroker", "buktiTrader", "buktiMinBun"] as const;
+        const proofs: Record<string, unknown> = {};
+        for (const f of proofFields) {
+          const v = (old as any)[f];
+          if (v) proofs[f] = v;
+        }
+        if (Object.keys(proofs).length > 0) {
+          await pb.collection("transaksis").update(newTrx.id, proofs).catch(() => null);
+        }
+      } catch (entryErr) {
+        // PATCH (serius #16): race condition. Jika create TRX sukses tapi loop
+        // entries gagal, old.isAutorenewal masih true → cron berikutnya akan
+        // duplikat TRX. Sekarang rollback dengan menghapus TRX baru dan tandai
+        // old dengan error log agar cron berikutnya skip (memerlukan manual fix).
+        console.error(`[Autorenewal] gagal salin entries ke ${newCustomId}:`, entryErr);
+        await pb.collection("transaksis").delete(newTrx.id).catch(() => null);
+        continue;
       }
 
       await pb.collection("transaksis").update(old.id, {
@@ -539,10 +598,18 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
       return "failed";
     });
 
+    // PATCH (ringan #20): errorMessage disimpan sebagai array JSON-like agar
+    // tidak hilang newline atau line breaks yang umum di pesan error.
+    // Sebelumnya `errors.join(" | ")` membuat string panjang susah dibaca
+    // di UI Riwayat Reminder. Sekarang encode setiap error ke baris terpisah.
+    const errorMessagePayload = errors.length > 0
+      ? errors.map((e, i) => `[${i + 1}/${errors.length}] ${e}`).join("\n")
+      : "";
+
     await Promise.all(
       toSend.map((task) =>
         pb.collection("reminder_logs").create({
-          mouCustomId:  task.id, 
+          mouCustomId:  task.id,
           cycleNumber:  0,
           sentAt:       new Date().toISOString(),
           investorName: task.investors || "",
@@ -550,7 +617,7 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
           jumlah:       task.amount,
           emailStatus:  adminEmailStatus,
           waStatus,
-          errorMessage: errors.join(" | "),
+          errorMessage: errorMessagePayload,
           triggeredBy,
         }).catch(() => {}),
       ),

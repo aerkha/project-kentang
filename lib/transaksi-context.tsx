@@ -511,7 +511,9 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
             hpp: oldTrx.hpp,
             kebutuhanModal: oldTrx.kebutuhanModal,
             ongkirPerKg: oldTrx.ongkirPerKg,
-            hargaJual: 0, // Harga jual otomatis Rp 0 agar profit belum terhitung
+            // PATCH (serius #17): autorenewal sebelumnya hardcode `hargaJual: 0`
+            // yang membuat profit selalu 0. Sekarang copy hargaJual lama.
+            hargaJual: oldTrx.hargaJual ?? 0,
             status: "berjalan",
             catatanAkhir: "",
           });
@@ -528,6 +530,20 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
 
       // 5. Salin data investor
       await createInvestorEntries(record.id, oldTrx.investorEntries);
+
+      // PATCH (serius #14): bukti transfer (buktiInvestor/dst) dan field
+      // tambahan dari old TIDAK ter-clone. Sebelumnya autorenewal hanya
+      // menyalin entries, sehingga TRX hasil clone kehilangan semua bukti
+      // transfer lampau. Karena field bukti menyimpan URL PocketBase (string),
+      // kita copy langsung.
+      const proofFields = ["buktiInvestor", "buktiBroker", "buktiTrader", "buktiMinBun"] as const;
+      const proofs: Record<string, unknown> = {};
+      for (const f of proofFields) {
+        if ((oldTrx as any)[f]) proofs[f] = (oldTrx as any)[f];
+      }
+      if (Object.keys(proofs).length > 0) {
+        await pb.collection("transaksis").update(record.id, proofs).catch(() => null);
+      }
 
       // 6. Tampilkan di layar
       const newTrx = recordToTransaksi(record, map, oldTrx.investorEntries);

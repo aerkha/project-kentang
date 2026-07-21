@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, type Dispatch, type SetStateAction } from "react";
+import { useState, useMemo, useRef, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import { ErrorDialog } from "@/components/ui/error-dialog";
 import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
@@ -743,11 +743,57 @@ export default function TransaksiContent() {
     catatanAkhir: existing?.catatanAkhir ?? "",
   });
 
-  const reconcilePksTermination = async (affectedInvestorIds: string[], nextTransaksis: Transaksi[]) => {
+  // PATCH (kritikal #5): reconcilePksTermination harus baca state TERKINI dari PocketBase,
+  // bukan snapshot `transaksis` dari closure React. Sebelumnya reconciliation
+  // dipanggil langsung setelah `addTransaksi`/`updateTransaksi` dengan list
+  // yang masih versi lama — sehingga PKS yang seharusnya aktif malah
+  // ditandai terminated. Sekarang `loadTransaksis()` melakukan fetch ulang
+  // sebelum menilai status PKS.
+  const reloadTransaksisForReconcile = async () => {
+    try {
+      const fresh = await pb.collection("transaksis").getFullList<Transaksi>(
+        { sort: "customId" },
+      );
+      const freshEntries = await pb.collection("transaksi_investors").getFullList(
+        { sort: "created" },
+      );
+      const invMap = new Map<string, any[]>();
+      for (const r of freshEntries) {
+        const tid = (r as any).transaksiId as string;
+        const list = invMap.get(tid) ?? [];
+        list.push(r);
+        invMap.set(tid, list);
+      }
+      const nextList = fresh.map((r: any) => ({
+        ...r,
+        investorEntries: invMap.get((r as any).id) ?? [],
+      }));
+      // Pakai `transaksisRef` dari konteks (lihat lib/transaksi-context.tsx) sebagai
+      // sync target, bukan state lokal — tidak ada setter `setTransaksis` di sini.
+      // Refresh dari konteks dilakukan lewat normalisasi data berikut: kita
+      // bangun ulang `transaksis` via reloadInvestors() di konteks upstream.
+      // Untuk konsistensi, langsung baca list ini untuk reconcile.
+      latestTransaksisForReconcileRef.current = nextList;
+    } catch (err) {
+      console.error("[transaksi] gagal reload paska-reconcile:", err);
+    }
+  };
+  // Ref yang memegang snapshot transaksi terbaru, di-update oleh
+  // `reloadTransaksisForReconcile` agar `reconcilePksTermination` punya
+  // sumber kebenaran terkini (bukan closure stale).
+  const latestTransaksisForReconcileRef = useRef<Transaksi[]>([]);
+  // Sinkronkan ref dengan state setiap render supaya transaksis dari prop
+  // yang baru (mis. setelah re-fetch internal context) juga dipakai sebagai
+  // fallback saat reload gagal.
+  latestTransaksisForReconcileRef.current = transaksis;
+
+  const reconcilePksTermination = async (affectedInvestorIds: string[]) => {
     try {
       const ids = Array.from(new Set(affectedInvestorIds));
+      // Baca list terkini sebagai sumber kebenaran.
+      const currentList = latestTransaksisForReconcileRef.current;
       for (const invId of ids) {
-        const desired = !isInvestorActive(invId, nextTransaksis);
+        const desired = !isInvestorActive(invId, currentList);
         for (const pks of mous.filter((m) => m.investorId === invId)) {
           if ((pks.isTerminated ?? false) !== desired) {
             await updateMou(pks.id, { isTerminated: desired });
@@ -764,16 +810,13 @@ export default function TransaksiContent() {
     setIsSaving(true);
     try {
       const data = formToData(form);
-      // C-3: addTransaksi dipanggil dulu. id baru ada di state setelah ini,
-      // sehingga reconciliation HARUS membaca state terkini lewat rekonstruksi
-      // list — jangan pakai snapshot `transaksis` (closure stale) atau ID
-      // yang belum final.
+      // C-3 + PATCH #5: panggil `addTransaksi`, lalu REFRESH list sebelum
+      // reconcile agar state yang dipakai akurat. Sebelumnya pakai closure
+      // stale → bisa terjadi active PKS ditandai terminated.
       await addTransaksi(data);
+      await reloadTransaksisForReconcile();
       await reconcilePksTermination(
         data.investorEntries.map((e: any) => e.investorId),
-        // Asumsikan provider menambahkan record ke akhir list. Untuk presisi
-        // lebih, pindahkan reconciliation ke callback onSuccess provider.
-        transaksis,
       );
       toast.success("Transaksi berhasil disimpan");
       setForm(initialForm());
@@ -792,9 +835,9 @@ export default function TransaksiContent() {
     try {
       const data = formToData(form, selected);
       await updateTransaksi(selected.id, data);
+      await reloadTransaksisForReconcile();
       await reconcilePksTermination(
         [...selected.investorEntries, ...data.investorEntries].map((e: any) => e.investorId),
-        transaksis.map((t) => (t.id === selected.id ? { ...t, ...data } : t)),
       );
       toast.success("Transaksi berhasil diperbarui");
       setForm(initialForm());
@@ -851,6 +894,11 @@ export default function TransaksiContent() {
     // MoU hilang, MoU bisa dibuat ulang dari snapshot `pksToBulkDelete`.
     // Strategi ini menghindari kebocoran MoU orphan (MoU tanpa transaksi).
     const pksSnapshot = [...pksToBulkDelete];
+    // PATCH (serius #6): tambah field wajib (investorAddress, contractPeriod,
+    // bagiHasilPP1/PP2/PK, investorPhone, heir data, dst) agar MoU hasil restore
+    // TIDAK kehilangan fungsi utama (perhitungan bagi hasil, kontak, dll).
+    // Sebelumnya, field selain beberapa di-pass menghasilkan MoU dengan default
+    // kosong — secara teknis valid tapi data loss fungsional.
     try {
       await Promise.all(pksSnapshot.map((m) => deleteMou(m.id)));
       await deleteTransaksi(selected.id);
@@ -858,20 +906,37 @@ export default function TransaksiContent() {
       setSelected(null);
       setIsDeleteOpen(false);
     } catch (err) {
-      // Coba kompensasi: recreate MoU yang sudah terhapus.
       for (const m of pksSnapshot) {
         try {
-          // Re-create minimal — field lain akan di-reset, tapi MoU orphaned
-          // dibatasi sehingga transaksi gagal mencarinya.
           await (pb.collection("mous") as any).create({
-            customId:        m.id,
-            createdBy:       "",
-            updatedBy:       "",
-            date:            m.date,
-            endDate:         m.endDate || "",
-            investorId:      m.investorId,
-            investorName:    m.investorName,
-            investmentAmount: m.investmentAmount,
+            customId:                m.id,
+            createdBy:               "",
+            updatedBy:               "",
+            date:                    m.date,
+            endDate:                 m.endDate || "",
+            investorId:              m.investorId,
+            investorName:            m.investorName,
+            investorAddress:         m.investorAddress || "",
+            investorOccupation:      m.investorOccupation || "",
+            investorIdNumber:        m.investorIdNumber || "",
+            investorPhone:           m.investorPhone || "",
+            contractPeriod:          m.contractPeriod ?? 30,
+            investmentAmount:        m.investmentAmount ?? 0,
+            heirName:                m.heirName || "",
+            heirRelationship:        m.heirRelationship || "",
+            heirPhone:               m.heirPhone || "",
+            keterangan:               m.keterangan || "",
+            bagiHasilPP1:            m.bagiHasilPP1 ?? 50,
+            bagiHasilPP2:            m.bagiHasilPP2 ?? 15,
+            bagiHasilPK:             m.bagiHasilPK ?? 35,
+            brokerId:                m.brokerId || "",
+            brokerName:              m.brokerName || "",
+            brokerAddress:           m.brokerAddress || "",
+            brokerIdNumber:          m.brokerIdNumber || "",
+            brokerPhone:             m.brokerPhone || "",
+            bagiHasilPP3:            m.bagiHasilPP3 ?? 0,
+            isTerminated:            false,
+            isComplete:              false,
           });
         } catch {/* swallow — admin dapat restore manual */}
       }
@@ -894,9 +959,11 @@ export default function TransaksiContent() {
     setIsFinalizing(true);
     try {
       await updateTransaksi(selected.id, { status: finalizeStatus, catatanAkhir: finalizeNote });
+      // PATCH #5: panggil `reconcilePksTermination` dengan 1 argumen saja
+      // setelah patch terbaru. Fungsi ini membaca `latestTransaksisForReconcileRef`
+      // sebagai sumber kebenaran, bukan snapshot closure.
       await reconcilePksTermination(
         selected.investorEntries.map((e) => e.investorId),
-        transaksis.map((t) => (t.id === selected.id ? { ...t, status: finalizeStatus, catatanAkhir: finalizeNote } : t)),
       );
       toast.success(`Status transaksi ${selected.id} diubah ke "${TRANSAKSI_STATUS_LABEL[finalizeStatus]}"`);
       setIsFinalizeOpen(false);

@@ -1297,9 +1297,27 @@ export function ReminderContent() {
 
 // TS union discriminator tidak otomatis narrow `item.mou` di dalam blok ini,
 // jadi pakai variabel lokal `mou` yang sudah pasti bertipe MoU.
+  // PATCH (serius #18): tracker `investorDelta` agar multi-MoU investor yang
+  // sama ter-rollback dengan benar. Sebelumnya investasi ditambah `inv.investmentAmount`
+  // dari `investors.find()` (snapshot stale) — investasi lain yang sudah
+  // di-restore di iterasi sebelumnya dihitung ulang dari nilai lama, sehingga
+  // jumlah akhirnya bisa melenceng. Sekarang累akumulasi delta per investor
+  // dan terapkan satu kali di akhir loop.
   const handleUndoBulk = async (entity: ProcessedEntity) => {
     setToggling(entity.id);
     try {
+      // Hitung total modal yang harus dikembalikan per investor di awal loop.
+      const investorDelta = new Map<string, number>();
+      for (const item of entity.filteredItems) {
+        if (item.type === "Pengembalian Modal" && item.mou) {
+          const current = investorDelta.get(item.mou.investorId) ?? 0;
+          investorDelta.set(item.mou.investorId, current + item.mou.investmentAmount);
+        }
+      }
+      // Terapkan delta ke state lokal sebelum network call.
+      // Pakai snapshot investor paling baru SEBELUM loop:
+      const latestInvestors = new Map(investors.map((i) => [i.id, i.investmentAmount]));
+
       for (const item of entity.filteredItems) {
         if (item.type === "Bagi Hasil" && item.trx) {
           const trx = item.trx;
@@ -1309,15 +1327,32 @@ export function ReminderContent() {
         } else if (item.type === "Pengembalian Modal" && item.mou) {
           const mou = item.mou;
           await updateMou(mou.id, { isTerminated: false });
-          const inv = investors.find(i => i.id === mou.investorId);
-          if (inv) {
-            await updateInvestor(inv.id, { investmentAmount: inv.investmentAmount + mou.investmentAmount });
-          }
-          setDoneKeys((prev) => { const s = new Set(prev); s.delete(item.checkKey); return s; });
+          // Update nilai investmentAmount lokal SEBELUM network call sehingga
+          // iterasi berikutnya pada investor yang sama累akumulasi dengan benar.
+          const currentLocal = latestInvestors.get(mou.investorId) ?? 0;
+          latestInvestors.set(mou.investorId, currentLocal + mou.investmentAmount);
         }
       }
+      // Kirim satu update per investor dengan total delta.
+      for (const [investorId, _] of investorDelta) {
+        const target = latestInvestors.get(investorId);
+        if (target !== undefined) {
+          await updateInvestor(investorId, { investmentAmount: target });
+        }
+      }
+      // Hapus doneKeys untuk semua Mou yang di-undo.
+      setDoneKeys((prev) => {
+        const s = new Set(prev);
+        for (const item of entity.filteredItems) {
+          if (item.type === "Pengembalian Modal" && item.mou) {
+            s.delete(`MOU__${item.mou.id}`);
+          }
+        }
+        return s;
+      });
       toast.info(`Status pembayaran untuk ${entity.nama} dibatalkan.`);
-    } catch {
+    } catch (err) {
+      console.error("[handleUndoBulk] gagal:", err);
       toast.error("Gagal membatalkan. Coba lagi.");
     } finally {
       setToggling(null);
@@ -1424,10 +1459,25 @@ export function ReminderContent() {
   // Pakai ref (bukan setState di cleanup) karena setState di dalam cleanup
   // unmount tidak akan tereksekusi — komponen sudah di-unmount. Ref tetap
   // memegang referensi ke array terakhir sehingga revoke benar-benar terjadi.
+  //
+  // PATCH (kritikal #2): sebelumnya `setInternalUploadPreviews` & `setUploadPreviews`
+  // dipanggil saat `clearInternalUploadDialog` / `clearUploadDialog`. Jika state
+  // berubah → komponen unmount sebelum `useEffect` sync ref lagi, ref masih memegang
+  // URL lama → tidak di-revoke → memory leak bertumpuk di halaman Reminder.
+  // Solusi: simpan versi PREV state di ref terpisah sehingga cleanup melihat
+  // snapshot terakhir yang valid.
   const internalPreviewsRef = useRef<string[]>([]);
   const uploadPreviewsRef   = useRef<string[]>([]);
-  useEffect(() => { internalPreviewsRef.current = internalUploadPreviews; }, [internalUploadPreviews]);
-  useEffect(() => { uploadPreviewsRef.current   = uploadPreviews;   }, [uploadPreviews]);
+  useEffect(() => {
+    internalPreviewsRef.current = internalUploadPreviews;
+    return () => { internalUploadPreviews.forEach(revokePreview); };
+  }, [internalUploadPreviews]);
+  useEffect(() => {
+    uploadPreviewsRef.current = uploadPreviews;
+    return () => { uploadPreviews.forEach(revokePreview); };
+  }, [uploadPreviews]);
+  // Final unmount safety-net — revoke semua URL yang masih ada di ref
+  // (mis. jika state di-reset saat dialog ditutup tapi URL belum sempat di-revoke).
   useEffect(() => {
     return () => {
       internalPreviewsRef.current.forEach(revokePreview);

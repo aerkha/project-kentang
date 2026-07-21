@@ -14,7 +14,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (req.nextUrl.searchParams.get("test") === "true") {
+  // PATCH (serius #25): endpoint test mode sebelumnya tidak terproteksi —
+  // siapa pun yang memegang CRON_SECRET dapat mengirim email test ke admin.
+  // Sekarang require header `X-Test-Token` yang cocok dengan ADMIN_TEST_TOKEN
+  // (env var). Jika env var kosong, endpoint test dinonaktifkan total.
+  const testToken = process.env.ADMIN_TEST_TOKEN?.trim();
+  const wantsTest = req.nextUrl.searchParams.get("test") === "true";
+  if (wantsTest) {
+    if (!testToken) {
+      return NextResponse.json(
+        { error: "Test mode dinonaktifkan (ADMIN_TEST_TOKEN belum di-set)" },
+        { status: 403 },
+      );
+    }
+    if (req.headers.get("x-test-token") !== testToken) {
+      return NextResponse.json(
+        { error: "Forbidden — X-Test-Token header tidak valid" },
+        { status: 403 },
+      );
+    }
     const { status, body } = await runRemindersTest();
     return NextResponse.json(body, { status });
   }
