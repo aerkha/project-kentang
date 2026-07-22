@@ -828,7 +828,11 @@ async function processUploadEntity({
       if (bagiHasilDone) {
         updates.status = trx.isAutorenewal ? "perbarui" : "selesai";
       }
-      await updateTransaksiFn(trx.id, updates);
+      try {
+        await updateTransaksiFn(trx.id, updates);
+      } catch (err) {
+        console.warn("[processUploadEntity] gagal updateTransaksiFn untuk TRX ${trx.id}:", err);
+      }
       // Tambahkan doneKey untuk SEMUA checkKey TRX ini.
       setDoneKeysFn((prev) => {
         const next = new Set(prev);
@@ -839,7 +843,11 @@ async function processUploadEntity({
 
       if (trx.isAutorenewal && bagiHasilDone && !triggeredRenewals.has(trx.id)) {
         triggeredRenewals.add(trx.id);
-        await triggerAutorenewalFn(trx.id);
+        try {
+          await triggerAutorenewalFn(trx.id);
+        } catch (err) {
+          console.warn("[processUploadEntity] gagal triggerAutorenewalFn:", err);
+        }
       }
     }
 
