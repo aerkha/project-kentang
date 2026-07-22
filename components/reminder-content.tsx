@@ -1028,7 +1028,7 @@ async function sendBulkNotifications(
         transaksiId: entity.filteredItems.map((i) => i.sourceId).join(", "),
         keterangan: entity.roles.join(" & "),
         investorId: entity.investorId,
-        jumlah: entity.totalAmount,
+        jumlah: typeof entity.totalAmount === "number" && !isNaN(entity.totalAmount) ? entity.totalAmount : 0,
         buktiUrl: combinedUrls,
         brokerName: brokerName,
         noPks: finalNoPks,
@@ -1103,7 +1103,7 @@ async function sendBulkNotifications(
       body: JSON.stringify({
         brokerName: entity.nama,
         investorList,
-        jumlah: entity.totalAmount,
+        jumlah: typeof entity.totalAmount === "number" && !isNaN(entity.totalAmount) ? entity.totalAmount : 0,
         buktiUrl: combinedUrls,
         noPks: finalNoPks,
       }),
