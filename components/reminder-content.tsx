@@ -1059,10 +1059,16 @@ async function sendBulkNotifications(
       );
     }
     const result = await res.json().catch(() => ({}));
-    if (result?.waStatus === "failed") {
+    // Endpoint /api/notify-broker sekarang multi-channel (WA + Email).
+    // Throw HANYA jika SEMUA channel gagal — jika salah satu (mis. email)
+    // sudah terkirim, anggap sukses karena broker benar-benar sudah
+    // menerima notifikasi bukti transfer.
+    const waFailed    = result?.waStatus    === "failed";
+    const emailFailed = result?.emailStatus === "failed";
+    if (waFailed && emailFailed) {
       throw new Error(
-        `Notifikasi broker gagal: WhatsApp GAGAL` +
-        (result?.reason ? ` (${result.reason})` : ""),
+        `Notifikasi broker gagal (WA + Email). Alasan: ` +
+        (result?.reason || "Semua channel gagal"),
       );
     }
   }

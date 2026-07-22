@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
+import nodemailer from "nodemailer";
 import { isSameOriginRequest } from "@/lib/pb-error";
 import { todayWibStr } from "@/lib/utils";
 
@@ -17,7 +18,7 @@ interface NotifyBrokerBody {
 
 const MONTHS_ID = [
   "Januari","Februari","Maret","April","Mei","Juni",
-  "Juli","Agustus","September","Oktober","November","Disember",
+  "Juli","Agustus","September","Oktober","November","Desember",
 ];
 
 function fmtDate(s: string) {
@@ -53,9 +54,80 @@ function buildWaMessageBroker(opts: NotifyBrokerBody & { tanggal: string }): str
 }
 
 /**
- * Catat attempt pengiriman ke reminder_logs.
- * Dipanggil oleh route handler pada kedua jalur sukses DAN gagal,
- * agar log UI Riwayat Reminder akurat.
+ * Bangun email HTML untuk broker — paralel dengan notify-investor.
+ * Termasuk tombol/link bukti transfer dan ringkasan fee.
+ */
+function buildBrokerEmailHtml(opts: NotifyBrokerBody & { tanggal: string }): string {
+  const { brokerName, investorList, noPks, jumlah, buktiUrl, tanggal } = opts;
+  return `
+<!DOCTYPE html>
+<html lang="id">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:'Segoe UI',Arial,sans-serif;">
+  <div style="max-width:600px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.08);">
+
+    <div style="background:#0f766e;padding:28px 32px;">
+      <h1 style="margin:0;color:#fff;font-size:20px;">✅ Konfirmasi Pencairan Fee Broker</h1>
+      <p style="margin:6px 0 0;color:#ccfbf1;font-size:13px;">${tanggal} · MinBun</p>
+    </div>
+
+    <div style="padding:28px 32px;">
+      <p style="margin:0 0 16px;font-size:15px;color:#111827;">
+        Yth. <strong>${brokerName}</strong>,
+      </p>
+      <p style="margin:0 0 20px;font-size:14px;color:#374151;line-height:1.6;">
+        Kami informasikan bahwa fee broker Anda telah berhasil ditransfer.
+        Berikut detailnya:
+      </p>
+
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">
+        <tr style="background:#f9fafb;">
+          <td style="padding:10px 14px;color:#6b7280;width:40%;">No. Referensi</td>
+          <td style="padding:10px 14px;font-weight:600;font-family:monospace;">${noPks}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 14px;color:#6b7280;border-top:1px solid #f3f4f6;">Daftar Klien</td>
+          <td style="padding:10px 14px;border-top:1px solid #f3f4f6;">${investorList}</td>
+        </tr>
+        <tr style="background:#f9fafb;">
+          <td style="padding:10px 14px;color:#6b7280;">Tanggal Bayar</td>
+          <td style="padding:10px 14px;">${tanggal}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 14px;color:#6b7280;border-top:1px solid #f3f4f6;">Total Fee</td>
+          <td style="padding:10px 14px;font-weight:700;color:#0f766e;font-size:15px;">${fmtRp(jumlah)}</td>
+        </tr>
+      </table>
+
+      ${buktiUrl ? `
+      <div style="text-align:center;margin:24px 0;">
+        <a href="${buktiUrl}"
+          style="display:inline-block;background:#0f766e;color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;">
+          📎 Lihat Bukti Transfer
+        </a>
+      </div>` : ""}
+
+      <p style="margin:24px 0 0;font-size:13px;color:#6b7280;line-height:1.6;">
+        Jika ada pertanyaan, silakan hubungi tim MinBun.<br>
+        Terima kasih atas kerjasama Anda.
+      </p>
+    </div>
+
+    <div style="padding:16px 32px;background:#f9fafb;border-top:1px solid #e5e7eb;">
+      <p style="margin:0;font-size:11px;color:#9ca3af;text-align:center;">
+        Email ini dikirim otomatis oleh MinBun ERP · Jangan membalas email ini
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+type ChannelStatus = "sent" | "failed" | "skipped";
+
+/**
+ * Catat attempt pengiriman ke reminder_logs. Sekarang mendukung tracking
+ * email DAN wa agar admin tahu channel mana yang berhasil/gagal.
  */
 async function logAttempt(
   pb: PocketBase,
@@ -63,7 +135,8 @@ async function logAttempt(
     brokerName: string;
     noPks:      string;
     jumlah:     number;
-    waStatus:   "sent" | "failed" | "skipped";
+    waStatus:   ChannelStatus;
+    emailStatus: ChannelStatus;
     errorMessage: string;
   },
 ): Promise<void> {
@@ -73,7 +146,7 @@ async function logAttempt(
       cycleNumber:  0,
       sentAt:       new Date().toISOString(),
       investorName: `Broker: ${data.brokerName}`,
-      emailStatus:  "skipped",
+      emailStatus:  data.emailStatus,
       waStatus:     data.waStatus,
       errorMessage: data.errorMessage,
       triggeredBy:  "notifikasi",
@@ -85,79 +158,47 @@ async function logAttempt(
   }
 }
 
-export async function POST(req: NextRequest) {
-  if (!isSameOriginRequest(req)) {
-    return NextResponse.json({ error: "Forbidden: invalid origin" }, { status: 403 });
-  }
-
-  const authHeader = req.headers.get("authorization");
-  const pbToken    = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  if (!pbToken) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  let pb: PocketBase;
+async function sendEmail(
+  to: string,
+  opts: NotifyBrokerBody & { tanggal: string },
+): Promise<ChannelStatus> {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !pass || !to) return "skipped";
   try {
-    pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
-    pb.authStore.save(pbToken, null);
-    await pb.collection("users").authRefresh();
-  } catch {
-    return NextResponse.json({ error: "Token invalid" }, { status: 401 });
+    const transporter = nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
+    await transporter.sendMail({
+      from:    `"MinBun ERP" <${user}>`,
+      to,
+      subject: `[MinBun] ✅ Konfirmasi Pencairan Fee Broker — ${opts.noPks}`,
+      html:    buildBrokerEmailHtml(opts),
+    });
+    return "sent";
+  } catch (e) {
+    console.error("[notify-broker] gagal kirim email:", e);
+    return "failed";
   }
+}
 
-  let body: NotifyBrokerBody;
+/**
+ * Kirim WhatsApp via Fonnte. Patch (sementara): nonaktif sampai Meta
+ * WA Business API tersedia. Untuk mengaktifkan: hapus blok placeholder
+ * dan aktifkan kode Fonnte di bawah.
+ */
+async function sendWhatsApp(
+  brokerPhone: string,
+  msgText:     string,
+): Promise<{ status: ChannelStatus; error: string }> {
+  // PATCH (sementara): simulasi skipped sampai Meta WA API siap.
+  return { status: "skipped", error: "WA dinonaktifkan sementara" };
+
+  /* ── KODE ASLI — NONAKTIF SEMENTARA ───────────────────────────────────────
+  const token = process.env.FONNTE_TOKEN?.trim();
+  if (!token)      return { status: "skipped", error: "FONNTE_TOKEN kosong" };
+  if (!brokerPhone) return { status: "skipped", error: "Nomor HP broker kosong" };
+
   try {
-    body = await req.json() as NotifyBrokerBody;
-  } catch {
-    return NextResponse.json({ error: "Body tidak valid" }, { status: 400 });
-  }
-
-  if (!body.brokerName) {
-    return NextResponse.json({ error: "Nama Broker kosong" }, { status: 400 });
-  }
-
-  // 1. Cari Data Broker — pisahkan dua skenario gagal:
-  //    - broker tidak ada di DB → 404
-  //    - broker ada tapi nomor HP kosong → 400 (bukan 404)
-  let brokerRecord: { phone?: unknown } | null = null;
-  try {
-    brokerRecord = await pb.collection("brokers").getFirstListItem(
-      `name = "${pbEsc(body.brokerName)}"`,
-      { fields: "phone" }
-    );
-  } catch {
-    return NextResponse.json({ error: `Broker "${body.brokerName}" tidak ditemukan di database` }, { status: 404 });
-  }
-
-  const brokerPhone = (brokerRecord?.phone as string | undefined) || "";
-  const token       = process.env.FONNTE_TOKEN;
-
-  if (!token) {
-    await logAttempt(pb, { ...body, waStatus: "skipped", errorMessage: "FONNTE_TOKEN kosong" });
-    return NextResponse.json({ success: false, reason: "FONNTE_TOKEN belum dikonfigurasi" }, { status: 400 });
-  }
-  if (!brokerPhone) {
-    await logAttempt(pb, { ...body, waStatus: "skipped", errorMessage: "Nomor HP broker kosong" });
-    return NextResponse.json({ success: false, reason: "Nomor HP broker belum diisi" }, { status: 400 });
-  }
-
-  // 2. Siapkan Data
-  const normalizedPhone = brokerPhone.replace(/^0/, "62").replace(/\D/g, "");
-  // todayWibStr() konsisten dengan zona aplikasi, tidak rapuh untuk deploy di zona lain.
-  const tanggal = fmtDate(todayWibStr());
-  const msgText = buildWaMessageBroker({ ...body, tanggal });
-
-// 3. Kirim Pesan via Fonnte
-  // PATCH (sementara): WhatsApp notification dinonaktifkan.
-  // User saat ini belum bisa memenuhi syarat Meta WhatsApp Business API.
-  // Untuk mengaktifkan kembali: hapus komentar /* ... */ wrapper di bawah
-  // dan aktifkan blok kode WA + hapus baris `return` placeholder.
-  try {
-    // PATCH (sementara): simulasi sukses agar alur broker lunas tidak gagal.
-    await logAttempt(pb, { ...body, waStatus: "skipped", errorMessage: "WA dinonaktifkan sementara" });
-    return NextResponse.json({ success: true, waStatus: "skipped", reason: "WA dinonaktifkan sementara (sudah di-komentari)" });
-
-    /* ── KODE ASLI — NONAKTIF SEMENTARA ───────────────────────────────────────
+    const normalizedPhone = brokerPhone.replace(/^0/, "62").replace(/\D/g, "");
     const buildBody = () => {
       const fd = new FormData();
       fd.append("target",      normalizedPhone);
@@ -193,14 +234,106 @@ export async function POST(req: NextRequest) {
       throw new Error(`Fonnte: ${data.reason || data.detail || "ditolak"}`);
     }
 
-    await logAttempt(pb, { ...body, waStatus: "sent", errorMessage: "" });
-
-    return NextResponse.json({ success: true, waStatus: "sent" });
-    ─────────────────────────────────────────────────────────────────────────── */
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[notify-broker] gagal kirim:", message);
-    await logAttempt(pb, { ...body, waStatus: "failed", errorMessage: message });
-    return NextResponse.json({ success: false, reason: "Gagal mengirim WhatsApp" }, { status: 500 });
+    return { status: "sent", error: "" };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[notify-broker] gagal kirim WA:", msg);
+    return { status: "failed", error: msg };
   }
+  ─────────────────────────────────────────────────────────────────────────── */
+}
+
+export async function POST(req: NextRequest) {
+  if (!isSameOriginRequest(req)) {
+    return NextResponse.json({ error: "Forbidden: invalid origin" }, { status: 403 });
+  }
+
+  const authHeader = req.headers.get("authorization");
+  const pbToken    = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!pbToken) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let pb: PocketBase;
+  try {
+    pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+    pb.authStore.save(pbToken, null);
+    await pb.collection("users").authRefresh();
+  } catch {
+    return NextResponse.json({ error: "Token invalid" }, { status: 401 });
+  }
+
+  let body: NotifyBrokerBody;
+  try {
+    body = await req.json() as NotifyBrokerBody;
+  } catch {
+    return NextResponse.json({ error: "Body tidak valid" }, { status: 400 });
+  }
+
+  if (!body.brokerName) {
+    return NextResponse.json({ error: "Nama Broker kosong" }, { status: 400 });
+  }
+
+  // 1. Cari Data Broker — ambil phone + email untuk fallback multi-channel.
+  let brokerRecord: { phone?: unknown; email?: unknown } | null = null;
+  try {
+    brokerRecord = await pb.collection("brokers").getFirstListItem(
+      `name = "${pbEsc(body.brokerName)}"`,
+      { fields: "phone,email" }
+    );
+  } catch {
+    return NextResponse.json({ error: `Broker "${body.brokerName}" tidak ditemukan di database` }, { status: 404 });
+  }
+
+  const brokerPhone = (brokerRecord?.phone  as string | undefined) || "";
+  const brokerEmail = (brokerRecord?.email as string | undefined) || "";
+
+  // 2. Siapkan Data (dipakai bersama oleh WA dan Email)
+  const tanggal = fmtDate(todayWibStr());
+  const opts = { ...body, tanggal };
+
+  // 3. Channel: WhatsApp (Fonnte).
+  const waResult = await sendWhatsApp(brokerPhone, buildWaMessageBroker(opts));
+
+  // 4. Channel: Email (fallback). Selalu coba kirim email meskipun WA
+  //    disabled, agar broker benar-benar menerima notifikasi bukti transfer.
+  const emailStatus: ChannelStatus = await sendEmail(brokerEmail, opts);
+  if (emailStatus === "failed") {
+    console.error(`[notify-broker] email gagal ke broker=${body.brokerName}`);
+  }
+
+  // 5. Tentukan status akhir. Failure WA tidak menggagalkan jika email sukses.
+  const waStatus    = waResult.status;
+  const waError     = waResult.error;
+  const anyChannelSent    = waStatus === "sent" || emailStatus === "sent";
+  const allChannelsFailed = waStatus === "failed" && emailStatus === "failed";
+
+  // Susun errorMessage ringkas untuk log & response
+  const errParts: string[] = [];
+  if (waStatus !== "sent")    errParts.push(`WA ${waStatus}${waError ? `: ${waError}` : ""}`);
+  if (emailStatus !== "sent") errParts.push(`Email ${emailStatus}`);
+  const combinedError = errParts.join(" | ");
+
+  await logAttempt(pb, {
+    brokerName: body.brokerName,
+    noPks:      body.noPks,
+    jumlah:     body.jumlah,
+    waStatus,
+    emailStatus,
+    errorMessage: combinedError,
+  });
+
+  if (allChannelsFailed) {
+    return NextResponse.json(
+      { success: false, waStatus, emailStatus, reason: "Semua channel notifikasi gagal" },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({
+    success: anyChannelSent,
+    waStatus,
+    emailStatus,
+    reason: !anyChannelSent ? combinedError : undefined,
+  });
 }
