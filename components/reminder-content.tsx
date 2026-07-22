@@ -907,8 +907,12 @@ async function notifyBrokerAffiliated(
   jumlah: number,
   combinedUrls: string,
 ): Promise<void> {
+  // PENTING: endpoint ini RESEND notifikasi investor, BUKAN fee broker.
+  // Nominal yang dikirim (`jumlah`) adalah nominal BAGI HASIL yang diterima
+  // investor (bukan fee broker), dan narasi di email/WA menjelaskan
+  // bahwa itu bagi hasil klien broker.
   try {
-    const res = await fetch("/api/notify-broker", {
+    const res = await fetch("/api/notify-broker-resend", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -916,7 +920,7 @@ async function notifyBrokerAffiliated(
       },
       body: JSON.stringify({
         brokerName,
-        investorList: investorName,
+        investorName,
         jumlah,
         buktiUrl: combinedUrls,
         noPks,
@@ -931,9 +935,9 @@ async function notifyBrokerAffiliated(
       return;
     }
     const result = await res.json().catch(() => ({}));
-    if (result?.waStatus === "failed") {
+    if (result?.waStatus === "failed" && result?.emailStatus === "failed") {
       console.warn(
-        `[notifyBrokerAffiliated] WA gagal untuk broker="${brokerName}":`,
+        `[notifyBrokerAffiliated] Semua channel gagal untuk broker="${brokerName}":`,
         result?.reason || "",
       );
     }
@@ -1275,15 +1279,19 @@ export function ReminderContent() {
         });
       }
       const entRef = map.get(key)!;
-      // Dedupe: PaymentRow.checkKey (mis. "{investorId}_Investor",
-      // "{brokerKey}_Broker", "Trader", "MinBun") tidak menyertakan TRX ID,
-      // sehingga iterasi berikutnya dari TRX berbeda dengan checkKey yang
-      // sama akan menghasilkan duplikat baris. Simpan hanya item pertama
-      // per checkKey agar rincian tidak menumpuk dan totalAmount akurat.
-      const isDup = entRef.items.some(
-        (existing) => existing.checkKey === item.checkKey,
-      );
-      if (isDup) return;
+      // Dedupe checkKey HANYA untuk item "Investor" dan "Pengembalian Modal"
+      // (per orang + 1 slot pelunasan). Untuk item "Broker", JANGAN
+      // dedupe — broker murni yang muncul di banyak TRX harus diagregat
+      // agar totalAmount dan rincian fee broker akurat. TRX yang berbeda
+      // untuk broker yang sama = TRX berbeda dengan checkKey berbeda
+      // (TRX ID di-serialize ke sourceId item, bukan checkKey).
+      const isInvestorOrReturn = item.keterangan === "Investor" || item.keterangan === "Pengembalian Modal";
+      if (isInvestorOrReturn) {
+        const isDup = entRef.items.some(
+          (existing) => existing.checkKey === item.checkKey,
+        );
+        if (isDup) return;
+      }
       entRef.items.push(item);
     };
 
