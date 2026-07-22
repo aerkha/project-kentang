@@ -988,8 +988,12 @@ async function sendBulkNotifications(
   _uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>,
 ): Promise<void> {
   console.log(`[sendBulkNotifications] entity nama="${entity.nama}", investorId=${entity.investorId ?? "undefined"}, roles=${JSON.stringify(entity.roles)}`);
-  // KONDISI 1: JIKA PENERIMA ADALAH INVESTOR
-  if (entity.investorId) {
+  // KONDISI 1: JIKA PENERIMA ADALAH INVESTOR (diperluas: meskipun investorId
+  // undefined, jika entity terdeteksi sebagai investor — mis. karena di
+  // TRX profit=0 sehingga baris Investor tidak dibuat — kita tetap kirim
+  // notifikasi menggunakan info dari TRX yang ada, dengan entity.nama
+  // sebagai investorName).
+  if (entity.investorId || (entity.roles.includes("Bagi Hasil") && !entity.roles.includes("Broker"))) {
     let brokerName = "Pusat";
     const sampleItem = entity.filteredItems.find((i: any) => i.type === "Bagi Hasil" && i.trx);
     if (sampleItem && (sampleItem as any).trx) {
@@ -1054,8 +1058,12 @@ async function sendBulkNotifications(
     return;
   }
 
-  // KONDISI 2: JIKA PENERIMA ADALAH BROKER (tanpa investorId, entitas murni broker)
-  if (!entity.investorId && entity.roles.includes("Broker")) {
+  // KONDISI 2: JIKA PENERIMA ADALAH BROKER MURNI (tanpa investorId).
+  // PENTING: roles="Bagi Hasil" untuk SEMUA entity (baik investor maupun
+  // broker murni) — karena type item selalu "Bagi Hasil" hanya keterangan
+  // yang berbeda ("Investor" / "Broker" / "Trader" / "MinBun"). Jadi
+  // deteksi broker murni HANYA berdasarkan entity.investorId === undefined.
+  if (!entity.investorId) {
     console.log(`[reminder-content] KONDISI 2: MASUK! kirim fee broker ke "${entity.nama}", total=${entity.totalAmount}, combinedUrls=${combinedUrls ? "ada" : "kosong"}, filteredItems count=${entity.filteredItems.length}`);
     const affiliatedInvestors = new Set<string>();
     entity.filteredItems.forEach((i: any) => {
