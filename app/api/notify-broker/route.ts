@@ -154,6 +154,30 @@ async function sendEmail(
   to: string,
   opts: NotifyBrokerBody & { tanggal: string },
 ): Promise<ChannelStatus> {
+  // SELALU kirim salinan ke admin (GMAIL_USER) sebagai arsip notifikasi,
+  // sehingga admin memiliki bukti bahwa fee broker telah ditransfer ke
+  // broker tertentu. Hal ini membantu admin follow-up jika broker
+  // complain soal fee-nya.
+  // (Bisa di-disable dengan menghapus blok ini di kemudian hari.)
+  const adminEmail = process.env.GMAIL_USER;
+  if (adminEmail && adminEmail !== to) {
+    try {
+      const user = process.env.GMAIL_USER;
+      const pass = process.env.GMAIL_APP_PASSWORD;
+      if (user && pass) {
+        const transporter = nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
+        await transporter.sendMail({
+          from:    `"MinBun ERP" <${user}>`,
+          to:      adminEmail,
+          subject: `[MinBun] 📋 Salinan Notifikasi Fee Broker — ${opts.brokerName}`,
+          html:    buildBrokerEmailHtml(opts),
+        });
+        console.log(`[notify-broker] email SALINAN ke admin=${adminEmail} (arsip broker ${opts.brokerName})`);
+      }
+    } catch (e) {
+      console.warn(`[notify-broker] gagal kirim salinan email ke admin:`, e);
+    }
+  }
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
   if (!user) {
