@@ -374,13 +374,24 @@ export async function POST(req: NextRequest) {
   if (emailStatus !== "sent") errParts.push(`Email ${emailStatus}`);
   const combinedError = errParts.join(" | ");
 
+  // Susun pesan log yang informatif agar admin bisa lihat di UI
+  // Riwayat Reminder apa yang sebenarnya terjadi.
+  let logMessage = combinedError;
+  if (emailStatus === "skipped" && !waResult.error && !combinedError) {
+    logMessage = "Email broker belum terkirim. Cek: (1) broker.email di PB kosong, (2) GMAIL_USER/GMAIL_APP_PASSWORD env tidak diset, atau (3) WA disabled dan email tidak terkirim.";
+  } else if (emailStatus === "skipped" && waResult.error) {
+    logMessage = `Email skipped. WA: ${waResult.error}. Periksa env GMAIL dan broker.email.`;
+  } else if (emailStatus === "failed") {
+    logMessage = `Email gagal: ${combinedError || "unknown"}. Kemungkinan: App Password Gmail salah/expired, broker email typo, atau Gmail daily limit.`;
+  }
+
   await logAttempt(pb, {
     brokerName: body.brokerName,
     noPks:      body.noPks,
     jumlah:     body.jumlah,
     waStatus,
     emailStatus,
-    errorMessage: combinedError,
+    errorMessage: logMessage,
   });
 
   if (allChannelsFailed) {
