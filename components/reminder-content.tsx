@@ -987,6 +987,7 @@ async function sendBulkNotifications(
   combinedUrls: string,
   _uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>,
 ): Promise<void> {
+  console.log(`[sendBulkNotifications] entity nama="${entity.nama}", investorId=${entity.investorId ?? "undefined"}, roles=${JSON.stringify(entity.roles)}`);
   // KONDISI 1: JIKA PENERIMA ADALAH INVESTOR
   if (entity.investorId) {
     let brokerName = "Pusat";
@@ -1055,7 +1056,7 @@ async function sendBulkNotifications(
 
   // KONDISI 2: JIKA PENERIMA ADALAH BROKER (tanpa investorId, entitas murni broker)
   if (!entity.investorId && entity.roles.includes("Broker")) {
-    console.log(`[reminder-content] KONDISI 2: kirim fee broker ke "${entity.nama}", total=${entity.totalAmount}, combinedUrls=${combinedUrls ? "ada" : "kosong"}`);
+    console.log(`[reminder-content] KONDISI 2: MASUK! kirim fee broker ke "${entity.nama}", total=${entity.totalAmount}, combinedUrls=${combinedUrls ? "ada" : "kosong"}, filteredItems count=${entity.filteredItems.length}`);
     const affiliatedInvestors = new Set<string>();
     entity.filteredItems.forEach((i: any) => {
       if (i.type === "Bagi Hasil" && i.trx) {
