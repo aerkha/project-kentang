@@ -1515,7 +1515,12 @@ export function ReminderContent() {
           // ditemukan.
         } else if (item.type === "Pengembalian Modal" && item.mou) {
           const mou = item.mou;
-          await updateMou(mou.id, { isTerminated: false });
+          try {
+            await updateMou(mou.id, { isTerminated: false });
+          } catch (err) {
+            console.warn("[handleUndoBulk] gagal updateMou:", err);
+            continue;
+          }
           // Update nilai investmentAmount lokal SEBELUM network call sehingga
           // iterasi berikutnya pada investor yang sama累akumulasi dengan benar.
           const currentLocal = latestInvestors.get(mou.investorId) ?? 0;
@@ -1533,14 +1538,22 @@ export function ReminderContent() {
           updates.bagiHasilDone = false;
           updates.status = "berjalan";
         }
-        await updateTransaksi(trx.id, updates);
+        try {
+          await updateTransaksi(trx.id, updates);
+        } catch (err) {
+          console.warn("[handleUndoBulk] gagal updateTransaksi untuk TRX ${trx.id}:", err);
+        }
         setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trx.id}__${checkKey}`); return s; });
       }
       // Kirim satu update per investor dengan total delta.
       for (const [investorId, _] of investorDelta) {
         const target = latestInvestors.get(investorId);
         if (target !== undefined) {
-          await updateInvestor(investorId, { investmentAmount: target });
+          try {
+            await updateInvestor(investorId, { investmentAmount: target });
+          } catch (err) {
+            console.warn("[handleUndoBulk] gagal updateInvestor:", err);
+          }
         }
       }
       // Hapus doneKeys untuk semua Mou yang di-undo.

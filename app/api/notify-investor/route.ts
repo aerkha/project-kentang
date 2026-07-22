@@ -272,6 +272,23 @@ async function sendEmail(to: string, opts: Parameters<typeof buildEmailHtml>[0])
     subject: `[MinBun] ✅ Konfirmasi Bagi Hasil ${opts.keterangan} — ${opts.transaksiId}`,
     html:    buildEmailHtml(opts),
   });
+
+  // SELALU kirim salinan ke admin (GMAIL_USER) sebagai arsip audit,
+  // kecuali admin = recipient (mis. investorId = admin user).
+  const adminEmail = process.env.GMAIL_USER;
+  if (adminEmail && adminEmail !== to) {
+    try {
+      await transporter.sendMail({
+        from:    `"MinBun ERP" <${user}>`,
+        to:      adminEmail,
+        subject: `[MinBun] 📋 Salinan Notifikasi Bagi Hasil ke ${opts.investorName} — ${opts.transaksiId}`,
+        html:    buildEmailHtml(opts),
+      });
+      console.log(`[notify-investor] email SALINAN ke admin=${adminEmail} (arsip ${opts.investorName})`);
+    } catch (e) {
+      console.warn("[notify-investor] gagal kirim salinan email ke admin:", e);
+    }
+  }
   return "sent";
 }
 
