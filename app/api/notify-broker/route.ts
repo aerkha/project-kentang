@@ -325,15 +325,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Body tidak valid" }, { status: 400 });
   }
 
-  if (!body.brokerName) {
+  if (!body.brokerName || !body.brokerName.trim()) {
     return NextResponse.json({ error: "Nama Broker kosong" }, { status: 400 });
   }
+  // Trim brokerName untuk menghilangkan whitespace leading/trailing yang
+  // mungkin ada saat input atau pengiriman dari client.
+  const brokerNameTrimmed = body.brokerName.trim();
+  console.log(`[notify-broker] Lookup broker: name="${brokerNameTrimmed}" (length=${brokerNameTrimmed.length})`);
 
   // 1. Cari Data Broker — ambil phone + email untuk fallback multi-channel.
   let brokerRecord: { phone?: unknown; email?: unknown } | null = null;
   try {
     brokerRecord = await pb.collection("brokers").getFirstListItem(
-      `name = "${pbEsc(body.brokerName)}"`,
+      `name = "${pbEsc(brokerNameTrimmed)}"`,
       { fields: "phone,email" }
     );
     // Log untuk debugging: tampilkan field email yang berhasil di-fetch.
