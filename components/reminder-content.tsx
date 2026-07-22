@@ -1436,12 +1436,22 @@ export function ReminderContent() {
       // Pakai snapshot investor paling baru SEBELUM loop:
       const latestInvestors = new Map(investors.map((i) => [i.id, i.investmentAmount]));
 
+      // Dedupe per-TRX agar satu TRX hanya di-update SEKALI meskipun
+      // entity.filteredItems memuat beberapa item dari TRX yang sama (mis.
+      // broker murni yang muncul di banyak TRX — displayEntities sudah
+      // dedupe checkKey, tapi loop ini harus aman dari TRX yang sama
+      // muncul lebih dari sekali lewat checkKey berbeda).
+      const trxUpdates = new Map<string, { trx: any; checkKey: string }>();
       for (const item of entity.filteredItems) {
         if (item.type === "Bagi Hasil" && item.trx) {
-          const trx = item.trx;
-          const checks = { ...trx.bagiHasilChecks, [item.checkKey]: false };
-          await updateTransaksi(trx.id, { bagiHasilChecks: checks, bagiHasilDone: false, status: "berjalan" });
-          setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trx.id}__${item.checkKey}`); return s; });
+          const existing = trxUpdates.get(item.trx.id);
+          if (!existing) {
+            trxUpdates.set(item.trx.id, { trx: item.trx, checkKey: item.checkKey });
+          }
+          // Untuk TRX yang sama dengan beberapa checkKey (kasus broker
+          // murni dengan dedupe checkKey hanya menyimpan 1), kita hanya
+          // butuh satu update per TRX. Gunakan checkKey pertama yang
+          // ditemukan.
         } else if (item.type === "Pengembalian Modal" && item.mou) {
           const mou = item.mou;
           await updateMou(mou.id, { isTerminated: false });
@@ -1450,6 +1460,20 @@ export function ReminderContent() {
           const currentLocal = latestInvestors.get(mou.investorId) ?? 0;
           latestInvestors.set(mou.investorId, currentLocal + mou.investmentAmount);
         }
+      }
+      for (const { trx, checkKey } of trxUpdates.values()) {
+        // BUGFIX: hitung ulang bagiHasilDone dari checks, bukan paksa false.
+        // Sebelumnya `bagiHasilDone: false` membuat checkKey lain yang sudah
+        // lunas ikut ditandai belum lunas → duplikasi baris di Pending.
+        const checks = { ...(trx.bagiHasilChecks ?? {}), [checkKey]: false };
+        const allDone = Object.keys(checks).length > 0 && Object.values(checks).every(Boolean);
+        const updates: any = { bagiHasilChecks: checks };
+        if (!allDone) {
+          updates.bagiHasilDone = false;
+          updates.status = "berjalan";
+        }
+        await updateTransaksi(trx.id, updates);
+        setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trx.id}__${checkKey}`); return s; });
       }
       // Kirim satu update per investor dengan total delta.
       for (const [investorId, _] of investorDelta) {
