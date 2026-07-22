@@ -164,7 +164,49 @@ async function sendEmail(
 ): Promise<ChannelStatus> {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
-  if (!user || !pass || !to) return "skipped";
+  if (!user) {
+    console.warn(`[notify-broker] email skipped: GMAIL_USER env kosong`);
+    return "skipped";
+  }
+  if (!pass) {
+    console.warn(`[notify-broker] email skipped: GMAIL_APP_PASSWORD env kosong`);
+    return "skipped";
+  }
+  if (!to) {
+    // Fallback: broker belum punya email di database. Kirim notifikasi
+    // ke admin (GMAIL_USER) agar admin tahu broker mana yang perlu
+    // dilengkapi emailnya. Admin kemudian bisa meneruskan info fee
+    // broker secara manual via WhatsApp / telepon.
+    const adminEmail = process.env.GMAIL_USER;
+    if (adminEmail) {
+      try {
+        const transporter = nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
+        await transporter.sendMail({
+          from:    `"MinBun ERP" <${user}>`,
+          to:      adminEmail,
+          subject: `[MinBun] ⚠️ Fee Broker perlu diteruskan manual — ${opts.brokerName}`,
+          html: `<!DOCTYPE html><html><body style="font-family:Segoe UI,Arial,sans-serif;padding:24px;background:#f3f4f6;">
+<div style="max-width:600px;margin:auto;background:#fff;padding:24px;border-radius:12px;border-left:6px solid #f59e0b;">
+<h2 style="color:#92400e;margin-top:0;">⚠️ Broker belum punya email</h2>
+<p>Broker <strong>${opts.brokerName}</strong> baru saja menerima transfer fee broker, tetapi email broker belum terdaftar di database.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:13px;">
+<tr style="background:#fef3c7;"><td style="padding:8px;font-weight:600;">No. Referensi</td><td style="padding:8px;font-family:monospace;">${opts.noPks}</td></tr>
+<tr><td style="padding:8px;font-weight:600;">Total Fee</td><td style="padding:8px;font-weight:700;color:#16a34a;">Rp ${opts.jumlah.toLocaleString("id-ID")}</td></tr>
+<tr style="background:#fef3c7;"><td style="padding:8px;font-weight:600;">Klien</td><td style="padding:8px;">${opts.investorList || "—"}</td></tr>
+</table>
+<p style="font-size:13px;color:#6b7280;">Mohon hubungi broker tersebut secara manual (WhatsApp / telepon) dan bantu lengkapi data email di halaman Broker.</p>
+</div></body></html>`,
+        });
+        console.log(`[notify-broker] email FALLBACK ke admin=${adminEmail} (broker ${opts.brokerName} belum punya email)`);
+        return "skipped";
+      } catch (e) {
+        console.error(`[notify-broker] gagal kirim email fallback ke admin:`, e);
+        return "skipped";
+      }
+    }
+    console.warn(`[notify-broker] email skipped: broker email kosong di database (brokerName="${opts.brokerName}")`);
+    return "skipped";
+  }
   try {
     const transporter = nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
     await transporter.sendMail({
@@ -173,9 +215,10 @@ async function sendEmail(
       subject: `[MinBun] ✅ Konfirmasi Pencairan Fee Broker — ${opts.noPks}`,
       html:    buildBrokerEmailHtml(opts),
     });
+    console.log(`[notify-broker] email SENT ke ${to} untuk broker=${opts.brokerName}`);
     return "sent";
   } catch (e) {
-    console.error("[notify-broker] gagal kirim email:", e);
+    console.error(`[notify-broker] gagal kirim email ke ${to}:`, e);
     return "failed";
   }
 }
