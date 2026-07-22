@@ -390,6 +390,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Log final sebelum return — penting untuk debugging kenapa broker
+  // tidak menerima email meskipun endpoint dipanggil.
+  console.log(`[notify-broker] FINAL: broker="${body.brokerName}", waStatus=${waStatus}, emailStatus=${emailStatus}, anyChannelSent=${anyChannelSent}, brokerEmailUsed="${brokerEmail}"`);
+
   return NextResponse.json({
     success: anyChannelSent,
     waStatus,

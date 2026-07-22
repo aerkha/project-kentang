@@ -414,7 +414,7 @@ function MouFormFields({
                 id="mou-amount"
                 type="number"
                 min="0"
-                step="1000000"
+                step="1"
                 value={formData.investmentAmount}
                 onChange={(e) => set("investmentAmount", e.target.value)}
                 placeholder="76000000"
