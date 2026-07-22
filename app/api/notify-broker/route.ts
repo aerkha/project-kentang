@@ -53,10 +53,6 @@ function buildWaMessageBroker(opts: NotifyBrokerBody & { tanggal: string }): str
   return lines.join("\n");
 }
 
-/**
- * Bangun email HTML untuk broker — paralel dengan notify-investor.
- * Termasuk tombol/link bukti transfer dan ringkasan fee.
- */
 function buildBrokerEmailHtml(opts: NotifyBrokerBody & { tanggal: string }): string {
   const { brokerName, investorList, noPks, jumlah, buktiUrl, tanggal } = opts;
   return `
@@ -125,10 +121,6 @@ function buildBrokerEmailHtml(opts: NotifyBrokerBody & { tanggal: string }): str
 
 type ChannelStatus = "sent" | "failed" | "skipped";
 
-/**
- * Catat attempt pengiriman ke reminder_logs. Sekarang mendukung tracking
- * email DAN wa agar admin tahu channel mana yang berhasil/gagal.
- */
 async function logAttempt(
   pb: PocketBase,
   data: {
@@ -154,7 +146,7 @@ async function logAttempt(
       jumlah:       data.jumlah,
     });
   } catch {
-    /* silent — failure logging tidak boleh menggagalkan alur utama */
+    /* silent */
   }
 }
 
@@ -175,8 +167,7 @@ async function sendEmail(
   if (!to) {
     // Fallback: broker belum punya email di database. Kirim notifikasi
     // ke admin (GMAIL_USER) agar admin tahu broker mana yang perlu
-    // dilengkapi emailnya. Admin kemudian bisa meneruskan info fee
-    // broker secara manual via WhatsApp / telepon.
+    // dilengkapi emailnya.
     const adminEmail = process.env.GMAIL_USER;
     if (adminEmail) {
       try {
@@ -218,9 +209,6 @@ async function sendEmail(
     console.log(`[notify-broker] email SENT ke ${to} untuk broker=${opts.brokerName}`);
     return "sent";
   } catch (e) {
-    // Berikan detail error + troubleshooting agar admin tahu harus
-    // periksa apa. Google SMTP sering gagal karena: App Password
-    // expired/revoked, 2FA off, akun terkunci, less secure app off.
     const msg = e instanceof Error ? e.message : String(e);
     const code = (e as any)?.code || (e as any)?.responseCode || "";
     console.error(`[notify-broker] GAGAL kirim email ke ${to} untuk broker=${opts.brokerName}:`, msg, `(code: ${code})`);
@@ -235,11 +223,6 @@ async function sendEmail(
   }
 }
 
-/**
- * Kirim WhatsApp via Fonnte. Patch (sementara): nonaktif sampai Meta
- * WA Business API tersedia. Untuk mengaktifkan: hapus blok placeholder
- * dan aktifkan kode Fonnte di bawah.
- */
 async function sendWhatsApp(
   brokerPhone: string,
   msgText:     string,
@@ -251,7 +234,6 @@ async function sendWhatsApp(
   const token = process.env.FONNTE_TOKEN?.trim();
   if (!token)      return { status: "skipped", error: "FONNTE_TOKEN kosong" };
   if (!brokerPhone) return { status: "skipped", error: "Nomor HP broker kosong" };
-
   try {
     const normalizedPhone = brokerPhone.replace(/^0/, "62").replace(/\D/g, "");
     const buildBody = () => {
@@ -261,34 +243,16 @@ async function sendWhatsApp(
       fd.append("countryCode", "62");
       return fd;
     };
-
     let res  = await fetch("https://api.fonnte.com/send", {
       method: "POST",
       headers: { Authorization: token },
       body:   buildBody(),
     });
     let data = await res.json().catch(() => null);
-
-    if (data?.status === false) {
-      const reason = (data.reason || data.detail || "").toLowerCase();
-      if (reason.includes("disconnected") || reason.includes("not connected") || reason.includes("not registered")) {
-        console.warn(`[notify-broker] Fonnte disconnected, retry dalam 5 detik untuk ${normalizedPhone}...`);
-        await new Promise((r) => setTimeout(r, 5000));
-        res  = await fetch("https://api.fonnte.com/send", {
-          method: "POST",
-          headers: { Authorization: token },
-          body:   buildBody(),
-        });
-        data = await res.json().catch(() => null);
-      }
-    }
-
     if (!res.ok) throw new Error(`Fonnte HTTP ${res.status}`);
-
     if (data && data.status === false) {
       throw new Error(`Fonnte: ${data.reason || data.detail || "ditolak"}`);
     }
-
     return { status: "sent", error: "" };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -333,24 +297,39 @@ export async function POST(req: NextRequest) {
   const brokerNameTrimmed = body.brokerName.trim();
   console.log(`[notify-broker] Lookup broker: name="${brokerNameTrimmed}" (length=${brokerNameTrimmed.length})`);
 
-  // 1. Cari Data Broker — ambil phone + email untuk fallback multi-channel.
-  let brokerRecord: { phone?: unknown; email?: unknown } | null = null;
+  // 1. Cari Data Broker — exact match dulu, fallback ke fuzzy search.
+  let brokerRecord: { phone?: unknown; email?: unknown; name?: unknown } | null = null;
+  let fuzzyMatched = false;
   try {
     brokerRecord = await pb.collection("brokers").getFirstListItem(
       `name = "${pbEsc(brokerNameTrimmed)}"`,
-      { fields: "phone,email" }
+      { fields: "phone,email,name" }
     );
-    // Log untuk debugging: tampilkan field email yang berhasil di-fetch.
     console.log(`[notify-broker] fetched broker record for "${body.brokerName}": email="${(brokerRecord as any)?.email ?? "<kosong>"}", phone="${(brokerRecord as any)?.phone ?? "<kosong>"}"`);
-  } catch (err) {
-    console.error(`[notify-broker] GAGAL fetch broker "${body.brokerName}":`, err);
-    return NextResponse.json({ error: `Broker "${body.brokerName}" tidak ditemukan di database` }, { status: 404 });
+  } catch (exactErr) {
+    // Fallback: exact match gagal. Coba fuzzy search menggunakan LIKE
+    // untuk menangani perbedaan penulisan nama broker (mis. ada tambahan
+    // kata atau whitespace).
+    console.warn(`[notify-broker] exact match gagal untuk "${brokerNameTrimmed}". Coba fuzzy search (LIKE)...`);
+    try {
+      const escapedLike = brokerNameTrimmed.replace(/[\\%_]/g, "\\$&");
+      brokerRecord = await pb.collection("brokers").getFirstListItem(
+        `name ~ "${escapedLike}"`,
+        { fields: "phone,email,name" }
+      );
+      fuzzyMatched = true;
+      console.log(`[notify-broker] fuzzy match berhasil: name aslinya="${(brokerRecord as any)?.name}", email="${(brokerRecord as any)?.email ?? "<kosong>"}"`);
+    } catch (fuzzyErr) {
+      console.error(`[notify-broker] GAGAL fetch broker "${brokerNameTrimmed}" (exact+fuzzy):`, exactErr, fuzzyErr);
+      return NextResponse.json({ error: `Broker "${body.brokerName}" tidak ditemukan di database` }, { status: 404 });
+    }
   }
 
   const brokerPhone = ((brokerRecord?.phone  as string | undefined) || "").trim();
-  // Trim brokerEmail untuk mengatasi whitespace atau newline yang mungkin
-  // tersimpan dari input form.
   const brokerEmail = ((brokerRecord?.email as string | undefined) || "").trim();
+  // Untuk referensi, simpan nama asli broker (hasil fuzzy match) untuk
+  // pesan log agar admin tahu nama mana yang sebenarnya dipakai.
+  const brokerNameActual = String((brokerRecord?.name as string | undefined) || brokerNameTrimmed);
 
   // 2. Siapkan Data (dipakai bersama oleh WA dan Email)
   const tanggal = fmtDate(todayWibStr());
@@ -381,7 +360,9 @@ export async function POST(req: NextRequest) {
   // Susun pesan log yang informatif agar admin bisa lihat di UI
   // Riwayat Reminder apa yang sebenarnya terjadi.
   let logMessage = combinedError;
-  if (emailStatus === "skipped" && !waResult.error && !combinedError) {
+  if (fuzzyMatched) {
+    logMessage = `Nama broker di-fuzzy-match: dikirim="${body.brokerName}", dipakai="${brokerNameActual}". ${combinedError || "Email terkirim."}`;
+  } else if (emailStatus === "skipped" && !waResult.error && !combinedError) {
     logMessage = "Email broker belum terkirim. Cek: (1) broker.email di PB kosong, (2) GMAIL_USER/GMAIL_APP_PASSWORD env tidak diset, atau (3) WA disabled dan email tidak terkirim.";
   } else if (emailStatus === "skipped" && waResult.error) {
     logMessage = `Email skipped. WA: ${waResult.error}. Periksa env GMAIL dan broker.email.`;
@@ -407,7 +388,7 @@ export async function POST(req: NextRequest) {
 
   // Log final sebelum return — penting untuk debugging kenapa broker
   // tidak menerima email meskipun endpoint dipanggil.
-  console.log(`[notify-broker] FINAL: broker="${body.brokerName}", waStatus=${waStatus}, emailStatus=${emailStatus}, anyChannelSent=${anyChannelSent}, brokerEmailUsed="${brokerEmail}"`);
+  console.log(`[notify-broker] FINAL: broker="${body.brokerName}", waStatus=${waStatus}, emailStatus=${emailStatus}, anyChannelSent=${anyChannelSent}, brokerEmailUsed="${brokerEmail}", fuzzyMatched=${fuzzyMatched}`);
 
   return NextResponse.json({
     success: anyChannelSent,
