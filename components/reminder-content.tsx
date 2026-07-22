@@ -1264,11 +1264,21 @@ export function ReminderContent() {
       if (!map.has(key)) {
         map.set(key, {
           id: key, nama: rName, bankName: rBank, accountNumber: rAcc, investorId: rInvId,
-          roles: [], items: [], filteredItems: [], totalAmount: 0, 
+          roles: [], items: [], filteredItems: [], totalAmount: 0,
           isInternal: false, sisaTarget
         });
       }
-      map.get(key)!.items.push(item);
+      const entRef = map.get(key)!;
+      // Dedupe: PaymentRow.checkKey (mis. "{investorId}_Investor",
+      // "{brokerKey}_Broker", "Trader", "MinBun") tidak menyertakan TRX ID,
+      // sehingga iterasi berikutnya dari TRX berbeda dengan checkKey yang
+      // sama akan menghasilkan duplikat baris. Simpan hanya item pertama
+      // per checkKey agar rincian tidak menumpuk dan totalAmount akurat.
+      const isDup = entRef.items.some(
+        (existing) => existing.checkKey === item.checkKey,
+      );
+      if (isDup) return;
+      entRef.items.push(item);
     };
 
     transaksis.forEach((trx) => {
