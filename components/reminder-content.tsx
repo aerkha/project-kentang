@@ -1028,10 +1028,12 @@ async function sendBulkNotifications(
     });
     if (!res.ok) {
       const errBody = await res.json().catch(() => ({}));
-      throw new Error(
-        `Notifikasi investor HTTP ${res.status}` +
-        (errBody?.error ? `: ${errBody.error}` : ""),
+      // Best-effort: jangan rollback DB jika notifikasi gagal. Hanya log warning.
+      console.warn(
+        `[reminder-content] Notifikasi investor GAGAL (HTTP ${res.status}): ${errBody?.error || "unknown"}. DB tetap di-commit; broker fee tetap dikirim.`,
       );
+      // Tidak throw, lanjut ke KONDISI 2 (broker) atau return sukses.
+      return; // keluar dari KONDISI 1, lanjut eksekusi KONDISI 2
     }
     const result = await res.json().catch(() => ({}));
     if (result?.waStatus === "failed" || result?.emailStatus === "failed") {
