@@ -218,7 +218,19 @@ async function sendEmail(
     console.log(`[notify-broker] email SENT ke ${to} untuk broker=${opts.brokerName}`);
     return "sent";
   } catch (e) {
-    console.error(`[notify-broker] gagal kirim email ke ${to}:`, e);
+    // Berikan detail error + troubleshooting agar admin tahu harus
+    // periksa apa. Google SMTP sering gagal karena: App Password
+    // expired/revoked, 2FA off, akun terkunci, less secure app off.
+    const msg = e instanceof Error ? e.message : String(e);
+    const code = (e as any)?.code || (e as any)?.responseCode || "";
+    console.error(`[notify-broker] GAGAL kirim email ke ${to} untuk broker=${opts.brokerName}:`, msg, `(code: ${code})`);
+    if (msg.includes("Invalid login") || msg.includes("Username and Password not accepted") || code === "EAUTH") {
+      console.error("[notify-broker] → TROUBLESHOOT: GMAIL_APP_PASSWORD salah/expired. Buka https://myaccount.google.com/apppasswords buat ulang App Password untuk 'Mail'.");
+    } else if (msg.includes("self signed certificate") || code === "ESOCKET") {
+      console.error("[notify-broker] → TROUBLESHOOT: Masalah koneksi SMTP. Cek firewall/network.");
+    } else if (msg.includes("Daily user sending limit exceeded") || code === "EENVELOPE") {
+      console.error("[notify-broker] → TROUBLESHOOT: Gmail daily sending limit exceeded (~500 email/hari).");
+    }
     return "failed";
   }
 }

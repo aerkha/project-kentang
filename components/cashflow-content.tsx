@@ -171,7 +171,7 @@ function PengeluaranForm({
             id="pgl-debet"
             type="number"
             min="0"
-            step="1000"
+            step="1"
             value={formData.debet}
             onChange={(e) => set("debet", e.target.value)}
             placeholder="0"
@@ -185,7 +185,7 @@ function PengeluaranForm({
             id="pgl-kredit"
             type="number"
             min="0"
-            step="1000"
+            step="1"
             value={formData.kredit}
             onChange={(e) => set("kredit", e.target.value)}
             placeholder="0"
