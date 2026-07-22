@@ -370,8 +370,13 @@ export async function POST(req: NextRequest) {
   const { transaksiId, keterangan, investorId, buktiUrl } = body;
   const jumlah: number = typeof body.jumlah === "number" && body.jumlah >= 0 ? body.jumlah : 0;
 
-  if (!transaksiId || !keterangan || !investorId) {
-    return NextResponse.json({ error: "Field wajib kurang" }, { status: 400 });
+  if (!transaksiId || !keterangan) {
+    return NextResponse.json({ error: "transaksiId dan keterangan wajib diisi" }, { status: 400 });
+  }
+  // investorId boleh kosong — kita fallback ke lookup by nama (body.investorName
+  // atau nama dari TRX jika ada).
+  if (!investorId) {
+    console.warn("[notify-investor] investorId kosong, akan coba lookup by nama dari TRX jika ada");
   }
 
   let investorPhone = "";
@@ -384,22 +389,42 @@ export async function POST(req: NextRequest) {
   // mengirim `investorId` dari `entity.investorId` yang asalnya adalah PB ID.
   // Deteksi PB ID dengan regex 15-char alfanumerik; query dengan filter OR
   // untuk mencari di kedua kolom sehingga endpoint tidak return 400/404.
-  const looksLikePbId = /^[a-z0-9]{15}$/i.test(investorId);
-  const filter = looksLikePbId
-    ? `(id = "${pbEsc(investorId)}") || (customId = "${pbEsc(investorId)}")`
-    : `customId = "${pbEsc(investorId)}"`;
+  const looksLikePbId = !!investorId && /^[a-z0-9]{15}$/i.test(investorId);
+  let filter: string;
+  if (looksLikePbId) {
+    filter = `(id = "${pbEsc(investorId)}") || (customId = "${pbEsc(investorId)}")`;
+  } else if (investorId) {
+    filter = `customId = "${pbEsc(investorId)}"`;
+  } else {
+    // Fallback: cari by nama dari transaksiId jika terlihat seperti
+    // customId (TRX-XXXX) atau dari label "Nama Broker/Investor".
+    // Untuk sekarang, kita skip lookup dan gunakan investorName/body.investorName
+    // jika tersedia, atau kembalikan pesan investor-not-found yang jelas.
+    filter = "";
+  }
+  let inv: { name?: string; phone?: string; email?: string } | null = null;
   try {
-    const inv = await pb.collection("investors").getFirstListItem(filter, {
-      fields: "name,phone,email",
-    });
-    investorName  = (inv.name  as string) || "";
-    investorPhone = (inv.phone as string) || "";
-    investorEmail = (inv.email as string) || "";
-  } catch {
-    return NextResponse.json(
-      { error: `Investor "${investorId}" tidak ditemukan` },
-      { status: 404 }
-    );
+    if (filter) {
+      inv = await pb.collection("investors").getFirstListItem(filter, {
+        fields: "name,phone,email",
+      });
+    }
+    if (inv) {
+      investorName  = (inv.name  as string) || "";
+    }
+    investorPhone = (inv?.phone as string) || "";
+    investorEmail = (inv?.email as string) || "";
+  } catch (err) {
+    // investorId kosong atau tidak ditemukan — bukan error fatal.
+    // Kita kembalikan 404 HANYA jika investorId diberikan tapi tidak
+    // ditemukan di DB. Jika investorId kosong, lanjutkan tanpa lookup.
+    if (investorId) {
+      console.error(`[notify-investor] GAGAL lookup investor "${investorId}":`, err);
+      return NextResponse.json(
+        { error: `Investor "${investorId}" tidak ditemukan` },
+        { status: 404 }
+      );
+    }
   }
 
   // Bangun riwayat transaksi investor

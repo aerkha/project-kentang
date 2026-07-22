@@ -988,12 +988,14 @@ async function sendBulkNotifications(
   _uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>,
 ): Promise<void> {
   console.log(`[sendBulkNotifications] entity nama="${entity.nama}", investorId=${entity.investorId ?? "undefined"}, roles=${JSON.stringify(entity.roles)}`);
-  // KONDISI 1: JIKA PENERIMA ADALAH INVESTOR (diperluas: meskipun investorId
-  // undefined, jika entity terdeteksi sebagai investor — mis. karena di
-  // TRX profit=0 sehingga baris Investor tidak dibuat — kita tetap kirim
-  // notifikasi menggunakan info dari TRX yang ada, dengan entity.nama
-  // sebagai investorName).
-  if (entity.investorId || (entity.roles.includes("Bagi Hasil") && !entity.roles.includes("Broker"))) {
+  // KONDISI 1: JIKA PENERIMA ADALAH INVESTOR
+  // Logika deteksi: investor adalah entity yang MEMILIKI investorId valid.
+  // Jika entity.investorId undefined, ini adalah broker murni (lihat
+  // KONDISI 2 di bawah). Untuk kasus khusus di mana baris Investor TRX
+  // tidak dibuat (profit=0), kita cek roles — jika ada "Investor", kita
+  // tetap perlakukan sebagai investor (dengan investorId = entity.nama).
+  if ((entity.investorId && entity.investorId.length === 15) ||
+      (!entity.investorId && entity.roles.includes("Investor"))) {
     let brokerName = "Pusat";
     const sampleItem = entity.filteredItems.find((i: any) => i.type === "Bagi Hasil" && i.trx);
     if (sampleItem && (sampleItem as any).trx) {
