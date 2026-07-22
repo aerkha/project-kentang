@@ -192,7 +192,7 @@ interface BrkRowState { row: BrkImportRow; status: RowStatus; error?: string; }
 function FlagBadgeInline({ row }: { row: InvImportRow }) {
   if (row.isMinBun) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">{row.isInternal ? "MB-Internal" : "MinBun"}</span>;
   if (row.isTami)   return <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">Tami</span>;
-  if (row.isDirect) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">Direct</span>;
+  if (row.isDirect) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">DirectAB</span>;
   return <span className="text-[10px] text-muted-foreground">—</span>;
 }
 
@@ -766,7 +766,7 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
             [
               { key: "isMinBun" as const, label: "MinBun", desc: "Investor di bawah naungan MinBun (eksternal maupun internal)." },
               { key: "isTami"   as const, label: "Tami",   desc: "Investor melalui jalur Tami." },
-              { key: "isDirect" as const, label: "Direct",  desc: "Investor langsung tanpa perantara broker." },
+              { key: "isDirect" as const, label: "DirectAB", desc: "Investor langsung tanpa perantara broker." },
             ]
           ).map(({ key, label, desc }) => (
             <div key={key} className={`rounded-lg border transition-colors ${formData[key] ? "bg-primary/5 border-primary/30" : "bg-muted/30"}`}>
@@ -1194,7 +1194,7 @@ export function InvestorsContent() {
     const flags: string[] = [];
     if (form.isMinBun) flags.push("MinBun");
     if (form.isTami)   flags.push("Tami");
-    if (form.isDirect) flags.push("Direct");
+    if (form.isDirect) flags.push("DirectAB");
     return flags;
   };
 
@@ -1940,7 +1940,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
             <Users className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-1">Belum ada investor</h3>
             <p className="text-muted-foreground text-sm">
-              {searchQuery ? "Coba kata kunci lain" : filterType !== "all" ? `Belum ada investor tipe ${filterType === "minbun" ? "MinBun" : filterType === "tami" ? "Tami" : "Direct"}` : "Tambahkan investor pertama Anda"}
+              {searchQuery ? "Coba kata kunci lain" : filterType !== "all" ? `Belum ada investor tipe ${filterType === "minbun" ? "MinBun" : filterType === "tami" ? "Tami" : "DirectAB"}` : "Tambahkan investor pertama Anda"}
             </p>
           </CardContent>
         </Card>
@@ -1995,7 +1995,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                         <Badge variant="secondary" className="bg-purple-100 text-purple-700 text-[10px] px-1.5 shrink-0">Tami</Badge>
                       )}
                       {investor.isDirect && (
-                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-[10px] px-1.5 shrink-0">Direct</Badge>
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-[10px] px-1.5 shrink-0">DirectAB</Badge>
                       )}
                     </div>
                     <span className="text-[10px] font-mono text-muted-foreground">{investor.id}</span>

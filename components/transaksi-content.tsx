@@ -93,7 +93,7 @@ const emptyEntry = (): InvestorEntryForm => ({
 });
 
 type InvestorJalur = "MB" | "TM" | "D";
-const JALUR_LABEL: Record<InvestorJalur, string> = { MB: "MinBun (MB)", TM: "Tami (TM)", D: "Direct (D)" };
+const JALUR_LABEL: Record<InvestorJalur, string> = { MB: "MinBun (MB)", TM: "Tami (TM)", D: "DirectAB (D)" };
 
 function getJalur(inv: Investor): InvestorJalur {
   if (inv.isMinBun) return "MB";

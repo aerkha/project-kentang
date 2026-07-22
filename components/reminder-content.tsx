@@ -796,24 +796,56 @@ async function processUploadEntity({
   }
 
   try {
-    for (let i = 0; i < entity.filteredItems.length; i++) {
-      // PATCH: typed EntitySummaryItem; TS akan narrow otomatis.
-      const item: EntitySummaryItem = entity.filteredItems[i];
+    // BUGFIX (duplikasi undo → lunas ulang): dedupe proses per
+    // (TRX × checkKey). Sebelumnya loop memanggil processBagiHasilItem
+    // untuk SETIAP item di entity.filteredItems. Untuk broker murni
+    // yang muncul di banyak TRX (sekarang tidak didedupe lagi), ini
+    // menghasilkan banyak panggilan update_transaksi yang sebenarnya
+    // idempotent — tapi tetap BOROS dan bisa RACE CONDITION.
+    //
+    // Solusi: kumpulkan dulu (trxId, checkKey) unik per TRX, proses
+    // SEKALI per TRX dengan SEMUA checkKey relevan di-set true
+    // bersamaan.
+    const trxCheckKeys = new Map<string, { trx: any; checkKeys: Set<string> }>();
+    for (const item of entity.filteredItems) {
       if (item.type === "Bagi Hasil" && item.trx) {
-        await processBagiHasilItem({
-          item,
-          mous,
-          investors,
-          brokers,
-          minbun,
-          trader,
-          updateTransaksiFn,
-          triggerAutorenewalFn,
-          setDoneKeysFn,
-          triggeredRenewals,
-        });
-        rollbackLog.push({ trxId: item.trx.id });
-      } else if (item.type === "Pengembalian Modal" && item.mou) {
+        const cur = trxCheckKeys.get(item.trx.id);
+        if (!cur) {
+          trxCheckKeys.set(item.trx.id, { trx: item.trx, checkKeys: new Set([item.checkKey]) });
+        } else {
+          cur.checkKeys.add(item.checkKey);
+        }
+      }
+    }
+
+    for (const { trx, checkKeys } of trxCheckKeys.values()) {
+      // Set SEMUA checkKey TRX ini ke true dalam satu kali updates.
+      const checks: Record<string, boolean> = { ...(trx.bagiHasilChecks ?? {}) };
+      checkKeys.forEach((ck) => { checks[ck] = true; });
+      const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+      const bagiHasilDone = allRows.every((r) => checks[r.checkKey]);
+      const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
+      if (bagiHasilDone) {
+        updates.status = trx.isAutorenewal ? "perbarui" : "selesai";
+      }
+      await updateTransaksiFn(trx.id, updates);
+      // Tambahkan doneKey untuk SEMUA checkKey TRX ini.
+      setDoneKeysFn((prev) => {
+        const next = new Set(prev);
+        checkKeys.forEach((ck) => next.add(`${trx.id}__${ck}`));
+        return next;
+      });
+      rollbackLog.push({ trxId: trx.id });
+
+      if (trx.isAutorenewal && bagiHasilDone && !triggeredRenewals.has(trx.id)) {
+        triggeredRenewals.add(trx.id);
+        await triggerAutorenewalFn(trx.id);
+      }
+    }
+
+    // Proses MoU (tidak berubah; hanya MoU, tidak terkait TRX)
+    for (const item of entity.filteredItems) {
+      if (item.type === "Pengembalian Modal" && item.mou) {
         await processPengembalianModalUploadItem({
           item,
           investors,
