@@ -142,7 +142,7 @@ function BuktiUploadField({ file, onChange }: { file: File | null; onChange: (f:
   return (
     <div className="space-y-1.5">
       <Label className="text-xs">
-        Bukti Transfer <span className="text-muted-foreground font-normal">(opsional)</span>
+        Bukti Transfer <span className="text-muted-foreground font-normal"></span>
       </Label>
       <label className={`flex items-center gap-3 cursor-pointer rounded-lg border-2 border-dashed px-4 py-3 transition-colors ${file ? "border-green-400 bg-green-50" : "border-border hover:border-primary/50 hover:bg-muted/40"}`}>
         <input
@@ -1386,7 +1386,33 @@ export function InvestorsContent() {
 // di email notifikasi saja. Saat WA diaktifkan kembali, restore toast
 // ini dengan menghapus komentar.
 toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email investor/broker.`);
-      } catch (err) {
+      
+    // Validasi bukti transfer (wajib diupload untuk setiap investor baru).
+    if (!addInvestorFile) {
+      setErrorInfo({
+        title: "Bukti transfer wajib diupload",
+        fields: [{ field: "buktiTransfer", code: "required", message: "Upload bukti transfer investasi terlebih dahulu sebelum menyimpan investor." }],
+        raw: "",
+      });
+      return;
+    }
+    // Validasi field ahli waris (wajib diisi untuk setiap investor).
+    if (!investorForm.heirName || !investorForm.heirName.trim() || !investorForm.heirBankName || !investorForm.heirBankName.trim() || !investorForm.heirAccountNumber || !investorForm.heirAccountNumber.trim()) {
+      const missing = [];
+      if (!investorForm.heirName || !investorForm.heirName.trim())
+        missing.push({ field: "heirName", code: "required", message: "Nama ahli waris wajib diisi." });
+      if (!investorForm.heirBankName || !investorForm.heirBankName.trim())
+        missing.push({ field: "heirBankName", code: "required", message: "Nama bank ahli waris wajib diisi." });
+      if (!investorForm.heirAccountNumber || !investorForm.heirAccountNumber.trim())
+        missing.push({ field: "heirAccountNumber", code: "required", message: "Nomor rekening ahli waris wajib diisi." });
+      setErrorInfo({
+        title: "Data ahli waris wajib dilengkapi",
+        fields: missing,
+        raw: "",
+      });
+      return;
+    }
+} catch (err) {
         console.error("Gagal membuat akun otomatis:", err);
         toast.error("Data investor tersimpan, namun gagal membuat akun login (Email/No.HP mungkin sudah dipakai).");
       }
@@ -1646,6 +1672,25 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
 
   const handleAddBroker = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    // Validasi email wajib diisi agar notifikasi bukti transfer fee broker
+    // dapat dikirim otomatis ke broker (lihat /api/notify-broker).
+    if (!brokerForm.email || !brokerForm.email.trim()) {
+      setErrorInfo({
+        title: "Email broker wajib diisi",
+        fields: [{ field: "email", code: "required", message: "Email broker wajib diisi agar bukti transfer fee dapat dikirim otomatis." }],
+        raw: "",
+      });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(brokerForm.email.trim())) {
+      setErrorInfo({
+        title: "Format email tidak valid",
+        fields: [{ field: "email", code: "format", message: "Format email broker tidak valid. Contoh: broker@email.com" }],
+        raw: "",
+      });
+      return;
+    }
+
     setIsSaving(true);
     try {
       await addBroker({
@@ -1715,6 +1760,25 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
 
   const handleEditBroker = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    // Validasi email wajib diisi agar notifikasi bukti transfer fee broker
+    // dapat dikirim otomatis ke broker (lihat /api/notify-broker).
+    if (!brokerForm.email || !brokerForm.email.trim()) {
+      setErrorInfo({
+        title: "Email broker wajib diisi",
+        fields: [{ field: "email", code: "required", message: "Email broker wajib diisi agar bukti transfer fee dapat dikirim otomatis." }],
+        raw: "",
+      });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(brokerForm.email.trim())) {
+      setErrorInfo({
+        title: "Format email tidak valid",
+        fields: [{ field: "email", code: "format", message: "Format email broker tidak valid. Contoh: broker@email.com" }],
+        raw: "",
+      });
+      return;
+    }
+
     if (!selectedBroker) return;
     setIsSaving(true);
     try {

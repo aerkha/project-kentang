@@ -324,12 +324,17 @@ export async function POST(req: NextRequest) {
       `name = "${pbEsc(body.brokerName)}"`,
       { fields: "phone,email" }
     );
-  } catch {
+    // Log untuk debugging: tampilkan field email yang berhasil di-fetch.
+    console.log(`[notify-broker] fetched broker record for "${body.brokerName}": email="${(brokerRecord as any)?.email ?? "<kosong>"}", phone="${(brokerRecord as any)?.phone ?? "<kosong>"}"`);
+  } catch (err) {
+    console.error(`[notify-broker] GAGAL fetch broker "${body.brokerName}":`, err);
     return NextResponse.json({ error: `Broker "${body.brokerName}" tidak ditemukan di database` }, { status: 404 });
   }
 
-  const brokerPhone = (brokerRecord?.phone  as string | undefined) || "";
-  const brokerEmail = (brokerRecord?.email as string | undefined) || "";
+  const brokerPhone = ((brokerRecord?.phone  as string | undefined) || "").trim();
+  // Trim brokerEmail untuk mengatasi whitespace atau newline yang mungkin
+  // tersimpan dari input form.
+  const brokerEmail = ((brokerRecord?.email as string | undefined) || "").trim();
 
   // 2. Siapkan Data (dipakai bersama oleh WA dan Email)
   const tanggal = fmtDate(todayWibStr());
