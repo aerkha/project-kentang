@@ -885,6 +885,67 @@ async function processUploadEntity({
  * Kirim notifikasi bulk ke investor / broker. Throw error jika ada yang gagal,
  * sehingga fase 2 (DB commit) tidak akan dieksekusi — item tetap di tab Pending.
  */
+
+/**
+ * Best-effort: kirim salinan notifikasi bagi hasil ke broker afiliasi.
+ *
+ * Dipanggil setelah notifikasi investor berhasil dikirim, agar broker
+ * yang memiliki afiliasi dengan investor (entry.investorBrokerName)
+ * juga menerima bukti transfer yang sama. Kegagalan pada helper ini
+ * TIDAK menggagalkan proses bulk karena notifikasi utama (ke investor)
+ * sudah sukses — broker cukup menerima log error di console.
+ *
+ * Menggunakan endpoint /api/notify-broker yang sudah support field
+ * buktiUrl (URL bukti transfer) sehingga bukti yang sama dikirim juga
+ * ke broker.
+ */
+async function notifyBrokerAffiliated(
+  brokerName: string,
+  investorName: string,
+  transaksiId: string,
+  noPks: string,
+  jumlah: number,
+  combinedUrls: string,
+): Promise<void> {
+  try {
+    const res = await fetch("/api/notify-broker", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${pb.authStore.token}`,
+      },
+      body: JSON.stringify({
+        brokerName,
+        investorList: investorName,
+        jumlah,
+        buktiUrl: combinedUrls,
+        noPks,
+      }),
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      console.warn(
+        `[notifyBrokerAffiliated] HTTP ${res.status} untuk broker="${brokerName}":`,
+        errBody?.error || errBody?.reason || "",
+      );
+      return;
+    }
+    const result = await res.json().catch(() => ({}));
+    if (result?.waStatus === "failed") {
+      console.warn(
+        `[notifyBrokerAffiliated] WA gagal untuk broker="${brokerName}":`,
+        result?.reason || "",
+      );
+    }
+  } catch (err) {
+    // Best-effort: log saja, jangan throw.
+    console.warn(
+      `[notifyBrokerAffiliated] exception untuk broker="${brokerName}":`,
+      err,
+    );
+  }
+}
+
 async function sendBulkNotifications(
   entity: ProcessedEntity,
   combinedUrls: string,
@@ -937,6 +998,20 @@ async function sendBulkNotifications(
       throw new Error(
         `Notifikasi investor — ${parts.join(", ")}` +
         (result?.errors?.length ? `. ${result.errors.join("; ")}` : ""),
+      );
+    }
+    // BEST-EFFORT: kirim salinan notifikasi ke broker afiliasi (jika investor
+    // berafiliasi dengan broker). Tujuannya agar broker juga menerima bukti
+    // transfer bagi hasil investasi kliennya. Kegagalan TIDAK membatalkan
+    // notifikasi investor yang sudah sukses — hanya dicatat di console.
+    if (brokerName && brokerName !== "Pusat") {
+      await notifyBrokerAffiliated(
+        brokerName,
+        entity.nama,
+        entity.filteredItems.map((i) => i.sourceId).join(", "),
+        finalNoPks,
+        entity.totalAmount,
+        combinedUrls,
       );
     }
     return;
