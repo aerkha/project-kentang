@@ -1597,7 +1597,7 @@ export function ReminderContent() {
         try {
           await updateTransaksi(trx.id, updates);
         } catch (err) {
-          console.warn("[handleUndoBulk] gagal updateTransaksi untuk TRX ${trx.id}:", err);
+        console.warn(`[handleUndoBulk] gagal updateTransaksi untuk TRX ${trx.id}:`, err);
         }
         setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trx.id}__${checkKey}`); return s; });
       }

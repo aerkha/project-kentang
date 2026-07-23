@@ -130,7 +130,11 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     }
     const pembelian = pembelians.find((p) => p.id === data.pembelian_id);
     if (pembelian) {
+      const existingSortir = sortirs
+        .filter((sortir) => sortir.pembelian_id === data.pembelian_id)
+        .reduce((total, sortir) => total + (sortir.grade_a ?? 0) + (sortir.grade_b ?? 0) + (sortir.grade_c ?? 0) + (sortir.grade_baby ?? 0) + (sortir.grade_reject ?? 0), 0);
       const totalSortir =
+        existingSortir +
         (data.grade_a ?? 0) +
         (data.grade_b ?? 0) +
         (data.grade_c ?? 0) +
@@ -159,6 +163,20 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   };
 
   const addPengiriman = async (data: Partial<InvPengiriman>) => {
+    const numericFields = ["qty_grade_a", "qty_grade_b", "qty_grade_c", "qty_grade_baby", "qty_campur"] as const;
+    if (numericFields.some((field) => (data[field] ?? 0) < 0)) {
+      throw new Error("Kuantitas pengiriman tidak boleh negatif.");
+    }
+    const available = currentStock;
+    const requested = {
+      gradeA: data.qty_grade_a ?? 0,
+      gradeB: data.qty_grade_b ?? 0,
+      gradeC: data.qty_grade_c ?? 0,
+      baby: data.qty_grade_baby ?? 0,
+    };
+    if (requested.gradeA > available.gradeA || requested.gradeB > available.gradeB || requested.gradeC > available.gradeC || requested.baby > available.baby) {
+      throw new Error("Kuantitas pengiriman melebihi stok tersedia.");
+    }
     const record = await pb.collection("inv_pengiriman").create(data);
     setPengirimans((prev) => [record as unknown as InvPengiriman, ...prev]);
   };

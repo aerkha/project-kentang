@@ -79,6 +79,7 @@ async function setSetting(key: string, value: string): Promise<void> {
         await pb.collection("settings").update(rec.id, { value });
       } catch (finalErr) {
         console.error(`[settings] setSetting("${key}") gagal setelah 3 percobaan:`, finalErr);
+        throw finalErr;
       }
     }
   }
@@ -131,7 +132,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   };
 
   const updateTrader = async (data: Partial<InternalAccount>) => {
-    const updated = { ...trader, ...data };
+    const updated: InternalAccount = { ...DEFAULT_TRADER, ...trader, ...data };
     await setSetting("trader_account", JSON.stringify(updated));
     setTrader(updated);
   };

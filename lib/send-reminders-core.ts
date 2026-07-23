@@ -111,8 +111,9 @@ function endDatePks(mou: any) {
 function nextAutorenewalCustomId(oldId: string): string {
   if (!oldId) return "TRX-0000A"; // Fallback aman jika kosong
 
-  // Memisahkan "TRX-0004" dan huruf di belakangnya (misal "A")
-  const match = oldId.match(/(TRX-\d+)([A-Z]*)/i);
+  // Memisahkan "TRX-0004" dan huruf di belakangnya (misal "A").
+  // Anchor ke akhir agar suffix invalid tidak ikut terpotong.
+  const match = oldId.match(/^(TRX-\d+)([A-Z]*)$/i);
 
   // Jika formatnya sama sekali tidak dikenali
   if (!match) return oldId + "A";

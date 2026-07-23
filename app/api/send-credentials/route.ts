@@ -99,7 +99,8 @@ export async function POST(req: NextRequest) {
 // Untuk mengaktifkan kembali: hapus komentar /* ... */ wrapper.
 async function sendWhatsApp(phone: string, message: string): Promise<boolean> {
   if (!phone) return false;
-  return true; // PATCH (sementara): pretend sukses agar alur onboarding tidak gagal.
+  // WhatsApp belum aktif; jangan melaporkan terkirim jika provider dinonaktifkan.
+  return false;
 
   /* ── KODE ASLI — NONAKTIF SEMENTARA ───────────────────────────────────────
   try {

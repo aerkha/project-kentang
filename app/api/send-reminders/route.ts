@@ -50,20 +50,29 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    // Verifikasi token pengguna aplikasi
+    // Verifikasi token pengguna aplikasi. Route halaman memang membatasi UI,
+    // tetapi API tetap harus menolak token palsu/nonaktif jika dipanggil langsung.
     const authHeader = req.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
+    const pbToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!pbToken) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
+    }
+    const PocketBase = (await import("pocketbase")).default;
+    const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+    pb.authStore.save(pbToken, null);
+    const caller = await pb.collection("users").authRefresh();
+    if ((caller.record as Record<string, unknown>)?.role !== "admin") {
+      return NextResponse.json({ error: "Forbidden — hanya admin" }, { status: 403 });
     }
 
     // Jalankan mesin reminder dengan mode "manual" (agar lolos dari filter deduplikasi 20 jam)
     const { status, body } = await runReminders("manual");
     
     return NextResponse.json(body, { status });
-  } catch (error: any) {
+  } catch (error) {
     console.error("API Route POST Error:", error);
     return NextResponse.json(
-      { error: "Terjadi kesalahan pada server", detail: error.message },
+      { error: "Terjadi kesalahan pada server" },
       { status: 500 }
     );
   }
