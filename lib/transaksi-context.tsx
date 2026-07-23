@@ -304,8 +304,18 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
         }
       }
 
+      // PocketBase `id` adalah identitas record yang benar-benar unik. Selain itu,
+      // lindungi UI dari data legacy dengan `customId` ganda: tampilkan hanya satu
+      // record per customId (record terakhir dari hasil query), sehingga baris
+      // Mapping Modal tidak terduplikasi.
+      const uniqueRecordsByPbId = new Map(trxRecords.map((record) => [record.id, record]));
+      const uniqueRecordsByCustomId = new Map<string, (typeof trxRecords)[number]>();
+      for (const record of uniqueRecordsByPbId.values()) {
+        uniqueRecordsByCustomId.set(String(record.customId), record);
+      }
+
       setTransaksis(
-        trxRecords.map((r) =>
+        Array.from(uniqueRecordsByCustomId.values()).map((r) =>
           recordToTransaksi(
             r as Record<string, unknown>,
             map,
@@ -344,10 +354,12 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
           throw entryErr;
         }
 
-        setTransaksis((prev) => [
-          ...prev,
-          recordToTransaksi(record, map, t.investorEntries),
-        ]);
+        setTransaksis((prev) => {
+          const created = recordToTransaksi(record, map, t.investorEntries);
+          // Upsert berdasarkan customId unik agar response ganda/race tidak
+          // menghasilkan dua baris dengan ID Mapping Modal yang sama.
+          return [...prev.filter((item) => item.id !== created.id), created];
+        });
         return;
       } catch (err) {
         if (isCustomIdConflict(err) && attempt < 4) {
@@ -547,7 +559,10 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
 
       // 6. Tampilkan di layar
       const newTrx = recordToTransaksi(record, map, oldTrx.investorEntries);
-      transaksisRef.current = [...transaksisRef.current, newTrx];
+      transaksisRef.current = [
+        ...transaksisRef.current.filter((item) => item.id !== newTrx.id),
+        newTrx,
+      ];
       setTransaksis(transaksisRef.current);
     } catch (error) {
       console.error("Gagal menjalankan autorenewal:", error);

@@ -65,7 +65,7 @@ export function AppSidebar() {
       { name: "Dashboard Analitik", href: "/dashboard", icon: BarChart3, show: true },
       { name: "Investor & Broker", href: "/dashboard/investors", icon: Users, show: true },
       { name: "PKS (MoU)", href: "/dashboard/mou", icon: FileText, show: true },
-      { name: "Transaksi", href: "/dashboard/transaksi", icon: Receipt, show: true },
+      { name: "Mapping Modal", href: "/dashboard/transaksi", icon: Receipt, show: true },
       { name: "Reminder", href: "/dashboard/reminder", icon: Bell, show: isAdmin || isUser || isOwner },
     ];
   }

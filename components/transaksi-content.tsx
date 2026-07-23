@@ -457,7 +457,7 @@ function TrxFormFields({
             Informasi Pengiriman
           </p>
           <div className="space-y-1.5">
-            <Label className="text-xs">ID Transaksi</Label>
+            <Label className="text-xs">ID Mapping Modal</Label>
             <div className="px-3 py-2 bg-muted rounded-md text-sm font-mono text-muted-foreground flex items-center justify-between">
               <span>{previewId}</span>
               {formData.isAutorenewal && <span className="text-[10px] text-blue-500 font-medium tracking-wide">(Autorenewal Aktif)</span>}
@@ -479,7 +479,7 @@ function TrxFormFields({
             <label className="flex items-center gap-2.5 cursor-pointer">
               <Checkbox checked={formData.isAutorenewal} onCheckedChange={(c) => set("isAutorenewal", !!c)} />
               <div className="space-y-0.5">
-                <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">Autorenewal Transaksi</span>
+                <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">Autorenewal Mapping Modal</span>
                 <p className="text-[10px] text-muted-foreground leading-snug">
                   Sistem akan otomatis menggandakan transaksi ini untuk bulan depan sesaat setelah transaksi ini dilunasi.
                 </p>
@@ -831,11 +831,11 @@ export default function TransaksiContent() {
       await reconcilePksTermination(
         data.investorEntries.map((e: any) => e.investorId),
       );
-      toast.success("Transaksi berhasil disimpan");
+      toast.success("Mapping Modal berhasil disimpan");
       setForm(initialForm());
       setIsAddOpen(false);
     } catch (err) {
-      setErrorInfo(formatPbError(err, "Gagal menyimpan transaksi"));
+      setErrorInfo(formatPbError(err, "Gagal menyimpan mapping modal"));
     } finally {
       setIsSaving(false);
     }
@@ -852,12 +852,12 @@ export default function TransaksiContent() {
       await reconcilePksTermination(
         [...selected.investorEntries, ...data.investorEntries].map((e: any) => e.investorId),
       );
-      toast.success("Transaksi berhasil diperbarui");
+      toast.success("Mapping Modal berhasil diperbarui");
       setForm(initialForm());
       setSelected(null);
       setIsEditOpen(false);
     } catch (err) {
-      setErrorInfo(formatPbError(err, "Gagal memperbarui transaksi"));
+      setErrorInfo(formatPbError(err, "Gagal memperbarui mapping modal"));
     } finally {
       setIsSaving(false);
     }
@@ -915,7 +915,7 @@ export default function TransaksiContent() {
     try {
       await Promise.all(pksSnapshot.map((m) => deleteMou(m.id)));
       await deleteTransaksi(selected.id);
-      toast.success("Transaksi berhasil dihapus");
+      toast.success("Mapping Modal berhasil dihapus");
       setSelected(null);
       setIsDeleteOpen(false);
     } catch (err) {
@@ -953,7 +953,7 @@ export default function TransaksiContent() {
           });
         } catch {/* swallow — admin dapat restore manual */}
       }
-      setErrorInfo(formatPbError(err, "Gagal menghapus transaksi"));
+      setErrorInfo(formatPbError(err, "Gagal menghapus mapping modal"));
     } finally {
       setIsDeleting(false);
     }
@@ -1029,23 +1029,23 @@ export default function TransaksiContent() {
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Transaksi</h1>
+          <h1 className="text-2xl font-bold text-foreground">Mapping Modal</h1>
           <p className="text-muted-foreground">Input data pengiriman dan hitung profit secara otomatis</p>
         </div>
         <Dialog open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) setForm(initialForm()); }}>
           {canCreate && <DialogTrigger asChild>
-            <Button><Plus className="w-4 h-4 mr-2" />Tambah Transaksi</Button>
+            <Button><Plus className="w-4 h-4 mr-2" />Tambah Mapping Modal</Button>
           </DialogTrigger>}
           <DialogContent className="sm:max-w-[660px]">
             <DialogHeader>
-              <DialogTitle>Tambah Transaksi Baru</DialogTitle>
+              <DialogTitle>Tambah Mapping Modal Baru</DialogTitle>
               <DialogDescription>
                 Isi data pengiriman — nilai quantity, total ongkir, income, dan profit dihitung otomatis
               </DialogDescription>
             </DialogHeader>
             <TrxFormFields
               formData={form} setFormData={setForm}
-              onSubmit={handleAdd} submitLabel="Simpan Transaksi"
+              onSubmit={handleAdd} submitLabel="Simpan Mapping Modal"
               previewId={nextId()}
               {...sharedFormProps}
             />
@@ -1057,7 +1057,7 @@ export default function TransaksiContent() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Transaksi</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Mapping Modal</CardTitle>
             <PackageCheck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -1101,18 +1101,18 @@ export default function TransaksiContent() {
         </Card>
       </div>
 
-      {/* ── Riwayat Transaksi ── */}
+      {/* ── Riwayat Mapping Modal ── */}
       {visibleTransaksis.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-14">
             <PackageCheck className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-1">Belum ada transaksi</h3>
-            <p className="text-muted-foreground text-sm">Tambahkan transaksi pertama dengan klik tombol di atas</p>
+            <h3 className="text-lg font-medium mb-1">Belum ada mapping modal</h3>
+            <p className="text-muted-foreground text-sm">Tambahkan mapping modal pertama dengan klik tombol di atas</p>
           </CardContent>
         </Card>
       ) : (
         <Card>
-          <CardHeader><CardTitle className="text-base">Riwayat Transaksi</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">Riwayat Mapping Modal</CardTitle></CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -1198,12 +1198,12 @@ export default function TransaksiContent() {
                             </Button>
                             )}
                             {canEdit && (
-                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit Transaksi" onClick={() => openEdit(t)}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit Mapping Modal" onClick={() => openEdit(t)}>
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
                             )}
                             {canDelete && (
-                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Hapus Transaksi" onClick={() => openDelete(t)}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Hapus Mapping Modal" onClick={() => openDelete(t)}>
                               <Trash2 className="h-3.5 w-3.5 text-destructive" />
                             </Button>
                             )}
@@ -1236,7 +1236,7 @@ export default function TransaksiContent() {
       <Dialog open={isFinalizeOpen} onOpenChange={(open) => { setIsFinalizeOpen(open); if (!open) setSelected(null); }}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Ubah Status Transaksi</DialogTitle>
+            <DialogTitle>Ubah Status Mapping Modal</DialogTitle>
             <DialogDescription>
               {selected?.id}{selected?.description ? ` — ${selected.description}` : ""}
             </DialogDescription>
@@ -1280,7 +1280,7 @@ export default function TransaksiContent() {
       <Dialog open={isEditOpen} onOpenChange={(open) => { setIsEditOpen(open); if (!open) { setSelected(null); setForm(initialForm()); } }}>
         <DialogContent className="sm:max-w-[660px]">
           <DialogHeader>
-            <DialogTitle>Edit Transaksi</DialogTitle>
+            <DialogTitle>Edit Mapping Modal</DialogTitle>
             <DialogDescription>Perbarui data transaksi — ID tidak dapat diubah</DialogDescription>
           </DialogHeader>
           <TrxFormFields
@@ -1296,7 +1296,7 @@ export default function TransaksiContent() {
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
         <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
-            <DialogTitle>Hapus Transaksi</DialogTitle>
+            <DialogTitle>Hapus Mapping Modal</DialogTitle>
             <DialogDescription>
               Yakin ingin menghapus transaksi <strong>{selected?.id}</strong>
               {selected?.description ? ` — ${selected.description}` : ""}?
