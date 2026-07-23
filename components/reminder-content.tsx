@@ -313,13 +313,16 @@ type EntitySummaryItem =
       statusTampil: string;
     };
 
+type RecipientRole = "Investor" | "Broker" | "System";
+
 type ProcessedEntity = {
   id: string; 
   nama: string;
   bankName: string;
   accountNumber: string;
   investorId?: string;
-  roles: string[]; 
+  roles: string[];
+  recipientRole: RecipientRole;
   filteredItems: EntitySummaryItem[];
   totalAmount: number;
   isInternal: boolean;
@@ -736,25 +739,32 @@ async function processUploadEntity({
   const fileUrls: string[] = [];
   const validFiles = uploadFiles.filter(Boolean);
   const triggeredRenewals = new Set<string>();
+  const isSystemRecipient = entity.recipientRole === "System";
 
 // PATCH (refactor `as any`): `item` typed EntitySummaryItem; TS akan narrow
 // otomatis `item.trx` vs `item.mou` berdasarkan discriminator `item.type`.
-  for (let i = 0; i < entity.filteredItems.length; i++) {
-    const item: EntitySummaryItem = entity.filteredItems[i];
-    const url = await uploadProofForItem({
-      item,
-      validFiles,
-      index: i,
-      uploadBuktiTransaksiFn,
-      uploadBuktiPengembalianFn,
-    });
-    if (url) fileUrls.push(url);
+  if (!isSystemRecipient) {
+    for (let i = 0; i < entity.filteredItems.length; i++) {
+      const item: EntitySummaryItem = entity.filteredItems[i];
+      const url = await uploadProofForItem({
+        item,
+        validFiles,
+        index: i,
+        uploadBuktiTransaksiFn,
+        uploadBuktiPengembalianFn,
+      });
+      if (url) fileUrls.push(url);
+    }
   }
   const combinedUrls = Array.from(new Set(fileUrls)).join(",");
 
   // FASE 1B: Kirim notifikasi. Kalau gagal → throw (DB belum berubah,
   // item tetap di tab Pending).
-  await sendBulkNotifications(entity, combinedUrls, uploadBuktiTransaksiFn);
+  // Trader/MinBun/Owner atau nama lain yang tidak terdaftar sebagai Investor
+  // maupun Broker adalah penerima system: bukti dan notifikasi dikecualikan.
+  if (!isSystemRecipient) {
+    await sendBulkNotifications(entity, combinedUrls, uploadBuktiTransaksiFn);
+  }
 
   // FASE 2: Commit ke PocketBase (update bagiHasilChecks, status, dll).
   // Track perubahan yang sudah terjadi untuk rollback jika ada item berikutnya
@@ -996,14 +1006,9 @@ async function sendBulkNotifications(
   _uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>,
 ): Promise<void> {
   console.log(`[sendBulkNotifications] entity nama="${entity.nama}", investorId=${entity.investorId ?? "undefined"}, roles=${JSON.stringify(entity.roles)}`);
-  // KONDISI 1: JIKA PENERIMA ADALAH INVESTOR
-  // Logika deteksi: investor adalah entity yang MEMILIKI investorId valid.
-  // Jika entity.investorId undefined, ini adalah broker murni (lihat
-  // KONDISI 2 di bawah). Untuk kasus khusus di mana baris Investor TRX
-  // tidak dibuat (profit=0), kita cek roles — jika ada "Investor", kita
-  // tetap perlakukan sebagai investor (dengan investorId = entity.nama).
-  if ((entity.investorId && entity.investorId.length === 15) ||
-      (!entity.investorId && entity.roles.includes("Investor"))) {
+  // Role sudah di-resolve dari kolom Penerima Tagihan terhadap master
+  // Investor/Broker. Jangan menebak role dari panjang ID atau jenis tugas.
+  if (entity.recipientRole === "Investor") {
     let brokerName = "Pusat";
     const sampleItem = entity.filteredItems.find((i: any) => i.type === "Bagi Hasil" && i.trx);
     if (sampleItem && (sampleItem as any).trx) {
@@ -1075,7 +1080,7 @@ async function sendBulkNotifications(
   // broker murni) — karena type item selalu "Bagi Hasil" hanya keterangan
   // yang berbeda ("Investor" / "Broker" / "Trader" / "MinBun"). Jadi
   // deteksi broker murni HANYA berdasarkan entity.investorId === undefined.
-  if (!entity.investorId) {
+  if (entity.recipientRole === "Broker") {
     console.log(`[reminder-content] KONDISI 2: MASUK! kirim fee broker ke "${entity.nama}", total=${entity.totalAmount}, combinedUrls=${combinedUrls ? "ada" : "kosong"}, filteredItems count=${entity.filteredItems.length}`);
     const affiliatedInvestors = new Set<string>();
     entity.filteredItems.forEach((i: any) => {
@@ -1329,7 +1334,7 @@ export function ReminderContent() {
       if (!map.has(key)) {
         map.set(key, {
           id: key, nama: rName, bankName: rBank, accountNumber: rAcc, investorId: rInvId,
-          roles: [], items: [], filteredItems: [], totalAmount: 0,
+          roles: [], recipientRole: "System", items: [], filteredItems: [], totalAmount: 0,
           isInternal: false, sisaTarget
         });
       }
@@ -1391,10 +1396,31 @@ export function ReminderContent() {
         // Jika campuran (seperti investor + broker dari transaksi yg sama),
         // roles akan berisi beberapa nilai dan entity tetap dianggap investor
         // karena priority routing ada di processUploadEntity (cek investorId dulu).
-        const uniqueRoles = Array.from(new Set(filteredItems.map(i => i.type)));
+        const normalizeName = (value: string) => value.trim().toLocaleLowerCase("id-ID");
+        const recipientName = normalizeName(ent.nama);
+        const matchedInvestor = investors.find((inv) =>
+          (ent.investorId && inv.id === ent.investorId) || normalizeName(inv.name) === recipientName
+        );
+        const matchedBroker = brokers.find((broker) =>
+          !broker.isSystemBroker && normalizeName(broker.name) === recipientName
+        );
+        const recipientRole: RecipientRole = matchedInvestor
+          ? "Investor"
+          : matchedBroker
+            ? "Broker"
+            : "System";
+        const uniqueRoles = [recipientRole];
         const isInternal = filteredItems.some(i => i.keterangan === "MinBun" || (i.keterangan === "Investor" && ent.investorId && internalInvestorIds.has(ent.investorId)));
 
-        result.push({ ...ent, filteredItems, totalAmount, roles: uniqueRoles, isInternal });
+        result.push({
+          ...ent,
+          investorId: matchedInvestor?.id,
+          filteredItems,
+          totalAmount,
+          roles: uniqueRoles,
+          recipientRole,
+          isInternal,
+        });
       }
     });
 
@@ -1714,7 +1740,7 @@ export function ReminderContent() {
     // m-MB-fee-wajib: bukti transfer WAJIB untuk role investor & broker.
     // Jika entity punya investorId (Investor) atau tidak (Broker murni),
     // proses dianggap gagal kalau belum ada file bukti yang diupload.
-    const requiresProof = uploadTarget.investorId || uploadTarget.roles.includes("Broker");
+    const requiresProof = uploadTarget.recipientRole !== "System";
     if (requiresProof && uploadFiles.length === 0) {
       toast.error("Bukti transfer wajib diupload untuk role Investor & Broker.");
       return;
@@ -1951,17 +1977,19 @@ export function ReminderContent() {
 
       {/* ── Dialog Selesaikan Pembayaran Massal (EKSTERNAL) ──
            Saat tombol "Selesaikan & Kirim Notif" ditekan, sistem otomatis:
-           1) Menentukan role dari entity.investorId (ada → investor, undefined → broker murni)
-           2) Lookup email investor/broker dari database
-           3) Kirim notifikasi ke email penerima sesuai role (cc broker untuk investor)
-           4) Tandai lunas dan pindah item ke tab Selesai
-           Bukti transfer TIDAK WAJIB (sesuai spec). */}
+           1) Menentukan role dari Penerima Tagihan pada master Investor/Broker
+           2) Penerima yang tidak ditemukan dianggap System
+           3) Investor/Broker wajib bukti dan menerima notifikasi sesuai route
+           4) System tidak wajib bukti dan tidak dikirimi notifikasi
+           5) Tandai lunas dan pindah item ke tab Selesai. */}
       <Dialog open={!!uploadTarget} onOpenChange={(o) => !o && clearUploadDialog()}>
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
             <DialogTitle>Selesaikan Pembayaran</DialogTitle>
             <DialogDescription>
-              Sistem akan otomatis mengirim notifikasi pelunasan ke <strong>{uploadTarget?.nama}</strong> sebesar <strong className="text-orange-600">{formatCurrency(uploadTarget?.totalAmount || 0)}</strong>.
+              {uploadTarget?.recipientRole === "System"
+                ? <>Penerima <strong>{uploadTarget.nama}</strong> terdeteksi sebagai role System, sehingga bukti transfer dan notifikasi tidak diwajibkan.</>
+                : <>Sistem akan otomatis mengirim notifikasi pelunasan ke <strong>{uploadTarget?.nama}</strong> sebesar <strong className="text-orange-600">{formatCurrency(uploadTarget?.totalAmount || 0)}</strong>.</>}
             </DialogDescription>
           </DialogHeader>
 
@@ -1984,7 +2012,9 @@ export function ReminderContent() {
 
               <div className="space-y-2">
                 <Label>
-                  Bukti Transfer <span className="text-destructive font-normal">* (Wajib untuk role Investor & Broker)</span>
+                  Bukti Transfer {uploadTarget.recipientRole === "System"
+                    ? <span className="text-muted-foreground font-normal">(Opsional untuk role System)</span>
+                    : <span className="text-destructive font-normal">* (Wajib untuk role Investor & Broker)</span>}
                 </Label>
 
 
@@ -2034,7 +2064,7 @@ export function ReminderContent() {
           <DialogFooter className="gap-2 mt-2">
             <Button variant="outline" onClick={clearUploadDialog} disabled={isUploading}>Batal</Button>
             <Button onClick={handleConfirmUpload} disabled={isUploading}>
-              {isUploading ? "Memproses…" : "Selesaikan & Kirim Notif"}
+              {isUploading ? "Memproses…" : uploadTarget?.recipientRole === "System" ? "Selesaikan" : "Selesaikan & Kirim Notif"}
             </Button>
           </DialogFooter>
         </DialogContent>
