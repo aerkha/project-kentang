@@ -1140,6 +1140,14 @@ async function sendBulkNotifications(
   }
 }
 
+function getEntityTaskDescription(entity: ProcessedEntity): string {
+  const hasProfitSharing = entity.filteredItems.some((item) => item.type === "Bagi Hasil");
+  const hasCapitalReturn = entity.filteredItems.some((item) => item.type === "Pengembalian Modal");
+  if (hasProfitSharing && hasCapitalReturn) return "Bagi Hasil & Pengembalian Modal";
+  if (hasCapitalReturn) return "Pengembalian Modal";
+  return "Bagi Hasil";
+}
+
 function getBulkActionTooltipText(showDone: boolean, isInternal: boolean) {
   if (showDone) return "Batalkan pelunasan";
   if (isInternal) return "Catat ke Arus Kas & Upload Bukti";
@@ -1193,6 +1201,11 @@ function EntityRow({
             ))}
           </div>
         </td>
+        <td className="py-3 px-3 cursor-pointer" onClick={() => toggleExpand(ent.id)}>
+          <span className="inline-flex px-2 py-1 rounded-md text-xs font-medium bg-muted text-foreground">
+            {getEntityTaskDescription(ent)}
+          </span>
+        </td>
         <td className="py-3 px-3 whitespace-nowrap cursor-pointer" onClick={() => toggleExpand(ent.id)}>
           <div className="text-muted-foreground">{ent.bankName}</div>
           <div className="font-mono text-xs text-muted-foreground mt-0.5">{ent.accountNumber}</div>
@@ -1238,7 +1251,7 @@ function EntityRow({
       {/* Expanded Rincian Data */}
       {isExpanded && (
         <tr className="bg-muted/10 border-b border-border/50">
-          <td colSpan={6} className="p-0">
+          <td colSpan={7} className="p-0">
             <div className="px-10 py-4 pb-5 border-l-4 border-primary">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">Rincian Tagihan</h4>
               <table className="w-full text-xs">
@@ -1984,6 +1997,7 @@ export function ReminderContent() {
                   <tr className="border-b border-border bg-muted/30">
                     <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap w-1/4">Penerima Tagihan</th>
                     <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Komponen Peran</th>
+                    <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Keterangan</th>
                     <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Rekening Tujuan</th>
                     <th className="text-left   py-2.5 px-3 font-medium text-muted-foreground">Jatuh Tempo & Rincian</th>
                     <th className="text-right  py-2.5 px-3 font-medium text-muted-foreground whitespace-nowrap">Total Transfer</th>
@@ -2003,7 +2017,7 @@ export function ReminderContent() {
                     />
                   ))}
                   <tr className="bg-muted/20 border-t-2 border-border">
-                    <td colSpan={4} className="py-3 px-3 text-right text-xs font-semibold text-muted-foreground">Total Keseluruhan</td>
+                    <td colSpan={5} className="py-3 px-3 text-right text-xs font-semibold text-muted-foreground">Total Keseluruhan</td>
                     <td className="py-3 px-3 text-right whitespace-nowrap font-bold text-base">
                       {formatCurrency(displayEntities.reduce((sum, e) => sum + e.totalAmount, 0))}
                     </td>
