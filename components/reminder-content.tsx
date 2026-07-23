@@ -93,14 +93,16 @@ function parsePeriodeDays(desc: string): number {
   return n > 0 ? n : 30;
 }
 
-function sisaHari(t: { date: string; description: string }): number {
-  if (!t.date) return 0;
+function dueDateTransaksi(t: { date: string; description: string }): string {
+  if (!t.date) return "";
   const days = parsePeriodeDays(t.description);
   const [y, m, d] = t.date.slice(0, 10).split("-").map(Number);
-  const endMs = Date.UTC(y, m - 1, d + days);
-  const endStr = new Date(endMs).toISOString().slice(0, 10);
-  
-  return diffDays(todayWibStr(), endStr);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+function sisaHari(t: { date: string; description: string }): number {
+  const endStr = dueDateTransaksi(t);
+  return endStr ? diffDays(todayWibStr(), endStr) : 0;
 }
 
 function endDatePks(mou: MoU) {
@@ -1287,6 +1289,7 @@ export function ReminderContent() {
   const [isSendingReminder,   setIsSendingReminder]   = useState(false);
   const [toggling, setToggling]          = useState<string | null>(null);
   const [showDone, setShowDone]          = useState(false);
+  const [selectedDueDate, setSelectedDueDate] = useState("");
   const [doneKeys, setDoneKeys]          = useState<Set<string>>(new Set());
   const [expandedRows, setExpandedRows]  = useState<Set<string>>(new Set());
 
@@ -1389,7 +1392,14 @@ export function ReminderContent() {
 
     const result: ProcessedEntity[] = [];
     map.forEach((ent) => {
-      const filteredItems = ent.items.filter((i) => i.isDone === showDone);
+      const filteredItems = ent.items.filter((item) => {
+        if (item.isDone !== showDone) return false;
+        if (!selectedDueDate) return true;
+        const dueDate = item.type === "Bagi Hasil"
+          ? dueDateTransaksi(item.trx)
+          : endDatePks(item.mou);
+        return dueDate === selectedDueDate;
+      });
       if (filteredItems.length > 0) {
         const totalAmount = filteredItems.reduce((s, i) => s + i.jumlah, 0);
         // Jika semua item adalah Broker fee, roles hanya berisi ["Broker"].
@@ -1430,7 +1440,7 @@ export function ReminderContent() {
     });
     
     return result;
-  }, [transaksis, mous, investors, brokers, minbun, trader, doneKeys, showDone, internalInvestorIds]);
+  }, [transaksis, mous, investors, brokers, minbun, trader, doneKeys, showDone, selectedDueDate, internalInvestorIds]);
 
   // 1. Ringkasan (Summary Metrics) - Berdasarkan data yang TAMPIL SAJA di displayEntities
   const summary = useMemo(() => {
@@ -1910,7 +1920,33 @@ export function ReminderContent() {
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <CardTitle className="text-base">Tugas Transfer Harian</CardTitle>
 
-            <div className="flex items-center rounded-lg border border-border bg-muted/40 p-0.5 text-sm">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="filter-jatuh-tempo" className="text-xs text-muted-foreground whitespace-nowrap">
+                  Jatuh tempo
+                </Label>
+                <Input
+                  id="filter-jatuh-tempo"
+                  type="date"
+                  value={selectedDueDate}
+                  onChange={(event) => setSelectedDueDate(event.target.value)}
+                  className="h-8 w-[150px] text-xs"
+                  aria-label="Filter tanggal jatuh tempo"
+                />
+                {selectedDueDate && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-xs"
+                    onClick={() => setSelectedDueDate("")}
+                  >
+                    Reset
+                  </Button>
+                )}
+              </div>
+
+              <div className="flex items-center rounded-lg border border-border bg-muted/40 p-0.5 text-sm">
               <button
                 onClick={() => setShowDone(false)}
                 className={`px-3 py-1.5 rounded-md font-medium transition-colors whitespace-nowrap ${
@@ -1927,6 +1963,7 @@ export function ReminderContent() {
               >
                 Selesai
               </button>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -1934,7 +1971,11 @@ export function ReminderContent() {
           {displayEntities.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-14 text-muted-foreground gap-3">
               <CheckCircle2 className="h-10 w-10" />
-              <p className="text-sm">{showDone ? "Belum ada pembayaran yang selesai" : "Tidak ada tagihan yang menunggu pembayaran"}</p>
+              <p className="text-sm">
+                {selectedDueDate
+                  ? `Tidak ada tagihan dengan jatuh tempo ${new Date(`${selectedDueDate}T00:00:00`).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}`
+                  : showDone ? "Belum ada pembayaran yang selesai" : "Tidak ada tagihan yang menunggu pembayaran"}
+              </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
