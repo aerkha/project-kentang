@@ -372,7 +372,12 @@ export async function POST(req: NextRequest) {
   try {
     pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
     pb.authStore.save(pbToken, null);
-    await pb.collection("users").authRefresh();
+    const caller = await pb.collection("users").authRefresh();
+    const callerRecord = caller.record as Record<string, unknown>;
+    const callerRole = callerRecord?.role;
+    if (callerRole !== "admin" && callerRole !== "owner" && callerRole !== "user") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   } catch {
     return NextResponse.json({ error: "Token tidak valid atau sudah kedaluwarsa" }, { status: 401 });
   }
@@ -385,6 +390,10 @@ export async function POST(req: NextRequest) {
   }
 
   const { transaksiId, keterangan, investorId, buktiUrl } = body;
+  const callerRecord = (pb.authStore.record ?? {}) as Record<string, unknown>;
+  if (callerRecord.role === "user" && callerRecord.investorId !== investorId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const jumlah: number = typeof body.jumlah === "number" && body.jumlah >= 0 ? body.jumlah : 0;
 
   if (!transaksiId || !keterangan) {

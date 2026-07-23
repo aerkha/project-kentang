@@ -23,7 +23,10 @@ export async function POST(req: NextRequest) {
     try {
       const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
       pb.authStore.save(pbToken, null);
-      await pb.collection("users").authRefresh();
+      const caller = await pb.collection("users").authRefresh();
+      if ((caller.record as Record<string, unknown>)?.role !== "admin") {
+        return NextResponse.json({ error: "Forbidden — hanya admin" }, { status: 403 });
+      }
     } catch {
       return NextResponse.json({ error: "Token tidak valid atau sudah kedaluwarsa" }, { status: 401 });
     }
@@ -78,10 +81,10 @@ export async function POST(req: NextRequest) {
       emailStatus
     }, { status: 200 });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error("API send-credentials error:", error);
     return NextResponse.json(
-      { error: "Terjadi kesalahan pada server", detail: error.message },
+      { error: "Terjadi kesalahan pada server" },
       { status: 500 }
     );
   }

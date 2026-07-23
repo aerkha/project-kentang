@@ -387,8 +387,29 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
     let resolvedEntries: TransaksiInvestorEntry[] | undefined;
     if (investorEntries !== undefined) {
       const oldEntryIds = await listInvestorEntryIds(pbId);
-      await createInvestorEntries(pbId, investorEntries);
-      await deleteInvestorEntriesByIds(oldEntryIds);
+      let newEntryIds: string[] = [];
+      try {
+        const createdEntries = await Promise.all(
+          investorEntries.map((entry) => pb.collection("transaksi_investors").create({
+            transaksiId: pbId,
+            mouId: entry.mouId ?? "",
+            investorId: entry.investorId,
+            investorName: entry.investorName,
+            investorBrokerName: entry.investorBrokerName,
+            nilaiInvestasi: entry.nilaiInvestasi,
+            pctTrader: entry.pctTrader,
+            pctMinBun: entry.pctMinBun,
+            pctBrokerI: entry.pctBrokerI,
+            pctBrokerII: entry.pctBrokerII,
+          })),
+        );
+        newEntryIds = createdEntries.map((entry) => entry.id);
+        await deleteInvestorEntriesByIds(oldEntryIds);
+      } catch (entryErr) {
+        // Rollback child baru jika create/delete gagal, agar tidak ada duplikasi.
+        await deleteInvestorEntriesByIds(newEntryIds).catch(() => null);
+        throw entryErr;
+      }
       resolvedEntries = investorEntries;
     }
 
@@ -408,8 +429,11 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
     const pbId = await resolvePbId(id);
     if (!pbId) throw new Error(`Transaksi "${id}" tidak ditemukan.`);
 
-    await deleteInvestorEntriesByIds(await listInvestorEntryIds(pbId));
+    const oldEntryIds = await listInvestorEntryIds(pbId);
     await pb.collection("transaksis").delete(pbId);
+    // Hapus child setelah parent sukses; jika parent gagal, data tidak menjadi
+    // orphan tanpa entries. Child orphan yang tersisa dapat dibersihkan retry.
+    await deleteInvestorEntriesByIds(oldEntryIds);
 
     map.delete(id);
     setTransaksis((prev) => prev.filter((t) => t.id !== id));
@@ -486,8 +510,19 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
     if (match) {
       const base = match[1];
       const letter = match[2];
-      const nextLetter = letter ? String.fromCharCode(letter.charCodeAt(0) + 1) : "A";
-      newCustomId = base + nextLetter;
+      const incrementSuffix = (suffix: string): string => {
+        if (!suffix) return "A";
+        const chars = suffix.toUpperCase().split("");
+        let index = chars.length - 1;
+        while (index >= 0 && chars[index] === "Z") {
+          chars[index] = "A";
+          index--;
+        }
+        if (index < 0) return `A${chars.join("")}`;
+        chars[index] = String.fromCharCode(chars[index].charCodeAt(0) + 1);
+        return chars.join("");
+      };
+      newCustomId = base + incrementSuffix(letter);
     } else {
       newCustomId = `${oldTrx.id}A`;
     }

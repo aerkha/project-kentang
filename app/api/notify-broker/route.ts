@@ -301,7 +301,11 @@ export async function POST(req: NextRequest) {
   try {
     pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
     pb.authStore.save(pbToken, null);
-    await pb.collection("users").authRefresh();
+    const caller = await pb.collection("users").authRefresh();
+    const callerRole = (caller.record as Record<string, unknown>)?.role;
+    if (callerRole !== "admin" && callerRole !== "owner" && callerRole !== "user") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   } catch {
     return NextResponse.json({ error: "Token invalid" }, { status: 401 });
   }
