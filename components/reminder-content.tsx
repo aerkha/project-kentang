@@ -1711,6 +1711,14 @@ export function ReminderContent() {
 
   const handleConfirmUpload = async () => {
     if (!uploadTarget) return;
+    // m-MB-fee-wajib: bukti transfer WAJIB untuk role investor & broker.
+    // Jika entity punya investorId (Investor) atau tidak (Broker murni),
+    // proses dianggap gagal kalau belum ada file bukti yang diupload.
+    const requiresProof = uploadTarget.investorId || uploadTarget.roles.includes("Broker");
+    if (requiresProof && uploadFiles.length === 0) {
+      toast.error("Bukti transfer wajib diupload untuk role Investor & Broker.");
+      return;
+    }
     setIsUploading(true);
     setToggling(uploadTarget.id);
     try {
@@ -1723,13 +1731,14 @@ export function ReminderContent() {
         minbun,
         trader,
         uploadBuktiTransaksiFn: uploadBuktiTransaksi,
-        uploadBuktiPengembalianFn: uploadBuktiPengembalian, 
+        uploadBuktiPengembalianFn: uploadBuktiPengembalian,
         updateTransaksiFn: updateTransaksi,
         updateMouFn: updateMou,
         updateInvestorFn: updateInvestor,
         triggerAutorenewalFn: triggerAutorenewal,
         setDoneKeysFn: setDoneKeys,
       });
+
 
       toast.success(`Pembayaran massal untuk ${uploadTarget.nama} berhasil diselesaikan.`);
       clearUploadDialog();
@@ -1940,15 +1949,22 @@ export function ReminderContent() {
         </CardContent>
       </Card>
 
-      {/* ── Dialog Upload Transfer Massal (EKSTERNAL) ── */}
+      {/* ── Dialog Selesaikan Pembayaran Massal (EKSTERNAL) ──
+           Saat tombol "Selesaikan & Kirim Notif" ditekan, sistem otomatis:
+           1) Menentukan role dari entity.investorId (ada → investor, undefined → broker murni)
+           2) Lookup email investor/broker dari database
+           3) Kirim notifikasi ke email penerima sesuai role (cc broker untuk investor)
+           4) Tandai lunas dan pindah item ke tab Selesai
+           Bukti transfer TIDAK WAJIB (sesuai spec). */}
       <Dialog open={!!uploadTarget} onOpenChange={(o) => !o && clearUploadDialog()}>
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
             <DialogTitle>Selesaikan Pembayaran</DialogTitle>
             <DialogDescription>
-              Silakan lakukan transfer ke <strong>{uploadTarget?.nama}</strong> sebesar <strong className="text-orange-600">{formatCurrency(uploadTarget?.totalAmount || 0)}</strong>.
+              Sistem akan otomatis mengirim notifikasi pelunasan ke <strong>{uploadTarget?.nama}</strong> sebesar <strong className="text-orange-600">{formatCurrency(uploadTarget?.totalAmount || 0)}</strong>.
             </DialogDescription>
           </DialogHeader>
+
 
           {uploadTarget && (
             <div className="space-y-4 py-2">
@@ -1967,7 +1983,11 @@ export function ReminderContent() {
               </div>
 
               <div className="space-y-2">
-                <Label>Bukti Transfer <span className="text-muted-foreground font-normal">(Boleh lebih dari 1 file jika &gt;50 Juta)</span></Label>
+                <Label>
+                  Bukti Transfer <span className="text-destructive font-normal">* (Wajib untuk role Investor & Broker)</span>
+                </Label>
+
+
                 
                 <label className="flex flex-col items-center justify-center w-full border-2 border-dashed rounded-lg cursor-pointer transition-colors px-4 py-5 border-border hover:border-primary/50 hover:bg-muted/30">
                   <input type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChangeMulti} />
