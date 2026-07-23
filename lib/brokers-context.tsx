@@ -5,6 +5,8 @@ import pb from "./pocketbase";
 
 const currentUserId = () => (pb.authStore.record?.id as string | undefined) ?? "";
 
+export const SYSTEM_BROKER_ID = "BRK-0001"; // broker "abadi" MinBun — selalu ada di database
+
 export interface Broker {
   id: string;           // BRK-0001 (customId)
   name: string;
@@ -14,6 +16,8 @@ export interface Broker {
   accountNumber: string;
   phone: string;
   email: string;
+  /** True untuk broker sistem (MinBun/BRK-0001) yang tidak boleh dihapus/diubah namanya. */
+  isSystemBroker?: boolean;
 }
 
 interface BrokersContextType {
@@ -38,7 +42,47 @@ function recordToBroker(r: Record<string, unknown>, pbIdMap: Map<string, string>
     accountNumber: r.accountNumber as string,
     phone:         r.phone         as string,
     email:         (r.email        as string) || "",
+    isSystemBroker: customId === SYSTEM_BROKER_ID,
   };
+}
+
+/**
+ * Pastikan broker sistem MinBun (BRK-0001) selalu ada di koleksi `brokers`.
+ * Dipanggil sekali saat BrokersProvider mount. Jika record sudah ada, tidak
+ * melakukan apa-apa. PocketBase tidak menolak insert record biasa; record ini
+ * diperlakukan seperti record biasa kecuali:
+ *   - Tidak boleh dihapus (lihat deleteBroker).
+ *   - Tombol edit & delete di UI disembunyikan untuk record ini.
+ */
+async function ensureSystemBroker(): Promise<void> {
+  try {
+    const existing = await pb.collection("brokers").getFirstListItem(
+      `customId = "${SYSTEM_BROKER_ID}"`,
+      { fields: "id" },
+    );
+    if (existing) return;
+  } catch {
+    // belum ada → lanjut insert
+  }
+  try {
+    await pb.collection("brokers").create({
+      customId:      SYSTEM_BROKER_ID,
+      createdBy:     "",
+      updatedBy:     "",
+      name:          "MinBun",
+      address:       "Jakarta",
+      idNumber:      "3170000000000001",
+      bankName:      "Jenius",
+      accountNumber: "1111111111",
+      phone:         "6289670700889",
+      email:         "ummamimin123@gmail.com",
+    });
+  } catch (err) {
+    // Gagal insert (mungkin sudah ada race condition dengan tab lain, atau
+    // PB menolak karena aturan koleksi). Abaikan — UI akan fallback ke
+    // kondisi "broker belum tersedia" yang menampilkan pesan error.
+    console.warn("[brokers-context] Gagal seed MinBun (BRK-0001):", err);
+  }
 }
 
 function isCustomIdConflict(err: unknown): boolean {
@@ -89,10 +133,17 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    pb.collection("brokers")
-      .getFullList({ sort: "customId" })
-      .then((records) => setBrokers(records.map((r) => recordToBroker(r, map))))
-      .catch(console.error);
+    (async () => {
+      // 1) Pastikan broker sistem MinBun (BRK-0001) selalu tersedia.
+      await ensureSystemBroker();
+      // 2) Muat ulang seluruh daftar broker (termasuk yang baru di-seed).
+      try {
+        const records = await pb.collection("brokers").getFullList({ sort: "customId" });
+        setBrokers(records.map((r) => recordToBroker(r, map)));
+      } catch (err) {
+        console.error("[brokers-context] Gagal memuat daftar broker:", err);
+      }
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -140,6 +191,13 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteBroker = async (id: string) => {
+    // Lindungi broker sistem agar tidak terhapus. Broker MinBun dipakai sebagai
+    // default pada form "Tambah Investor" dan referensi banyak investor.
+    if (id === SYSTEM_BROKER_ID) {
+      throw new Error(
+        `Broker sistem "${id}" (MinBun) tidak dapat dihapus karena merupakan broker default.`,
+      );
+    }
     const pbId = await resolvePbId(id);
     if (!pbId) throw new Error(`Broker "${id}" tidak ditemukan.`);
     await pb.collection("brokers").delete(pbId);

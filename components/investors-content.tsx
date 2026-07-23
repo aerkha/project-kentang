@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useMemo, useRef, type FormEvent } from "react";
+import { useEffect, useState, useMemo, useRef, type FormEvent } from "react";
+
 import { toast } from "sonner";
 import { useInvestors, type Investor } from "@/lib/investors-context";
-import { useBrokers, type Broker } from "@/lib/brokers-context";
+import { useBrokers, SYSTEM_BROKER_ID, type Broker } from "@/lib/brokers-context";
+
 import { useTransaksi, calcTransaksi, activeInvestorIds, type TransaksiStatus } from "@/lib/transaksi-context";
 import { useMou, getMouStatus, investorPkPct } from "@/lib/mou-context";
 import { usePengeluaran } from "@/lib/cashflow-context";
@@ -658,22 +660,24 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
           </p>
 
           <div className="space-y-1.5">
-            <Label className="text-xs">Nama Broker</Label>
+            <Label className="text-xs">
+              Nama Broker <span className="text-destructive">*</span>
+            </Label>
             {brokers.length > 0 ? (
               <Select
-                value={formData.brokerName || "__none__"}
-                onValueChange={(v) => set("brokerName", v === "__none__" ? "" : v)}
+                value={formData.brokerName}
+                onValueChange={(v) => set("brokerName", v)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Pilih broker (opsional)" />
+                  <SelectValue placeholder="Pilih broker" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">
-                    <span className="text-muted-foreground">— Tanpa Broker —</span>
-                  </SelectItem>
                   {brokers.map((b) => (
                     <SelectItem key={b.id} value={b.name}>
                       {b.name}
+                      {b.isSystemBroker && (
+                        <span className="ml-1.5 text-[10px] text-muted-foreground">(default)</span>
+                      )}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -682,13 +686,17 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
               <Input
                 value={formData.brokerName}
                 onChange={(e) => set("brokerName", e.target.value)}
-                placeholder="Belum ada broker terdaftar"
+                placeholder="Memuat broker..."
                 disabled
               />
             )}
-            {brokers.length === 0 && (
+            {brokers.length === 0 ? (
               <p className="text-xs text-muted-foreground">
-                Tambah broker terlebih dahulu melalui tombol &ldquo;Tambah Broker&rdquo;
+                Sedang memuat broker default. Jika pesan ini tetap muncul, refresh halaman.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Broker <strong>wajib dipilih</strong>. MinBun (BRK-0001) adalah broker default sistem.
               </p>
             )}
           </div>
@@ -1074,6 +1082,7 @@ export function InvestorsContent() {
       return next;
     });
 
+
   // ── Dana terpakai per investor (transaksi aktif: modal belum kembali) ──
   const investorDanaMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -1141,6 +1150,20 @@ export function InvestorsContent() {
   const [errorInfo, setErrorInfo] = useState<PbErrorInfo | null>(null);
   const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null);
   const [brokerForm, setBrokerForm] = useState<BrokerFormData>(initialBrokerForm);
+
+  // m-MB-broker: Jika dialog "Tambah Investor" terbuka tapi form belum punya
+  // brokerName, otomatis isi dengan broker sistem MinBun (BRK-0001). Ini
+  // memenuhi permintaan user agar MinBun menjadi default tanpa membuat
+  // user mengetik/memilih manual.
+  useEffect(() => {
+    if (!isAddInvestorOpen) return;
+    if (investorForm.brokerName && investorForm.brokerName.trim() !== "") return;
+    const minBun = brokers.find((b) => b.isSystemBroker);
+    if (minBun) {
+      setInvestorForm((prev) => (prev.brokerName ? prev : { ...prev, brokerName: minBun.name }));
+    }
+  }, [brokers, isAddInvestorOpen, investorForm.brokerName]);
+
 
   const typeFilteredInvestors = useMemo(() => {
     if (filterType === "minbun")  return visibleInvestors.filter((inv) => inv.isMinBun);
@@ -1301,6 +1324,17 @@ export function InvestorsContent() {
     e.preventDefault();
     if (!investorForm.isMinBun && !investorForm.isTami && !investorForm.isDirect) {
       setErrorInfo({ title: "Tipe investor wajib dipilih", fields: [{ field: "flag", code: "required", message: "Pilih salah satu tipe: MinBun, Tami, atau Direct." }], raw: "" });
+      return;
+    }
+    // m-MB-broker: Nama broker WAJIB dipilih (tidak ada opsi Tanpa Broker lagi).
+    if (!investorForm.brokerName || !investorForm.brokerName.trim()) {
+      setErrorInfo({ title: "Nama broker wajib dipilih", fields: [{ field: "brokerName", code: "required", message: "Pilih broker untuk investor ini. MinBun (BRK-0001) adalah broker default sistem." }], raw: "" });
+      return;
+    }
+    // m-MB-broker: Broker yang dipilih harus ada di koleksi brokers.
+    const brokerExists = brokers.some((b) => b.name === investorForm.brokerName);
+    if (!brokerExists) {
+      setErrorInfo({ title: "Broker tidak ditemukan", fields: [{ field: "brokerName", code: "not_found", message: `Broker "${investorForm.brokerName}" tidak ditemukan di database. Silakan pilih dari daftar.` }], raw: "" });
       return;
     }
     setIsSaving(true);
@@ -2264,8 +2298,12 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
           {brokers.map((broker) => {
             const investorCount = investors.filter((inv) => inv.brokerName === broker.name).length;
             const isBrokerExpanded = expandedBrokerCards.has(broker.id);
+            // m-MB-broker: broker sistem MinBun (BRK-0001) dilindungi dari
+            // edit/hapus untuk mencegah kehilangan broker default.
+            const isLocked = broker.isSystemBroker === true || broker.id === "BRK-0001";
             return (
-            <Card key={broker.id} className="hover:shadow-md transition-shadow">
+            <Card key={broker.id} className={`hover:shadow-md transition-shadow ${isLocked ? "ring-1 ring-primary/20" : ""}`}>
+
 
               {/* ── Compact header (always visible) ── */}
               <div
@@ -2284,19 +2322,33 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                   </div>
                   <div className="flex gap-0.5 shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
                     {canEdit && (
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditBrokerClick(broker)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => handleEditBrokerClick(broker)}
+                        title={isLocked ? "Edit Broker Sistem (MinBun)" : "Edit Broker"}
+                      >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
                     )}
-                    {canDelete && (
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteBrokerClick(broker)}>
+                    {canDelete && !isLocked && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteBrokerClick(broker)} title="Hapus Broker">
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
                     )}
+                    {isLocked && (
+                      <Badge variant="secondary" className="bg-primary/10 text-primary text-[10px] px-1.5 shrink-0" title="Broker sistem MinBun — hanya admin yang dapat mengedit (tidak dapat dihapus)">
+                        <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />
+        Sistem
+                      </Badge>
+                    )}
+
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => toggleBrokerCard(broker.id)}>
                       {isBrokerExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                     </Button>
                   </div>
+
                 </div>
 
                 {/* Phone mini preview */}
