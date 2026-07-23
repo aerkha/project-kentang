@@ -700,14 +700,20 @@ export default function TransaksiContent() {
     : transaksis;
 
   const metrics = useMemo(() => {
+    // Seluruh summary card hanya merepresentasikan Mapping Modal yang status
+    // tampilnya sedang Berjalan. Mapping yang periodenya sudah lewat tidak ikut
+    // dihitung walaupun status mentah di database masih "berjalan".
+    const runningTransaksis = visibleTransaksis.filter(
+      (transaksi) => getDisplayStatus(transaksi) === "berjalan",
+    );
     let totalModal = 0, totalIncome = 0, totalProfit = 0;
-    visibleTransaksis.forEach((t) => {
+    runningTransaksis.forEach((t) => {
       const c = calcTransaksi(t);
       totalModal  += t.kebutuhanModal;
       totalIncome += c.income;
       totalProfit += c.profit;
     });
-    return { totalModal, totalIncome, totalProfit, count: visibleTransaksis.length };
+    return { totalModal, totalIncome, totalProfit, count: runningTransaksis.length };
   }, [visibleTransaksis]);
 
   const sorted = useMemo(
@@ -1062,7 +1068,7 @@ export default function TransaksiContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{metrics.count}</div>
-            <p className="text-xs text-muted-foreground">pengiriman tercatat</p>
+            <p className="text-xs text-muted-foreground">mapping modal sedang berjalan</p>
           </CardContent>
         </Card>
         <Card>
