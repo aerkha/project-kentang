@@ -3,7 +3,10 @@ import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
 import { isSameOriginRequest } from "@/lib/pb-error";
 import { todayWibStr } from "@/lib/utils";
+import { createLogger } from "@/lib/api-logger";
 
+
+const log = createLogger("notify-broker-resend");
 /**
  * POST /api/notify-broker-resend
  *

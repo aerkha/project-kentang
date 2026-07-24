@@ -3,7 +3,7 @@
 
 import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
-import { todayWibStr } from "@/lib/utils";
+import { todayWibStr, parsePeriodeDays, endDatePks } from "@/lib/utils";
 
 // PATCH (serius #8): konstanta string untuk deteksi konflik unique agar tidak
 // rapuh terhadap perubahan struktur error PocketBase di versi SDK mendatang.
@@ -70,12 +70,6 @@ function diffDays(startStr: string, endStr: string): number {
   return Math.round((endMs - startMs) / 86_400_000);
 }
 
-function parsePeriodeDays(desc: string): number {
-  const m = /\d+/.exec(desc || "");
-  const n = m ? Number.parseInt(m[0], 10) : 30;
-  return n > 0 ? n : 30;
-}
-
 // Helper untuk Transaksi (Bagi Hasil)
 function getEndDateTrx(date: string, description: string): string {
   if (!date) return "";
@@ -90,17 +84,6 @@ function sisaHariTrx(t: { date: string; description: string }): number {
 }
 
 // Helper untuk PKS (Pengembalian Modal)
-function endDatePks(mou: any) {
-  // 1. Prioritaskan Tanggal Berakhir (endDate) asli dari input PKS
-  if (mou.endDate) {
-    return mou.endDate.substring(0, 10);
-  }
-  // 2. Fallback cadangan
-  const [y, m, d] = mou.date.substring(0, 10).split("-").map(Number);
-  const totalDays = (mou.contractPeriod || 30) * (mou.siklus || 1);
-  return new Date(Date.UTC(y, m - 1, d + totalDays)).toISOString().substring(0, 10);
-}
-
 // ─── Core Logic Autorenewal Transaksi ─────────────────────────────────────────
 
 // Generate the next customId for an autorenewal clone.

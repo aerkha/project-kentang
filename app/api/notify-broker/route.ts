@@ -3,7 +3,10 @@ import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
 import { isSameOriginRequest } from "@/lib/pb-error";
 import { todayWibStr } from "@/lib/utils";
+import { createLogger } from "@/lib/api-logger";
 
+
+const log = createLogger("notify-broker");
 function pbEsc(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
@@ -172,7 +175,7 @@ async function sendEmail(
           subject: `[MinBun] 📋 Salinan Notifikasi Fee Broker — ${opts.brokerName}`,
           html:    buildBrokerEmailHtml(opts),
         });
-        console.log(`[notify-broker] email SALINAN ke admin=${adminEmail} (arsip broker ${opts.brokerName})`);
+        log.info(`email SALINAN ke admin=${adminEmail} (arsip broker ${opts.brokerName})`);
       }
     } catch (e) {
       console.warn(`[notify-broker] gagal kirim salinan email ke admin:`, e);
@@ -212,7 +215,7 @@ async function sendEmail(
 <p style="font-size:13px;color:#6b7280;">Mohon hubungi broker tersebut secara manual (WhatsApp / telepon) dan bantu lengkapi data email di halaman Broker.</p>
 </div></body></html>`,
         });
-        console.log(`[notify-broker] email FALLBACK ke admin=${adminEmail} (broker ${opts.brokerName} belum punya email)`);
+        log.info(`email FALLBACK ke admin=${adminEmail} (broker ${opts.brokerName} belum punya email)`);
         return "skipped";
       } catch (e) {
         console.error(`[notify-broker] gagal kirim email fallback ke admin:`, e);
@@ -230,7 +233,7 @@ async function sendEmail(
       subject: `[MinBun] ✅ Konfirmasi Pencairan Fee Broker — ${opts.noPks}`,
       html:    buildBrokerEmailHtml(opts),
     });
-    console.log(`[notify-broker] email SENT ke ${to} untuk broker=${opts.brokerName}`);
+    log.info(`email SENT ke ${to} untuk broker=${opts.brokerName}`);
     return "sent";
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -323,7 +326,7 @@ export async function POST(req: NextRequest) {
   // Trim brokerName untuk menghilangkan whitespace leading/trailing yang
   // mungkin ada saat input atau pengiriman dari client.
   const brokerNameTrimmed = body.brokerName.trim();
-  console.log(`[notify-broker] Lookup broker: name="${brokerNameTrimmed}" (length=${brokerNameTrimmed.length})`);
+  log.info(`Lookup broker: name="${brokerNameTrimmed}" (length=${brokerNameTrimmed.length})`);
 
   // 1. Cari Data Broker — exact match dulu, fallback ke fuzzy search.
   let brokerRecord: { phone?: unknown; email?: unknown; name?: unknown } | null = null;
@@ -333,7 +336,7 @@ export async function POST(req: NextRequest) {
       `name = "${pbEsc(brokerNameTrimmed)}"`,
       { fields: "phone,email,name" }
     );
-    console.log(`[notify-broker] fetched broker record for "${body.brokerName}": email="${(brokerRecord as any)?.email ?? "<kosong>"}", phone="${(brokerRecord as any)?.phone ?? "<kosong>"}"`);
+    log.info(`fetched broker record for "${body.brokerName}": email="${(brokerRecord as any)?.email ?? "<kosong>"}", phone="${(brokerRecord as any)?.phone ?? "<kosong>"}"`);
   } catch (exactErr) {
     // Fallback: exact match gagal. Coba fuzzy search menggunakan LIKE
     // untuk menangani perbedaan penulisan nama broker (mis. ada tambahan
@@ -346,7 +349,7 @@ export async function POST(req: NextRequest) {
         { fields: "phone,email,name" }
       );
       fuzzyMatched = true;
-      console.log(`[notify-broker] fuzzy match berhasil: name aslinya="${(brokerRecord as any)?.name}", email="${(brokerRecord as any)?.email ?? "<kosong>"}"`);
+      log.info(`fuzzy match berhasil: name aslinya="${(brokerRecord as any)?.name}", email="${(brokerRecord as any)?.email ?? "<kosong>"}"`);
     } catch (fuzzyErr) {
       console.error(`[notify-broker] GAGAL fetch broker "${brokerNameTrimmed}" (exact+fuzzy):`, exactErr, fuzzyErr);
       return NextResponse.json({ error: `Broker "${body.brokerName}" tidak ditemukan di database` }, { status: 404 });
@@ -416,7 +419,7 @@ export async function POST(req: NextRequest) {
 
   // Log final sebelum return — penting untuk debugging kenapa broker
   // tidak menerima email meskipun endpoint dipanggil.
-  console.log(`[notify-broker] FINAL: broker="${body.brokerName}", waStatus=${waStatus}, emailStatus=${emailStatus}, anyChannelSent=${anyChannelSent}, brokerEmailUsed="${brokerEmail}", fuzzyMatched=${fuzzyMatched}`);
+  log.info(`FINAL: broker="${body.brokerName}", waStatus=${waStatus}, emailStatus=${emailStatus}, anyChannelSent=${anyChannelSent}, brokerEmailUsed="${brokerEmail}", fuzzyMatched=${fuzzyMatched}`);
 
   return NextResponse.json({
     success: anyChannelSent,

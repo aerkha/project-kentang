@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
 import { isSameOriginRequest } from "@/lib/pb-error";
+import { createLogger } from "@/lib/api-logger";
 
+
+const log = createLogger("notify-owner");
 function fmtRp(n: number) {
   return new Intl.NumberFormat("id-ID", {
     style: "currency", currency: "IDR", minimumFractionDigits: 0,

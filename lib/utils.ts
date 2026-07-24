@@ -24,3 +24,34 @@ export function todayWibStr(): string {
   const d = parts.find((p) => p.type === "day")?.value ?? "01";
   return `${y}-${m}-${d}`;
 }
+
+
+// â”€â”€ Period & date helpers (shared by components/transaksi-content and lib/send-reminders-core) â”€â”€
+
+/**
+ * Parse "30 hari" -> 30. Falls back to 30 if no number found.
+ * Used to determine the contract period of a transaksi mapping.
+ */
+export function parsePeriodeDays(desc: string): number {
+  const m = /\d+/.exec(desc || "");
+  const n = m ? Number.parseInt(m[0], 10) : 30;
+  return n > 0 ? n : 30;
+}
+
+/**
+ * Calculate the end date of a PKS (MoU) â€” prefers the explicit endDate if set,
+ * otherwise falls back to date + (contractPeriod * siklus) days.
+ * Returns "YYYY-MM-DD".
+ */
+export function endDatePks(mou: {
+  endDate?: string;
+  date: string;
+  contractPeriod: number;
+  siklus?: number;
+}): string {
+  if (mou.endDate) return mou.endDate.slice(0, 10);
+  const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + (mou.contractPeriod * (mou.siklus ?? 1))))
+    .toISOString()
+    .slice(0, 10);
+}

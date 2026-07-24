@@ -8,6 +8,7 @@ import { ErrorDialog } from "@/components/ui/error-dialog";
 import { formatPbError, type PbErrorInfo } from "@/lib/pb-error";
 import { useTransaksi, calcTransaksi, effectiveStatus, isInvestorActive, type Transaksi, type TransaksiStatus, TRANSAKSI_STATUS_LABEL } from "@/lib/transaksi-context";
 import pb from "@/lib/pocketbase";
+import { parsePeriodeDays, endDatePks } from "@/lib/utils";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
 import { useMou, type MoU } from "@/lib/mou-context";
@@ -155,11 +156,6 @@ function statusVariant(status: TransaksiStatus): string {
   }
 }
 
-function parsePeriodeDays(desc: string): number {
-  const m = /\d+/.exec(desc || "");
-  const n = m ? Number.parseInt(m[0], 10) : 30;
-  return n > 0 ? n : 30;
-}
 
 function sisaHari(t: { date: string; description: string }): number {
   if (!t.date) return 0;
@@ -171,11 +167,6 @@ function sisaHari(t: { date: string; description: string }): number {
   return Math.ceil((endMs - todayMs) / 86_400_000);
 }
 
-function endDatePks(mou: MoU) {
-  if (mou.endDate) return mou.endDate.slice(0, 10);
-  const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + (mou.contractPeriod * (mou.siklus ?? 1)))).toISOString().slice(0, 10);
-}
 
 function sisaHariPks(mou: MoU): number {
   if (!mou.date) return 0;
@@ -796,9 +787,7 @@ function PksExpiryWarning() {
             <div className="space-y-0.5">
               <CardTitle className="text-base">Peringatan PKS Akan Berakhir</CardTitle>
               <p className="text-xs text-muted-foreground">
-                Daftar PKS investor yang masa berlakunya berakhir lebih awal
-                dibanding transaksi berjalan. Siapkan investor pengganti agar
-                kebutuhan modal transaksi tetap terpenuhi.
+                Daftar investor yang masa berlaku PKSnya segera berakhir
               </p>
             </div>
           </div>

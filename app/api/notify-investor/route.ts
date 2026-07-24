@@ -3,7 +3,10 @@ import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
 import { isSameOriginRequest } from "@/lib/pb-error";
 import { todayWibStr } from "@/lib/utils";
+import { createLogger } from "@/lib/api-logger";
 
+
+const log = createLogger("notify-investor");
 function pbEsc(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
@@ -284,7 +287,7 @@ async function sendEmail(to: string, opts: Parameters<typeof buildEmailHtml>[0])
         subject: `[MinBun] 📋 Salinan Notifikasi Bagi Hasil ke ${opts.investorName} — ${opts.transaksiId}`,
         html:    buildEmailHtml(opts),
       });
-      console.log(`[notify-investor] email SALINAN ke admin=${adminEmail} (arsip ${opts.investorName})`);
+      log.info(`email SALINAN ke admin=${adminEmail} (arsip ${opts.investorName})`);
     } catch (e) {
       console.warn("[notify-investor] gagal kirim salinan email ke admin:", e);
     }

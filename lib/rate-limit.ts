@@ -56,7 +56,7 @@ function gc(now: number, windowMs: number) {
   let removed = 0;
   for (const key of BUCKETS.keys()) {
     const b = BUCKETS.get(key);
-    if (!b || b.hits.length === 0 || now - b.hits[b.hits.length - 1] > windowMs) {
+    if (!b || b.hits.length === 0 || now - b.hits[0] > windowMs) {
       BUCKETS.delete(key);
       if (++removed >= toDelete) break;
     }

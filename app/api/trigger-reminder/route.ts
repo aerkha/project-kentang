@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import { runReminders } from "@/lib/send-reminders-core";
+import { createLogger } from "@/lib/api-logger";
 
+
+const log = createLogger("trigger-reminder");
 /**
  * POST /api/trigger-reminder
  *
@@ -34,7 +37,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden — hanya admin" }, { status: 403 });
     }
   } catch (err) {
-    console.log("ERROR ASLI POCKETBASE:", err);
+    log.error("ERROR ASLI POCKETBASE:", err);
     return NextResponse.json({ error: "Token tidak valid atau sudah expired" }, { status: 401 });
   }
 
