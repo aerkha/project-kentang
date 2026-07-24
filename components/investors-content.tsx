@@ -144,7 +144,7 @@ function BuktiUploadField({ file, onChange }: { file: File | null; onChange: (f:
   return (
     <div className="space-y-1.5">
       <Label className="text-xs">
-        Bukti Transfer <span className="text-muted-foreground font-normal"></span>
+        Bukti Transfer <span className="text-muted-foreground font-normal">(opsional)</span>
       </Label>
       <label className={`flex items-center gap-3 cursor-pointer rounded-lg border-2 border-dashed px-4 py-3 transition-colors ${file ? "border-green-400 bg-green-50" : "border-border hover:border-primary/50 hover:bg-muted/40"}`}>
         <input
@@ -164,7 +164,7 @@ function BuktiUploadField({ file, onChange }: { file: File | null; onChange: (f:
         ) : (
           <div className="flex items-center gap-2 text-muted-foreground">
             <span className="text-lg">📎</span>
-            <p className="text-xs">Klik untuk upload bukti transfer (jpg, png, pdf)</p>
+            <p className="text-xs">Klik untuk upload bukti transfer (jpg, png, pdf) &mdash; <span className="text-muted-foreground">opsional, bisa diupload nanti</span></p>
           </div>
         )}
       </label>
