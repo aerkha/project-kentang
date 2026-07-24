@@ -46,6 +46,9 @@ import {
   Receipt,
   ClipboardCheck,
   RefreshCw,
+  AlertTriangle,
+  Calendar,
+  X,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -661,6 +664,267 @@ function TrxFormFields({
 }
 
 // ─────────────────────────────────────────────
+// PKS Expiry Warning — sub-komponen
+// ─────────────────────────────────────────────
+
+/** Batas maksimum hari ke depan untuk menampilkan peringatan PKS akan berakhir. */
+const PKS_WARN_WINDOW_DAYS = 60;
+
+interface PksExpiryRow {
+  /** ID PKS (customId) */
+  pksId: string;
+  /** ID investor (customId) */
+  investorId: string;
+  /** Nama investor */
+  investorName: string;
+  /** Broker (jika ada) */
+  brokerName: string;
+  /** Nilai investasi PKS */
+  investmentAmount: number;
+  /** Tanggal berakhir PKS (YYYY-MM-DD) */
+  pksEndDate: string;
+  /** Sisa hari PKS (negatif = sudah jatuh tempo) */
+  pksSisa: number;
+  /** Daftar transaksi aktif yang masih menggunakan PKS ini */
+  usedBy: Transaksi[];
+}
+
+function PksExpiryWarning() {
+  const { transaksis } = useTransaksi();
+  const { investors } = useInvestors();
+  const { mous } = useMou();
+
+  // Default: 60 hari ke depan dari hari ini
+  const today = new Date();
+  const defaultEnd = new Date(today);
+  defaultEnd.setDate(defaultEnd.getDate() + PKS_WARN_WINDOW_DAYS);
+  const todayStr = today.toISOString().slice(0, 10);
+  const defaultEndStr = defaultEnd.toISOString().slice(0, 10);
+
+  const [filterStart, setFilterStart] = useState<string>(todayStr);
+  const [filterEnd, setFilterEnd] = useState<string>(defaultEndStr);
+
+  const resetFilter = () => {
+    setFilterStart(todayStr);
+    setFilterEnd(defaultEndStr);
+  };
+
+  // Hitung baris PKS yang akan jatuh tempo SEBELUM transaksi berakhir (≥ hari ini)
+  const rows = useMemo<PksExpiryRow[]>(() => {
+    const result: PksExpiryRow[] = [];
+
+    for (const mou of mous) {
+      // Hanya PKS yang aktif (belum terminated) dan milik investor dengan ID valid
+      if (mou.isTerminated) continue;
+      if (!mou.investorId) continue;
+
+      const investor = investors.find((i) => i.id === mou.investorId);
+      if (!investor) continue;
+
+      const pksEnd = endDatePks(mou);
+      const pksSisa = sisaHariPks(mou);
+
+      // Hanya tampilkan PKS yang akan jatuh tempo dalam rentang window
+      // (≤ PKS_WARN_WINDOW_DAYS ke depan). PKS yang sudah lewat tetap
+      // ditampilkan (sisa negatif) karena berkaitan erat dengan transaksi.
+      if (pksSisa > PKS_WARN_WINDOW_DAYS) continue;
+
+      // Cari transaksi aktif yang masih menggunakan PKS ini (lewat investorEntries.mouId)
+      const usedBy = transaksis.filter((t) => {
+        const eff = effectiveStatus(t);
+        if (eff !== "berjalan" && eff !== "bermasalah") return false;
+        return t.investorEntries.some((e) => e.mouId === mou.id);
+      });
+
+      // Tampilkan hanya PKS yang dipakai oleh transaksi berjalan/bermasalah
+      if (usedBy.length === 0) continue;
+
+      result.push({
+        pksId: mou.id,
+        investorId: mou.investorId,
+        investorName: mou.investorName || investor.name,
+        brokerName: mou.brokerName || investor.brokerName || "",
+        investmentAmount: mou.investmentAmount,
+        pksEndDate: pksEnd,
+        pksSisa,
+        usedBy,
+      });
+    }
+
+    // Urutkan berdasarkan tanggal berakhir PKS (yang paling dekat dulu)
+    result.sort((a, b) => a.pksEndDate.localeCompare(b.pksEndDate));
+    return result;
+  }, [mous, investors, transaksis]);
+
+  // Filter berdasarkan rentang tanggal yang dipilih user
+  const filteredRows = useMemo(() => {
+    return rows.filter((r) => {
+      if (filterStart && r.pksEndDate < filterStart) return false;
+      if (filterEnd && r.pksEndDate > filterEnd) return false;
+      return true;
+    });
+  }, [rows, filterStart, filterEnd]);
+
+  const totalInvestasi = useMemo(
+    () => filteredRows.reduce((s, r) => s + r.investmentAmount, 0),
+    [filteredRows],
+  );
+
+  return (
+    <Card className="border-amber-200/60 dark:border-amber-900/40">
+      <CardHeader className="pb-3">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+              <AlertTriangle className="h-4 w-4" />
+            </div>
+            <div className="space-y-0.5">
+              <CardTitle className="text-base">Peringatan PKS Akan Berakhir</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Daftar PKS investor yang masa berlakunya berakhir lebih awal
+                dibanding transaksi berjalan. Siapkan investor pengganti agar
+                kebutuhan modal transaksi tetap terpenuhi.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Filter rentang tanggal */}
+        <div className="mt-3 flex flex-col sm:flex-row sm:items-end gap-2 rounded-md border border-border bg-muted/30 p-3">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:mr-1">
+            <Calendar className="h-3.5 w-3.5" />
+            <span className="font-medium">Filter Tanggal</span>
+          </div>
+          <div className="flex-1 grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="pks-filter-start" className="text-[10px] uppercase tracking-widest text-muted-foreground">Dari</Label>
+              <Input
+                id="pks-filter-start"
+                type="date"
+                value={filterStart}
+                max={filterEnd || undefined}
+                onChange={(e) => setFilterStart(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="pks-filter-end" className="text-[10px] uppercase tracking-widest text-muted-foreground">Sampai</Label>
+              <Input
+                id="pks-filter-end"
+                type="date"
+                value={filterEnd}
+                min={filterStart || undefined}
+                onChange={(e) => setFilterEnd(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={resetFilter}
+            className="h-8 gap-1.5 text-xs"
+            title="Reset filter ke 60 hari ke depan"
+          >
+            <X className="h-3.5 w-3.5" />
+            Reset
+          </Button>
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-0">
+        {filteredRows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-center">
+            <AlertTriangle className="h-10 w-10 text-muted-foreground/40 mb-2" />
+            <p className="text-sm font-medium">Tidak ada PKS yang akan berakhir</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {rows.length === 0
+                ? `Tidak ada PKS yang masa berlakunya ≤ ${PKS_WARN_WINDOW_DAYS} hari ke depan.`
+                : "Tidak ada hasil untuk rentang tanggal yang dipilih."}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="text-left  py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">ID PKS</th>
+                  <th className="text-left  py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Investor</th>
+                  <th className="text-left  py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Broker</th>
+                  <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Nilai Investasi</th>
+                  <th className="text-center py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Berlaku s/d</th>
+                  <th className="text-center py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Sisa</th>
+                  <th className="text-left  py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Dipakai Transaksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRows.map((r) => {
+                  const trxList = r.usedBy
+                    .map((t) => t.id)
+                    .filter((id, idx, arr) => arr.indexOf(id) === idx);
+                  const trxLabel = trxList.length === 0
+                    ? "—"
+                    : trxList.length <= 2
+                      ? trxList.join(", ")
+                      : `${trxList.slice(0, 2).join(", ")} +${trxList.length - 2}`;
+                  let sisaClass = "text-muted-foreground";
+                  if (r.pksSisa < 0)       sisaClass = "text-red-600 font-bold";
+                  else if (r.pksSisa <= 7)  sisaClass = "text-orange-600 font-medium";
+                  else if (r.pksSisa <= 30) sisaClass = "text-yellow-600";
+
+                  return (
+                    <tr key={r.pksId} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                      <td className="py-3 px-4 font-mono text-xs font-medium">{r.pksId}</td>
+                      <td className="py-3 px-4">
+                        <div className="font-medium">{r.investorName}</div>
+                        <div className="font-mono text-[10px] text-muted-foreground">{r.investorId}</div>
+                      </td>
+                      <td className="py-3 px-4 text-xs">
+                        {r.brokerName ? (
+                          <span className="inline-flex items-center rounded-md bg-amber-50 border border-amber-200 text-amber-700 px-1.5 py-0.5 text-[10px] font-medium dark:bg-amber-900/20 dark:border-amber-800/40 dark:text-amber-400">
+                            {r.brokerName}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground italic">Langsung</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-right whitespace-nowrap font-medium">{formatRp(r.investmentAmount)}</td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap text-muted-foreground">{formatDate(r.pksEndDate)}</td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <span className={`text-xs font-medium ${sisaClass}`}>
+                          {r.pksSisa < 0
+                            ? `Lewat ${-r.pksSisa} hari`
+                            : r.pksSisa === 0
+                              ? "Hari terakhir"
+                              : `${r.pksSisa} hari`}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="font-mono text-xs text-muted-foreground">{trxLabel}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border bg-muted/20">
+                  <td colSpan={3} className="py-3 px-4 font-semibold text-sm">
+                    Total {filteredRows.length} PKS perlu perhatian
+                  </td>
+                  <td className="py-3 px-4 text-right font-bold whitespace-nowrap">{formatRp(totalInvestasi)}</td>
+                  <td colSpan={3} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────
 
@@ -1107,6 +1371,9 @@ export default function TransaksiContent() {
         </Card>
       </div>
 
+      {/* ── Peringatan PKS Akan Berakhir (utamanya investor PKS ⇒ berakhir sebelum transaksi) ── */}
+      <PksExpiryWarning />
+
       {/* ── Riwayat Mapping Modal ── */}
       {visibleTransaksis.length === 0 ? (
         <Card>
@@ -1276,7 +1543,7 @@ export default function TransaksiContent() {
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setIsFinalizeOpen(false)} disabled={isFinalizing}>Batal</Button>
             <Button onClick={handleFinalize} disabled={isFinalizing}>
-              {isFinalizing ? "Menyimpan…" : "Simpan Status"}
+              {isFinalizing ? "Menyimpan…" : "Simpan Status" }
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1343,3 +1610,5 @@ export default function TransaksiContent() {
     </div>
   );
 }
+
+
