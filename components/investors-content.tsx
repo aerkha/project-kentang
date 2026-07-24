@@ -144,7 +144,7 @@ function BuktiUploadField({ file, onChange }: { file: File | null; onChange: (f:
   return (
     <div className="space-y-1.5">
       <Label className="text-xs">
-        Bukti Transfer <span className="text-muted-foreground font-normal">(opsional)</span>
+        Bukti Transfer Modal<span className="text-muted-foreground font-normal"></span>
       </Label>
       <label className={`flex items-center gap-3 cursor-pointer rounded-lg border-2 border-dashed px-4 py-3 transition-colors ${file ? "border-green-400 bg-green-50" : "border-border hover:border-primary/50 hover:bg-muted/40"}`}>
         <input

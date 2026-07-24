@@ -525,7 +525,7 @@ async function processInternalProfitItem({
 
   const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
   if (bagiHasilDone) {
-    updates.status = trx.isAutorenewal ? "perbarui" : "selesai";
+    updates.status = trx.isAutorenewal ? "berjalan" : "selesai";
   }
 
   await updateTransaksiFn(trxId, updates);
@@ -675,7 +675,7 @@ async function processBagiHasilItem({
 
   const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
   if (bagiHasilDone) {
-    updates.status = trx.isAutorenewal ? "perbarui" : "selesai";
+    updates.status = trx.isAutorenewal ? "berjalan" : "selesai";
   }
 
   await updateTransaksiFn(trx.id, updates);
@@ -838,7 +838,7 @@ async function processUploadEntity({
       const bagiHasilDone = allRows.every((r) => checks[r.checkKey]);
       const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
       if (bagiHasilDone) {
-        updates.status = trx.isAutorenewal ? "perbarui" : "selesai";
+        updates.status = trx.isAutorenewal ? "berjalan" : "selesai";
       }
       try {
         await updateTransaksiFn(trx.id, updates);

@@ -1,0 +1,6 @@
+- [x] Read reminder-content.tsx to understand processUploadEntity flow
+- [x] Read transaksi-context.tsx to understand updateTransaksi
+- [ ] Check git diff between "refactor as any" and current to find what changed
+- [ ] Identify the root cause of the 400 error from PocketBase
+- [ ] Fix the bug
+- [ ] Verify the fix
