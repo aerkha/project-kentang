@@ -1013,9 +1013,10 @@ async function sendBulkNotifications(
   // Investor/Broker. Jangan menebak role dari panjang ID atau jenis tugas.
   if (entity.recipientRole === "Investor") {
     let brokerName = "Pusat";
-    const sampleItem = entity.filteredItems.find((i: any) => i.type === "Bagi Hasil" && i.trx);
-    if (sampleItem && (sampleItem as any).trx) {
-      const entry = (sampleItem as any).trx.investorEntries.find((e: any) => e.investorId === entity.investorId);
+    // PATCH (refactor `(i: any)`): use EntitySummaryItem — type narrowing automatic
+    const sampleItem = entity.filteredItems.find((i: EntitySummaryItem) => i.type === "Bagi Hasil") as BagiHasilItem | undefined;
+    if (sampleItem && sampleItem.trx) {
+      const entry = sampleItem.trx.investorEntries.find((e: { investorId: string }) => e.investorId === entity.investorId);
       if (entry && entry.investorBrokerName) brokerName = entry.investorBrokerName;
     }
 
@@ -1084,10 +1085,10 @@ async function sendBulkNotifications(
   if (entity.recipientRole === "Broker") {
     console.log(`[reminder-content] KONDISI 2: MASUK! kirim fee broker ke "${entity.nama}", total=${entity.totalAmount}, combinedUrls=${combinedUrls ? "ada" : "kosong"}, filteredItems count=${entity.filteredItems.length}`);
     const affiliatedInvestors = new Set<string>();
-    entity.filteredItems.forEach((i: any) => {
+    entity.filteredItems.forEach((i: EntitySummaryItem) => {
       if (i.type === "Bagi Hasil" && i.trx) {
-        i.trx.investorEntries.forEach((e: any) => {
-          if (e.investorBrokerName === entity.nama) {
+        i.trx.investorEntries.forEach((e: { investorId: string; investorName?: string; investorBrokerName?: string }) => {
+          if (e.investorBrokerName === entity.nama && e.investorName) {
             affiliatedInvestors.add(e.investorName);
           }
         });
@@ -1558,7 +1559,8 @@ export function ReminderContent() {
       // broker murni yang muncul di banyak TRX — displayEntities sudah
       // dedupe checkKey, tapi loop ini harus aman dari TRX yang sama
       // muncul lebih dari sekali lewat checkKey berbeda).
-      const trxUpdates = new Map<string, { trx: any; checkKey: string }>();
+      // PATCH: Transaksi type is already known in the loop; use proper type.
+      const trxUpdates = new Map<string, { trx: NonNullable<BagiHasilItem["trx"]>; checkKey: string }>();
       for (const item of entity.filteredItems) {
         if (item.type === "Bagi Hasil" && item.trx) {
           const existing = trxUpdates.get(item.trx.id);
