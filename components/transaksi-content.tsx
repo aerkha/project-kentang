@@ -709,7 +709,16 @@ function PksExpiryWarning() {
     setFilterEnd(defaultEndStr);
   };
 
-  // Hitung baris PKS yang akan jatuh tempo SEBELUM transaksi berakhir (≥ hari ini)
+  // Helper: tanggal berakhir transaksi (memperhatikan Autorenewal.endDate)
+  const endDateTrx = (t: { date: string; description: string; isAutorenewal?: boolean; endDate?: string }): string => {
+    if (t.isAutorenewal && t.endDate) return String(t.endDate).slice(0, 10);
+    const days = parsePeriodeDays(t.description);
+    const [y, m, d] = String(t.date).slice(0, 10).split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+  };
+
+  // Ambil PKS yang pksEndDate < trxEndDate (lebih awal dari transaksi),
+  // dan hanya untuk transaksi ber-status "berjalan".
   const rows = useMemo<PksExpiryRow[]>(() => {
     const result: PksExpiryRow[] = [];
 
@@ -725,19 +734,25 @@ function PksExpiryWarning() {
       const pksSisa = sisaHariPks(mou);
 
       // Hanya tampilkan PKS yang akan jatuh tempo dalam rentang window
-      // (≤ PKS_WARN_WINDOW_DAYS ke depan). PKS yang sudah lewat tetap
+      // (<= PKS_WARN_WINDOW_DAYS ke depan). PKS yang sudah lewat tetap
       // ditampilkan (sisa negatif) karena berkaitan erat dengan transaksi.
       if (pksSisa > PKS_WARN_WINDOW_DAYS) continue;
 
-      // Cari transaksi aktif yang masih menggunakan PKS ini (lewat investorEntries.mouId)
+      // Cari transaksi ber-status "berjalan" yang masih menggunakan PKS ini
       const usedBy = transaksis.filter((t) => {
         const eff = effectiveStatus(t);
-        if (eff !== "berjalan" && eff !== "bermasalah") return false;
+        // Terapkan hanya pada transaksi yang statusnya 'berjalan'
+        if (eff !== "berjalan") return false;
         return t.investorEntries.some((e) => e.mouId === mou.id);
       });
 
-      // Tampilkan hanya PKS yang dipakai oleh transaksi berjalan/bermasalah
+      // Tampilkan hanya PKS yang dipakai oleh transaksi 'berjalan'
       if (usedBy.length === 0) continue;
+
+      // Hanya tampilkan PKS yang masa berakhirnya LEBIH AWAL dari tanggal
+      // berakhir transaksi (strictly earlier).
+      const earlyEnough = usedBy.some((t) => pksEnd < endDateTrx(t));
+      if (!earlyEnough) continue;
 
       result.push({
         pksId: mou.id,
