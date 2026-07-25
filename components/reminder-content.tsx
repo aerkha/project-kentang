@@ -584,13 +584,12 @@ async function processPengembalianModalItem({
     });
   }
 
+  // Syarat: cukup terminate PKS untuk menandai modal dikembalikan.
+  // Status "nonaktif" investor diturunkan dari PKS (`isTerminated`)
+  // & data transaksi (lihat getMouStatus/activeInvestorIds). Mengubah
+  // `investmentAmount` jadi 0 akan merusak perhitungan total modal &
+  // cascade ke banyak halaman. Tidak ada update ke investor di sini.
   await updateMouFn(mou.id, { isTerminated: true });
-
-  const inv = investors.find((i) => i.id === mou.investorId);
-  if (inv) {
-    const newAmount = Math.max(0, inv.investmentAmount - mou.investmentAmount);
-    await updateInvestorFn(inv.id, { investmentAmount: newAmount });
-  }
 
   setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
 }
@@ -715,14 +714,10 @@ async function processPengembalianModalUploadItem({
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 }) {
   // PATCH: item typed → item.mou non-null.
+  // Syarat: cukup terminate PKS — investor otomatis nonaktif via cascade
+  // getMouStatus / activeInvestorIds. Tidak ada update investmentAmount.
   const mou = item.mou;
   await updateMouFn(mou.id, { isTerminated: true });
-
-  const inv = investors.find((i) => i.id === mou.investorId);
-  if (inv) {
-    const newAmount = Math.max(0, inv.investmentAmount - mou.investmentAmount);
-    await updateInvestorFn(inv.id, { investmentAmount: newAmount });
-  }
 
   setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
 }
@@ -808,7 +803,8 @@ async function processUploadEntity({
     }
     if (anyIt.mou && !mouSnapshots.has(anyIt.mou.id)) {
       mouSnapshots.set(anyIt.mou.id, { isTerminated: !!anyIt.mou.isTerminated });
-      // PATCH: Tidak perlu snapshot investmentAmount investor. Trigger MoU termination sudah cascade-update status investor menjadi nonaktif.
+      // PATCH: Tidak ada perubahan ke investor.investmentAmount saat pengembalian
+      // modal, jadi tidak perlu snapshot/rollback investmentAmount di sini.
     }
   }
 
@@ -917,21 +913,8 @@ async function processUploadEntity({
         console.error("[rollback] gagal kembalikan MOU", mouId, rollbackErr);
       }
     }
-    for (const snap of investorSnapshots.entries()) {
-      const [invId, prev] = snap;
-      try {
-        // PATCH: skip updateInvestor jika prev.investmentAmount kosong/0 (PB "Cannot be blank" di investmentAmount)
-        if (prev.investmentAmount === undefined || prev.investmentAmount === null || prev.investmentAmount === 0) {
-          console.log("[rollback] skip updateInvestor", invId, "(invAmt=0/undefined)");
-          return;
-        }
-        await updateInvestorFn(invId, { investmentAmount: prev.investmentAmount });
-      } catch (rollbackErr) {
-        const __ie = rollbackErr as { status?: number; data?: Record<string, unknown>; message?: string };
-        const __id = __ie.data ? JSON.stringify(__ie.data) : "";
-        console.error(`[rollback] gagal kembalikan investor invId=${invId} status=${__ie.status ?? "?"} data=${__id} msg=${__ie.message ?? ""}`, rollbackErr);
-      }
-    }
+    // PATCH: investor.investmentAmount tidak lagi disentuh saat pengembalian
+    // modal, jadi tidak ada rollback investor yang diperlukan di sini.
     // Hapus semua doneKeys yang baru ditambahkan agar UI kembali ke Pending.
     // doneKeys mengikuti pola `${trxId}__${checkKey}` dan `MOU__${mouId}`.
     setDoneKeysFn((prev) => {
@@ -1552,27 +1535,14 @@ export function ReminderContent() {
 
 // TS union discriminator tidak otomatis narrow `item.mou` di dalam blok ini,
 // jadi pakai variabel lokal `mou` yang sudah pasti bertipe MoU.
-  // PATCH (serius #18): tracker `investorDelta` agar multi-MoU investor yang
-  // sama ter-rollback dengan benar. Sebelumnya investasi ditambah `inv.investmentAmount`
-  // dari `investors.find()` (snapshot stale) — investasi lain yang sudah
-  // di-restore di iterasi sebelumnya dihitung ulang dari nilai lama, sehingga
-  // jumlah akhirnya bisa melenceng. Sekarang累akumulasi delta per investor
-  // dan terapkan satu kali di akhir loop.
+  // PATCH: Undo pelunasan modal cukup membalik `isTerminated` PKS jadi
+  // `false`. Tidak ada perubahan `investmentAmount` di sisi forward (lihat
+  // processPengembalianModalItem/Upload), jadi undo juga tidak menyentuh
+  // data investor. Cukup set PKS aktif lagi agar investasi kembali
+  // muncul di halaman investor & dashboard.
   const handleUndoBulk = async (entity: ProcessedEntity) => {
     setToggling(entity.id);
     try {
-      // Hitung total modal yang harus dikembalikan per investor di awal loop.
-      const investorDelta = new Map<string, number>();
-      for (const item of entity.filteredItems) {
-        if (item.type === "Pengembalian Modal" && item.mou) {
-          const current = investorDelta.get(item.mou.investorId) ?? 0;
-          investorDelta.set(item.mou.investorId, current + item.mou.investmentAmount);
-        }
-      }
-      // Terapkan delta ke state lokal sebelum network call.
-      // Pakai snapshot investor paling baru SEBELUM loop:
-      const latestInvestors = new Map(investors.map((i) => [i.id, i.investmentAmount]));
-
       // Dedupe per-TRX agar satu TRX hanya di-update SEKALI meskipun
       // entity.filteredItems memuat beberapa item dari TRX yang sama (mis.
       // broker murni yang muncul di banyak TRX — displayEntities sudah
@@ -1598,10 +1568,6 @@ export function ReminderContent() {
             console.warn("[handleUndoBulk] gagal updateMou:", err);
             continue;
           }
-          // Update nilai investmentAmount lokal SEBELUM network call sehingga
-          // iterasi berikutnya pada investor yang sama累akumulasi dengan benar.
-          const currentLocal = latestInvestors.get(mou.investorId) ?? 0;
-          latestInvestors.set(mou.investorId, currentLocal + mou.investmentAmount);
         }
       }
       for (const { trx, checkKey } of trxUpdates.values()) {
@@ -1621,17 +1587,6 @@ export function ReminderContent() {
         console.warn(`[handleUndoBulk] gagal updateTransaksi untuk TRX ${trx.id}:`, err);
         }
         setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trx.id}__${checkKey}`); return s; });
-      }
-      // Kirim satu update per investor dengan total delta.
-      for (const [investorId, _] of investorDelta) {
-        const target = latestInvestors.get(investorId);
-        if (target !== undefined) {
-          try {
-            await updateInvestor(investorId, { investmentAmount: target });
-          } catch (err) {
-            console.warn("[handleUndoBulk] gagal updateInvestor:", err);
-          }
-        }
       }
       // Hapus doneKeys untuk semua Mou yang di-undo.
       setDoneKeys((prev) => {
