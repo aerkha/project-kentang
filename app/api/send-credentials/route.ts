@@ -38,6 +38,9 @@ export async function POST(req: NextRequest) {
     if (type !== "new_account") {
       return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
     }
+    if (!name || !email || !password || (role !== "investor" && role !== "broker")) {
+      return NextResponse.json({ error: "Data kredensial tidak lengkap" }, { status: 400 });
+    }
 
     // 3. Siapkan Teks Pesan
     const roleLabel = role === "investor" ? "Investor" : role === "broker" ? "Broker" : role;
@@ -75,11 +78,19 @@ export async function POST(req: NextRequest) {
     const waStatus = sendResults[0].status === "fulfilled" && sendResults[0].value ? "sent" : "failed";
     const emailStatus = sendResults[1].status === "fulfilled" && sendResults[1].value ? "sent" : "failed";
 
+    const success = emailStatus === "sent" || waStatus === "sent";
+    if (!success) {
+      console.error(`[send-credentials] semua channel gagal untuk role=${role}, email=${email}`);
+    }
+
     return NextResponse.json({
-      message: "Credentials process completed",
+      success,
+      message: success
+        ? "Credentials process completed"
+        : "Kredensial gagal dikirim melalui semua channel",
       waStatus,
-      emailStatus
-    }, { status: 200 });
+      emailStatus,
+    }, { status: success ? 200 : 502 });
 
   } catch (error) {
     console.error("API send-credentials error:", error);
@@ -139,12 +150,16 @@ async function sendWhatsApp(phone: string, message: string): Promise<boolean> {
 }
 
 async function sendEmail(email: string, subject: string, html: string): Promise<boolean> {
+  const recipient = email?.trim();
   // Abaikan pengiriman jika email adalah dummy (.local) atau kosong
-  if (!email || email.includes(".local")) return false;
+  if (!recipient || recipient.toLowerCase().endsWith(".local")) {
+    console.warn(`[send-credentials] email dilewati: alamat penerima kosong/dummy (${recipient || "kosong"})`);
+    return false;
+  }
 
   try {
-    const user = process.env.GMAIL_USER;
-    const pass = process.env.GMAIL_APP_PASSWORD;
+    const user = process.env.GMAIL_USER?.trim();
+    const pass = process.env.GMAIL_APP_PASSWORD?.trim();
 
     if (!user || !pass) {
       console.warn("GMAIL_USER atau GMAIL_APP_PASSWORD belum diatur di .env");
@@ -161,12 +176,17 @@ async function sendEmail(email: string, subject: string, html: string): Promise<
 
     const info = await transporter.sendMail({
       from: `"MinBun ERP" <${user}>`,
-      to: email,
+      to: recipient,
       subject: subject,
       html: html,
     });
 
-    return !!info.messageId;
+    if (!info.messageId) {
+      console.error(`[send-credentials] Gmail tidak mengembalikan messageId untuk ${recipient}`);
+      return false;
+    }
+    console.info(`[send-credentials] email kredensial terkirim ke ${recipient}, messageId=${info.messageId}`);
+    return true;
   } catch (err) {
     console.error("Gagal mengirim email via Gmail:", err);
     return false;

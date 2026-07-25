@@ -1421,15 +1421,7 @@ export function InvestorsContent() {
 // ini dengan menghapus komentar.
 toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email investor/broker.`);
       
-    // Validasi bukti transfer (wajib diupload untuk setiap investor baru).
-    if (!addInvestorFile) {
-      setErrorInfo({
-        title: "Bukti transfer wajib diupload",
-        fields: [{ field: "buktiTransfer", code: "required", message: "Upload bukti transfer investasi terlebih dahulu sebelum menyimpan investor." }],
-        raw: "",
-      });
-      return;
-    }
+    // Bukti transfer bersifat opsional dan dapat diunggah kemudian.
     // Validasi field ahli waris (wajib diisi untuk setiap investor).
     if (!investorForm.heirName || !investorForm.heirName.trim() || !investorForm.heirBankName || !investorForm.heirBankName.trim() || !investorForm.heirAccountNumber || !investorForm.heirAccountNumber.trim()) {
       const missing = [];
@@ -1727,10 +1719,10 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
 
     setIsSaving(true);
     try {
-      await addBroker({
-        name: brokerForm.name,
+      const actualBrokerId = await addBroker({
+        name: brokerForm.name.trim(),
         address: brokerForm.address,
-        email: brokerForm.email,
+        email: brokerForm.email.trim(),
         idNumber: brokerForm.idNumber,
         bankName: brokerForm.bankName,
         accountNumber: brokerForm.accountNumber,
@@ -1739,28 +1731,23 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
 
       // ── Buat Akun Otomatis untuk Broker ──
       const randomPass = generateRandomPassword(8);
-      const accountEmail = brokerForm.email || `${brokerForm.phone.replace(/[^0-9]/g, "")}@broker.local`;
-      
-      try {
-        const brkRecords = await pb.collection("brokers").getList(1, 1, {
-          filter: `name="${brokerForm.name}" && phone="${brokerForm.phone}"`,
-          sort: "-created"
-        });
-        const actualBrokerId = brkRecords.items.length > 0 ? (brkRecords.items[0].customId || brkRecords.items[0].id) : "";
+      const accountEmail = brokerForm.email.trim();
 
+      try {
         await pb.collection("users").create({
           email: accountEmail,
           emailVisibility: true,
           password: randomPass,
           passwordConfirm: randomPass,
-          name: brokerForm.name,
+          name: brokerForm.name.trim(),
           role: "broker",
           investorId: "",
           brokerId: actualBrokerId,
         });
 
-        // Notifikasi Kredensial via WA/Email
-        fetch("/api/send-credentials", {
+        // Wajib ditunggu dan diperiksa. Sebelumnya request bersifat fire-and-forget,
+        // sehingga UI selalu menyatakan sukses walaupun API/Gmail gagal.
+        const credentialResponse = await fetch("/api/send-credentials", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -1768,18 +1755,32 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
           },
           body: JSON.stringify({
             type: "new_account",
-            name: brokerForm.name,
+            name: brokerForm.name.trim(),
             email: accountEmail,
             phone: brokerForm.phone,
             password: randomPass,
             role: "broker",
           }),
-        }).catch((err) => console.error("Gagal memanggil API send-credentials:", err));
+        });
+        const credentialResult = await credentialResponse.json().catch(() => null) as {
+          success?: boolean;
+          emailStatus?: string;
+          message?: string;
+          error?: string;
+        } | null;
 
-        toast.success(`Akun broker otomatis dibuat. (Pass: ${randomPass})`);
+        if (!credentialResponse.ok || credentialResult?.emailStatus !== "sent") {
+          throw new Error(
+            credentialResult?.error || credentialResult?.message ||
+            `Email kredensial gagal dikirim (HTTP ${credentialResponse.status})`,
+          );
+        }
+
+        toast.success("Akun broker dibuat dan kredensial telah dikirim ke email broker.");
       } catch (err) {
-        console.error("Gagal membuat akun otomatis broker:", err);
-        toast.error("Broker tersimpan, namun gagal membuat akun (Email/No HP mungkin terdaftar).");
+        console.error("Gagal membuat akun/notifikasi otomatis broker:", err);
+        const message = err instanceof Error ? err.message : "Kesalahan tidak diketahui";
+        toast.error(`Broker tersimpan, tetapi pembuatan akun atau email kredensial gagal: ${message}`);
       }
 
       toast.success("Broker berhasil ditambahkan");

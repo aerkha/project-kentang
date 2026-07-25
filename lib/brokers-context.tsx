@@ -22,7 +22,7 @@ export interface Broker {
 
 interface BrokersContextType {
   brokers: Broker[];
-  addBroker:     (broker: Omit<Broker, "id">) => Promise<void>;
+  addBroker:     (broker: Omit<Broker, "id">) => Promise<string>;
   updateBroker:  (id: string, updates: Partial<Broker>) => Promise<void>;
   deleteBroker:  (id: string) => Promise<void>;
   reloadBrokers: () => Promise<void>;
@@ -170,7 +170,7 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
           email:         broker.email || "",
         });
         setBrokers((prev) => [...prev, recordToBroker(record, map)]);
-        return;
+        return customId;
       } catch (err) {
         if (isCustomIdConflict(err) && attempt < 4) {
           customId = await generateBrokerCustomId();
@@ -179,6 +179,7 @@ export function BrokersProvider({ children }: { children: ReactNode }) {
         throw err;
       }
     }
+    throw new Error("Gagal membuat ID broker unik setelah 5 percobaan.");
   };
 
   const updateBroker = async (id: string, updates: Partial<Broker>) => {
