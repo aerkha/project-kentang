@@ -1,9 +1,3 @@
-- [x] Check current state of project
-- [x] Verify previous fix (perbarui→berjalan) is in place
-- [x] Add debug logging to updateTransaksi
-- [x] Improve error logging in processUploadEntity with field-level error
-- [x] JSON.stringify for bagiHasilChecks
-- [x] Update status logic to consider endDate
-- [x] All changes committed
-- [x] User confirms the 400 is from /api/collections/investors/records/9xi5z5scwbt08ly (NOT transaksis)
-- [ ] User needs to provide full field-level error log OR check PB Admin field constraints
+- [x] All fixes committed
+- [x] Field-level error logging added to outer catch and investor rollback
+- [ ] User tests new build, paste field-level error from console

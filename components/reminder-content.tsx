@@ -927,7 +927,9 @@ async function processUploadEntity({
       try {
         await updateInvestorFn(invId, { investmentAmount: prev.investmentAmount });
       } catch (rollbackErr) {
-        console.error("[rollback] gagal kembalikan investor", invId, rollbackErr);
+        const __ie = rollbackErr as { status?: number; data?: Record<string, unknown>; message?: string };
+        const __id = __ie.data ? JSON.stringify(__ie.data) : "";
+        console.error("[rollback] gagal kembalikan investor", invId, status=" + (__ie.status ?? "?") + ", data=" + __id + ", msg=" + (__ie.message ?? ""), rollbackErr);
       }
     }
     // Hapus semua doneKeys yang baru ditambahkan agar UI kembali ke Pending.
