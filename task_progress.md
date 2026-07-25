@@ -2,7 +2,7 @@
 - [x] Verify previous fix (perbarui→berjalan) is in place
 - [x] Add debug logging to updateTransaksi
 - [x] Improve error logging in processUploadEntity with field-level error
-- [x] Revert bagiHasilChecks to JSON.stringify
+- [x] JSON.stringify for bagiHasilChecks
 - [x] Update status logic to consider endDate
-- [x] All changes committed (4c9eb65, f89361a)
-- [ ] User commits my latest local fix (JSON.stringify) and redeploys to see inner field-level error
+- [x] All changes committed
+- [ ] User needs to provide full field-level error log to identify the invalid field
