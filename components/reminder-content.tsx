@@ -925,6 +925,8 @@ async function processUploadEntity({
     for (const snap of investorSnapshots.entries()) {
       const [invId, prev] = snap;
       try {
+        // PATCH: skip updateInvestor jika prev.investmentAmount kosong/0 (PB "Cannot be blank" di investmentAmount)
+        if (prev.investmentAmount === undefined || prev.investmentAmount === null || prev.investmentAmount === 0) { console.log("[rollback] skip updateInvestor", invId=" + invId + " (invAmt=0/undefined)"); return; }
         await updateInvestorFn(invId, { investmentAmount: prev.investmentAmount });
       } catch (rollbackErr) {
         const __ie = rollbackErr as { status?: number; data?: Record<string, unknown>; message?: string };

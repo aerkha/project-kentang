@@ -1,3 +1,3 @@
-- [x] All fixes committed
-- [x] Field-level error logging added to outer catch and investor rollback
-- [ ] User tests new build, paste field-level error from console
+- [x] Identified root cause: `updateInvestor` rollback fails with PB error `investmentAmount: "Cannot be blank."` when `prev.investmentAmount` is 0/undefined
+- [x] Applied fix: skip `updateInvestor` rollback when `prev.investmentAmount` is falsy
+- [ ] User commits the fix and verifies the full pelunasan flow works
