@@ -382,7 +382,9 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
       // PATCH (kembali 400 PB): Kirim sebagai object, bukan JSON string.
       // PB SDK otomatis stringify JSON-field saat fetch; jika field "json",
       // stringified " + chr(34) + "" mungkin gagal divalidasi. Coba object dulu.
-      pbUpdates.bagiHasilChecks = bagiHasilChecks;
+      // PATCH: Try JSON string. PB SDK accepts both object and string for json field, but
+      // object case might fail validation on strict schema. Try stringifying.
+      pbUpdates.bagiHasilChecks = JSON.stringify(bagiHasilChecks);
     }
 
     console.log("[updateTransaksi] id=", id, "pbId=", pbId, "pbUpdates=", JSON.stringify(pbUpdates));
