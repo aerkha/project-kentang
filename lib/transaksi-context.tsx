@@ -379,9 +379,13 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
 
     const pbUpdates: Record<string, unknown> = { ...trxUpdates, updatedBy: currentUserId() };
     if (bagiHasilChecks !== undefined) {
-      pbUpdates.bagiHasilChecks = JSON.stringify(bagiHasilChecks);
+      // PATCH (kembali 400 PB): Kirim sebagai object, bukan JSON string.
+      // PB SDK otomatis stringify JSON-field saat fetch; jika field "json",
+      // stringified " + chr(34) + "" mungkin gagal divalidasi. Coba object dulu.
+      pbUpdates.bagiHasilChecks = bagiHasilChecks;
     }
 
+    console.log("[updateTransaksi] id=", id, "pbId=", pbId, "pbUpdates=", JSON.stringify(pbUpdates));
     const record = await pb.collection("transaksis").update(pbId, pbUpdates);
 
     let resolvedEntries: TransaksiInvestorEntry[] | undefined;

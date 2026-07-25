@@ -525,7 +525,12 @@ async function processInternalProfitItem({
 
   const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
   if (bagiHasilDone) {
-    updates.status = trx.isAutorenewal ? "berjalan" : "selesai";
+    // PATCH (status perbarui bermasalah):
+    // - isAutorenewal + endDate < today: "selesai" (siklus autorenewal berakhir)
+    // - isAutorenewal (masih aktif):      "berjalan" (menunggu autorenewal berikutnya)
+    // - bukan autorenewal:               "selesai" (transaksi normal selesai)
+    const _isExpired = !!(trx.endDate && trx.endDate.slice(0, 10) < todayWibStr());
+    updates.status = (!trx.isAutorenewal || _isExpired) ? "selesai" : "berjalan";
   }
 
   await updateTransaksiFn(trxId, updates);
@@ -675,7 +680,12 @@ async function processBagiHasilItem({
 
   const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
   if (bagiHasilDone) {
-    updates.status = trx.isAutorenewal ? "berjalan" : "selesai";
+    // PATCH (status perbarui bermasalah):
+    // - isAutorenewal + endDate < today: "selesai" (siklus autorenewal berakhir)
+    // - isAutorenewal (masih aktif):      "berjalan" (menunggu autorenewal berikutnya)
+    // - bukan autorenewal:               "selesai" (transaksi normal selesai)
+    const _isExpired = !!(trx.endDate && trx.endDate.slice(0, 10) < todayWibStr());
+    updates.status = (!trx.isAutorenewal || _isExpired) ? "selesai" : "berjalan";
   }
 
   await updateTransaksiFn(trx.id, updates);
@@ -838,12 +848,19 @@ async function processUploadEntity({
       const bagiHasilDone = allRows.every((r) => checks[r.checkKey]);
       const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
       if (bagiHasilDone) {
-        updates.status = trx.isAutorenewal ? "berjalan" : "selesai";
+        // PATCH (status perbarui bermasalah):
+    // - isAutorenewal + endDate < today: "selesai" (siklus autorenewal berakhir)
+    // - isAutorenewal (masih aktif):      "berjalan" (menunggu autorenewal berikutnya)
+    // - bukan autorenewal:               "selesai" (transaksi normal selesai)
+    const _isExpired = !!(trx.endDate && trx.endDate.slice(0, 10) < todayWibStr());
+    updates.status = (!trx.isAutorenewal || _isExpired) ? "selesai" : "berjalan";
       }
       try {
         await updateTransaksiFn(trx.id, updates);
       } catch (err) {
-        console.warn(`[processUploadEntity] gagal updateTransaksiFn untuk TRX ${trx.id}:`, err);
+        // PATCH: surface field-level PocketBase error dari err.data
+        const _e = err as { status?: number; data?: Record<string, unknown>; message?: string };
+        console.error(`[processUploadEntity] PB error TRX=${trx.id} status=${_e.status} fields=${JSON.stringify(_e.data)}`, err);
         throw err;
       }
       // Tambahkan doneKey untuk SEMUA checkKey TRX ini.
