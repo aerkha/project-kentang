@@ -5,4 +5,5 @@
 - [x] JSON.stringify for bagiHasilChecks
 - [x] Update status logic to consider endDate
 - [x] All changes committed
-- [ ] User needs to provide full field-level error log to identify the invalid field
+- [x] User confirms the 400 is from /api/collections/investors/records/9xi5z5scwbt08ly (NOT transaksis)
+- [ ] User needs to provide full field-level error log OR check PB Admin field constraints
