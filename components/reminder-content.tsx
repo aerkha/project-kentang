@@ -808,12 +808,7 @@ async function processUploadEntity({
     }
     if (anyIt.mou && !mouSnapshots.has(anyIt.mou.id)) {
       mouSnapshots.set(anyIt.mou.id, { isTerminated: !!anyIt.mou.isTerminated });
-      if (anyIt.mou.investorId && !investorSnapshots.has(anyIt.mou.investorId)) {
-        const inv = investors.find((i) => i.id === anyIt.mou.investorId);
-        if (inv) {
-          investorSnapshots.set(inv.id, { investmentAmount: inv.investmentAmount });
-        }
-      }
+      // PATCH: Tidak perlu snapshot investmentAmount investor. Trigger MoU termination sudah cascade-update status investor menjadi nonaktif.
     }
   }
 
