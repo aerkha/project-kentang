@@ -1,3 +1,4 @@
-- [x] Identified root cause: `updateInvestor` rollback fails with PB error `investmentAmount: "Cannot be blank."` when `prev.investmentAmount` is 0/undefined
+- [x] Identified root cause: updateInvestor rollback fails with PB error `investmentAmount: "Cannot be blank."` when `prev.investmentAmount` is 0/undefined
 - [x] Applied fix: skip `updateInvestor` rollback when `prev.investmentAmount` is falsy
+- [x] Fixed syntax errors in skip check and error log
 - [ ] User commits the fix and verifies the full pelunasan flow works

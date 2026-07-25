@@ -926,12 +926,15 @@ async function processUploadEntity({
       const [invId, prev] = snap;
       try {
         // PATCH: skip updateInvestor jika prev.investmentAmount kosong/0 (PB "Cannot be blank" di investmentAmount)
-        if (prev.investmentAmount === undefined || prev.investmentAmount === null || prev.investmentAmount === 0) { console.log("[rollback] skip updateInvestor", invId=" + invId + " (invAmt=0/undefined)"); return; }
+        if (prev.investmentAmount === undefined || prev.investmentAmount === null || prev.investmentAmount === 0) {
+          console.log("[rollback] skip updateInvestor", invId, "(invAmt=0/undefined)");
+          return;
+        }
         await updateInvestorFn(invId, { investmentAmount: prev.investmentAmount });
       } catch (rollbackErr) {
         const __ie = rollbackErr as { status?: number; data?: Record<string, unknown>; message?: string };
         const __id = __ie.data ? JSON.stringify(__ie.data) : "";
-        console.error("[rollback] gagal kembalikan investor", invId, status=" + (__ie.status ?? "?") + ", data=" + __id + ", msg=" + (__ie.message ?? ""), rollbackErr);
+        console.error(`[rollback] gagal kembalikan investor invId=${invId} status=${__ie.status ?? "?"} data=${__id} msg=${__ie.message ?? ""}`, rollbackErr);
       }
     }
     // Hapus semua doneKeys yang baru ditambahkan agar UI kembali ke Pending.
