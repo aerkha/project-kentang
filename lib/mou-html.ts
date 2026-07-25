@@ -139,6 +139,46 @@ interface TrxData {
   estKeuntungan: string; roiPerBulan: string; roiSetelahBH: string;
 }
 
+// Placeholder simulasi ketika MoU dibuat sebelum transaksi (alur:
+// broker → investor → MoU → transaksi → bagi hasil). Nilai-nilai ini
+// mengisi tabel simulasi & distribusi bagi hasil agar template MoU
+// tidak memiliki kolom kosong saat pertama kali di-generate.
+const PLACEHOLDER_QTY        = 1500;
+const PLACEHOLDER_HPP        = 11000;
+const PLACEHOLDER_ONGKIR     = 350000;
+const PLACEHOLDER_HARGA_JUAL = 12500;
+
+function buildPlaceholderTrxData(mou: MoU): TrxData {
+  const placeholderModal   = PLACEHOLDER_QTY * PLACEHOLDER_HPP;
+  const placeholderIncome  = PLACEHOLDER_HARGA_JUAL * PLACEHOLDER_QTY;
+  const placeholderProfit  = placeholderIncome - (placeholderModal + PLACEHOLDER_ONGKIR);
+
+  const pp1Pct = (mou.bagiHasilPP1 ?? 50) / 100;
+  const pp2Pct = (mou.bagiHasilPP2 ?? 0)  / 100;
+  const pp3Pct = (mou.bagiHasilPP3 ?? 0)  / 100;
+  const pkPct  = (mou.bagiHasilPK  ?? 35) / 100;
+
+  const profit = placeholderProfit;
+  const roiRaw = mou.investmentAmount > 0 ? profit / mou.investmentAmount : 0;
+
+  return {
+    trxQty:        String(PLACEHOLDER_QTY),
+    trxHpp:        fmtRp(PLACEHOLDER_HPP),
+    trxModal:      fmtRp(placeholderModal),
+    trxOngkir:     fmtRp(PLACEHOLDER_ONGKIR),
+    trxHargaJual:  fmtRp(PLACEHOLDER_HARGA_JUAL),
+    trxIncome:     fmtRp(placeholderIncome),
+    trxProfit:     fmtRp(profit),
+    bhOwner:       fmtRp(profit * pp1Pct),
+    bhMinbun:      fmtRp(profit * pp2Pct),
+    bhBroker:      fmtRp(profit * pp3Pct),
+    bhInvestor:    fmtRp(profit * pkPct),
+    estKeuntungan: fmtRp(profit),
+    roiPerBulan:   `${(roiRaw * 100).toFixed(2)}%`,
+    roiSetelahBH:  `${(roiRaw * pkPct * 100).toFixed(2)}% → Rp ${fmtRp(profit * pkPct)}`,
+  };
+}
+
 function calcTrxData(mou: MoU, transaksis: Transaksi[]): TrxData {
   const [my, mm, md] = mou.date.slice(0, 10).split("-").map(Number);
   const mouStart = Date.UTC(my, mm - 1, md);
@@ -151,41 +191,41 @@ function calcTrxData(mou: MoU, transaksis: Transaksi[]): TrxData {
       t.investorEntries.some((e) => e.investorId === mou.investorId);
   });
 
-  let trxQty = "", trxHpp = "", trxModal = fmtRp(mou.investmentAmount);
-  let trxOngkir = "", trxHargaJual = "", trxIncome = "", trxProfit = "";
-  let bhOwner = "", bhMinbun = "", bhBroker = "", bhInvestor = "";
-  let estKeuntungan = "", roiPerBulan = "", roiSetelahBH = "";
+  // Jika belum ada transaksi terkait MoU, gunakan placeholder default
+  // sehingga tabel simulasi tidak kosong saat template MoU di-preview
+  // sebelum transaksi dibuat.
+  if (!trx) return buildPlaceholderTrxData(mou);
 
-  if (trx) {
-    const calc   = calcTransaksi(trx);
-    const entry  = trx.investorEntries.find((e) => e.investorId === mou.investorId);
-    const ratio  = entry && calc.totalInvestasi > 0
-      ? entry.nilaiInvestasi / calc.totalInvestasi : 1;
-    const profit = calc.profit * ratio;
-    const pp1Pct = (mou.bagiHasilPP1 ?? 50) / 100;
-    const pp2Pct = (mou.bagiHasilPP2 ?? 0)  / 100;
-    const pp3Pct = (mou.bagiHasilPP3 ?? 0)  / 100;
-    const pkPct  = (mou.bagiHasilPK  ?? 35) / 100;
+  const calc   = calcTransaksi(trx);
+  const entry  = trx.investorEntries.find((e) => e.investorId === mou.investorId);
+  const ratio  = entry && calc.totalInvestasi > 0
+    ? entry.nilaiInvestasi / calc.totalInvestasi : 1;
+  const profit = calc.profit * ratio;
+  const pp1Pct = (mou.bagiHasilPP1 ?? 50) / 100;
+  const pp2Pct = (mou.bagiHasilPP2 ?? 0)  / 100;
+  const pp3Pct = (mou.bagiHasilPP3 ?? 0)  / 100;
+  const pkPct  = (mou.bagiHasilPK  ?? 35) / 100;
 
-    trxQty       = trx.hpp > 0 ? String(Math.round(trx.kebutuhanModal / trx.hpp)) : "";
-    trxHpp       = fmtRp(trx.hpp);
-    trxModal     = fmtRp(entry ? entry.nilaiInvestasi : mou.investmentAmount);
-    trxOngkir    = fmtRp(calc.totalOngkir * ratio);
-    trxHargaJual = fmtRp(trx.hargaJual);
-    trxIncome    = fmtRp(calc.income * ratio);
-    trxProfit    = fmtRp(profit);
-    bhOwner      = fmtRp(profit * pp1Pct);
-    bhMinbun     = fmtRp(profit * pp2Pct);
-    bhBroker     = fmtRp(profit * pp3Pct);
-    bhInvestor   = fmtRp(profit * pkPct);
-    estKeuntungan = fmtRp(profit);
-    const roiRaw = mou.investmentAmount > 0 ? profit / mou.investmentAmount : 0;
-    roiPerBulan  = `${(roiRaw * 100).toFixed(2)}%`;
-    roiSetelahBH = `${(roiRaw * pkPct * 100).toFixed(2)}% → Rp ${fmtRp(profit * pkPct)}`;
-  }
+  const trxQty       = trx.hpp > 0 ? String(Math.round(trx.kebutuhanModal / trx.hpp)) : "";
+  const trxHpp       = fmtRp(trx.hpp);
+  const trxModal     = fmtRp(entry ? entry.nilaiInvestasi : mou.investmentAmount);
+  const trxOngkir    = fmtRp(calc.totalOngkir * ratio);
+  const trxHargaJual = fmtRp(trx.hargaJual);
+  const trxIncome    = fmtRp(calc.income * ratio);
+  const trxProfit    = fmtRp(profit);
+  const bhOwner      = fmtRp(profit * pp1Pct);
+  const bhMinbun     = fmtRp(profit * pp2Pct);
+  const bhBroker     = fmtRp(profit * pp3Pct);
+  const bhInvestor   = fmtRp(profit * pkPct);
+  const estKeuntungan = fmtRp(profit);
+  const roiRaw = mou.investmentAmount > 0 ? profit / mou.investmentAmount : 0;
+  const roiPerBulan  = `${(roiRaw * 100).toFixed(2)}%`;
+  const roiSetelahBH = `${(roiRaw * pkPct * 100).toFixed(2)}% → Rp ${fmtRp(profit * pkPct)}`;
 
-  return { trxQty, trxHpp, trxModal, trxOngkir, trxHargaJual, trxIncome, trxProfit,
-           bhOwner, bhMinbun, bhBroker, bhInvestor, estKeuntungan, roiPerBulan, roiSetelahBH };
+  return {
+    trxQty, trxHpp, trxModal, trxOngkir, trxHargaJual, trxIncome, trxProfit,
+    bhOwner, bhMinbun, bhBroker, bhInvestor, estKeuntungan, roiPerBulan, roiSetelahBH,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
