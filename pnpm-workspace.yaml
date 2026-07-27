@@ -1,3 +1,5 @@
+allowBuilds:
+  esbuild: true
 # Pakai `onlyBuiltDependencies` (pnpm 10+) untuk whitelist native build scripts.
 # Sebelumnya pakai `allowBuilds` yang sudah deprecated di pnpm 10.
 # Daftar paket yang diizinkan menjalankan postinstall script (compile native

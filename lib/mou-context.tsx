@@ -71,7 +71,7 @@ interface MouContextType {
 
 const MouContext = createContext<MouContextType | undefined>(undefined);
 
-const PB_BASE = process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
+const PB_BASE = () => process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
 
 /** Konversi base64 data URL ke File object untuk upload ke PocketBase */
 function base64ToFile(dataUrl: string, fieldName: string): File {
@@ -92,14 +92,14 @@ function base64ToFile(dataUrl: string, fieldName: string): File {
 }
 
 /** Ambil URL file dari field File PocketBase */
-function pbFileUrl(pbRecordId: string, fieldValue: unknown): string {
+export function pbFileUrl(pbRecordId: string, fieldValue: unknown): string {
   const filename = Array.isArray(fieldValue)
     ? (fieldValue[0] as string) || ""
     : (fieldValue as string) || "";
-  return filename ? `${PB_BASE}/api/files/mous/${pbRecordId}/${filename}` : "";
+  return filename ? `${PB_BASE()}/api/files/mous/${pbRecordId}/${filename}` : "";
 }
 
-function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): MoU {
+export function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): MoU {
   const customId   = r.customId as string;
   const pbRecordId = r.id as string;
   pbIdMap.set(customId, pbRecordId);
