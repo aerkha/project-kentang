@@ -1,4 +1,5 @@
 allowBuilds:
+  '@sentry/cli': set this to true or false
   esbuild: true
 # Pakai `onlyBuiltDependencies` (pnpm 10+) untuk whitelist native build scripts.
 # Sebelumnya pakai `allowBuilds` yang sudah deprecated di pnpm 10.
