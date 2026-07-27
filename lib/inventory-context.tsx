@@ -7,7 +7,7 @@ export interface MasterBandar { id: string; kode: string; nama: string; telepon:
 export interface MasterBuyer { id: string; kode: string; nama: string; kategori: string; telepon: string; alamat: string; perusahaan?: string; npwp?: string; }
 export interface InvPembelian { id: string; batch_id: string; tanggal: string; bandar: string; tonase_lapangan: number; tonase_gudang: number; harga_per_kg: number; total_harga: number; tujuan: string; status: string; }
 export interface InvSortir { id: string; batch_id?: string; pembelian_id: string; tanggal_sortir: string; grade_a: number; grade_b: number; grade_c: number; grade_baby: number; grade_reject: number; susut: number; pic_sortir: string; }
-export interface InvPengiriman { id: string; batch_id: string; sj_id?: string; tanggal: string; tujuan?: string; supir?: string; plat_nomor: string; buyer: string; qty_grade_a: number; qty_grade_b: number; qty_grade_c: number; qty_grade_baby: number; qty_campur?: number; }
+export interface InvPengiriman { id: string; batch_id: string; sj_id?: string; invoice_id?: string; tanggal: string; tujuan?: string; supir?: string; plat_nomor: string; buyer: string; qty_grade_a: number; qty_grade_b: number; qty_grade_c: number; qty_grade_baby: number; qty_campur?: number; }
 export interface StockData {
   gradeA: number; gradeB: number; gradeC: number; baby: number; reject: number;
 }
@@ -32,7 +32,7 @@ interface InventoryContextType {
   generatePembelianId: (bandarKode: string, date: string) => string;
   generatePengirimanId: (buyerKode: string, date: string) => string;
   invoices: InvInvoice[];
-  addInvoice: (data: Partial<InvInvoice>) => Promise<void>;
+  addInvoice: (data: Partial<InvInvoice>, pengirimanIds?: string[]) => Promise<void>;
   updateInvoice: (id: string, data: Partial<InvInvoice>) => Promise<void>;
 }
 
@@ -124,94 +124,79 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     throw new Error("addPembelian: gagal membuat batch_id unik setelah 5 percobaan");
   };
 
+  const saveSortir = async (mode: "create" | "update", id: string | undefined, data: Partial<InvSortir>) => {
+    const response = await fetch("/api/inventory/sortir", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pb.authStore.token}`,
+      },
+      body: JSON.stringify({ mode, id, data }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Gagal menyimpan hasil sortir.");
+    return result.record as InvSortir;
+  };
+
   const addSortir = async (data: Partial<InvSortir>) => {
-    if (!data.pembelian_id) {
-      throw new Error("addSortir: pembelian_id wajib diisi");
-    }
-    const pembelian = pembelians.find((p) => p.id === data.pembelian_id);
-    if (pembelian) {
-      const existingSortir = sortirs
-        .filter((sortir) => sortir.pembelian_id === data.pembelian_id)
-        .reduce((total, sortir) => total + (sortir.grade_a ?? 0) + (sortir.grade_b ?? 0) + (sortir.grade_c ?? 0) + (sortir.grade_baby ?? 0) + (sortir.grade_reject ?? 0), 0);
-      const totalSortir =
-        existingSortir +
-        (data.grade_a ?? 0) +
-        (data.grade_b ?? 0) +
-        (data.grade_c ?? 0) +
-        (data.grade_baby ?? 0) +
-        (data.grade_reject ?? 0);
-      if (totalSortir > pembelian.tonase_gudang + 0.01) {
-        throw new Error(
-          `Total sortir (${totalSortir.toFixed(2)} kg) melebihi tonase gudang pembelian (${pembelian.tonase_gudang.toFixed(2)} kg).`
-        );
-      }
-      if ((data.susut ?? 0) < 0) {
-        throw new Error("Susut tidak boleh negatif.");
-      }
-    }
-    const record = await pb.collection("inv_sortir").create(data);
-    await pb.collection("inv_pembelian").update(data.pembelian_id, { status: "Selesai" });
-    setSortirs((prev) => [record as unknown as InvSortir, ...prev]);
+    const record = await saveSortir("create", undefined, data);
+    setSortirs((prev) => [record, ...prev]);
     setPembelians((prev) =>
-      prev.map((p) => (p.id === data.pembelian_id ? { ...p, status: "Selesai" } : p))
+      prev.map((p) => (p.id === data.pembelian_id ? { ...p, status: "Selesai" } : p)),
     );
   };
 
   const updateSortir = async (id: string, data: Partial<InvSortir>) => {
-    const record = await pb.collection("inv_sortir").update(id, data);
-    setSortirs((prev) => prev.map((s) => (s.id === id ? (record as unknown as InvSortir) : s)));
+    const record = await saveSortir("update", id, data);
+    setSortirs((prev) => prev.map((s) => (s.id === id ? record : s)));
+    setPembelians((prev) =>
+      prev.map((p) => (p.id === record.pembelian_id ? { ...p, status: "Selesai" } : p)),
+    );
+  };
+
+  const savePengiriman = async (mode: "create" | "update", id: string | undefined, data: Partial<InvPengiriman>) => {
+    const response = await fetch("/api/inventory/pengiriman", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pb.authStore.token}`,
+      },
+      body: JSON.stringify({ mode, id, data }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Gagal menyimpan pengiriman.");
+    return result.record as InvPengiriman;
   };
 
   const addPengiriman = async (data: Partial<InvPengiriman>) => {
-    const numericFields = ["qty_grade_a", "qty_grade_b", "qty_grade_c", "qty_grade_baby", "qty_campur"] as const;
-    if (numericFields.some((field) => (data[field] ?? 0) < 0)) {
-      throw new Error("Kuantitas pengiriman tidak boleh negatif.");
-    }
-    const available = currentStock;
-    const requested = {
-      gradeA: data.qty_grade_a ?? 0,
-      gradeB: data.qty_grade_b ?? 0,
-      gradeC: data.qty_grade_c ?? 0,
-      baby: data.qty_grade_baby ?? 0,
-    };
-    if (requested.gradeA > available.gradeA || requested.gradeB > available.gradeB || requested.gradeC > available.gradeC || requested.baby > available.baby) {
-      throw new Error("Kuantitas pengiriman melebihi stok tersedia.");
-    }
-    const record = await pb.collection("inv_pengiriman").create(data);
-    setPengirimans((prev) => [record as unknown as InvPengiriman, ...prev]);
+    const record = await savePengiriman("create", undefined, data);
+    setPengirimans((prev) => [record, ...prev]);
   };
 
   const updatePengiriman = async (id: string, data: Partial<InvPengiriman>) => {
-    const record = await pb.collection("inv_pengiriman").update(id, data);
-    setPengirimans((prev) => prev.map((p) => (p.id === id ? (record as unknown as InvPengiriman) : p)));
+    const record = await savePengiriman("update", id, data);
+    setPengirimans((prev) => prev.map((p) => (p.id === id ? record : p)));
   };
 
-  const addInvoice = async (data: Partial<InvInvoice>) => {
-    const isInvoiceIdConflict = (err: unknown): boolean => {
-      if (!err || typeof err !== "object") return false;
-      const e = err as { data?: { data?: { invoice_id?: { code?: string } } } };
-      return e.data?.data?.invoice_id?.code === "validation_not_unique";
-    };
-
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        const record = await pb.collection("inv_invoice").create(data);
-        setInvoices((prev) => [record as unknown as InvInvoice, ...prev]);
-        return;
-      } catch (err) {
-        if (isInvoiceIdConflict(err) && attempt < 4) {
-          if (!data.invoice_id) {
-            data = {
-              ...data,
-              invoice_id: `INV-AUTO-${Date.now().toString(36).toUpperCase()}`,
-            };
-          }
-          continue;
-        }
-        throw err;
-      }
+  const addInvoice = async (data: Partial<InvInvoice>, pengirimanIds: string[] = []) => {
+    const response = await fetch("/api/inventory/invoice", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pb.authStore.token}`,
+      },
+      body: JSON.stringify({ invoice: data, pengirimanIds }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Gagal menerbitkan invoice.");
+    setInvoices((prev) => [result.record as InvInvoice, ...prev]);
+    if (pengirimanIds.length > 0) {
+      setPengirimans((prev) => prev.map((p) =>
+        pengirimanIds.includes(p.id)
+          ? { ...p, invoice_id: (result.record as InvInvoice).id }
+          : p,
+      ));
     }
-    throw new Error("addInvoice: gagal membuat invoice_id unik setelah 5 percobaan");
   };
 
   const updateInvoice = async (id: string, data: Partial<InvInvoice>) => {

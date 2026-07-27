@@ -248,5 +248,17 @@ export async function POST(req: NextRequest) {
     jumlah:       body.amount,
   }).catch(() => {});
 
-  return NextResponse.json({ waStatus, emailStatus, errors: errors.length ? errors : undefined });
+  const anyChannelSent = waStatus === "sent" || emailStatus === "sent";
+  const allChannelsSkipped = waStatus === "skipped" && emailStatus === "skipped";
+  return NextResponse.json({
+    success: anyChannelSent,
+    waStatus,
+    emailStatus,
+    errors: errors.length ? errors : undefined,
+    reason: anyChannelSent
+      ? undefined
+      : allChannelsSkipped
+        ? "Tidak ada channel notifikasi yang aktif"
+        : "Semua channel notifikasi gagal",
+  }, { status: anyChannelSent ? 200 : allChannelsSkipped ? 503 : 502 });
 }

@@ -990,10 +990,10 @@ async function notifyBrokerAffiliated(
       return;
     }
     const result = await res.json().catch(() => ({}));
-    if (result?.waStatus === "failed" && result?.emailStatus === "failed") {
+    if (!(result?.waStatus === "sent" || result?.emailStatus === "sent")) {
       console.warn(
-        `[notifyBrokerAffiliated] Semua channel gagal untuk broker="${brokerName}":`,
-        result?.reason || "",
+        `[notifyBrokerAffiliated] Broker tidak menerima notifikasi untuk broker="${brokerName}":`,
+        result?.reason || "semua channel gagal atau skipped",
       );
     }
   } catch (err) {
@@ -1053,12 +1053,15 @@ async function sendBulkNotifications(
       );
     }
     const result = await res.json().catch(() => ({}));
-    if (result?.waStatus === "failed" || result?.emailStatus === "failed") {
+    const investorAnyChannelSent = result?.waStatus === "sent" || result?.emailStatus === "sent";
+    const investorAllChannelsSkipped = result?.waStatus === "skipped" && result?.emailStatus === "skipped";
+    if (!investorAnyChannelSent) {
       const parts: string[] = [];
       if (result?.waStatus === "failed")    parts.push("WhatsApp gagal");
       if (result?.emailStatus === "failed") parts.push("Email gagal");
+      if (investorAllChannelsSkipped) parts.push("semua channel skipped");
       throw new Error(
-        `Notifikasi investor — ${parts.join(", ")}` +
+        `Notifikasi investor — ${parts.join(", ") || result?.reason || "tidak terkirim"}` +
         (result?.errors?.length ? `. ${result.errors.join("; ")}` : ""),
       );
     }
@@ -1131,12 +1134,11 @@ async function sendBulkNotifications(
     // Throw HANYA jika SEMUA channel gagal — jika salah satu (mis. email)
     // sudah terkirim, anggap sukses karena broker benar-benar sudah
     // menerima notifikasi bukti transfer.
-    const waFailed    = result?.waStatus    === "failed";
-    const emailFailed = result?.emailStatus === "failed";
-    if (waFailed && emailFailed) {
+    const brokerAnyChannelSent = result?.waStatus === "sent" || result?.emailStatus === "sent";
+    if (!brokerAnyChannelSent) {
       throw new Error(
-        `Notifikasi broker gagal (WA + Email). Alasan: ` +
-        (result?.reason || "Semua channel gagal"),
+        `Notifikasi broker tidak terkirim: ` +
+        (result?.reason || "Semua channel gagal atau skipped"),
       );
     }
   }

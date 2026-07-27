@@ -133,6 +133,7 @@ function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): 
     buktiBroker:        pbFileUrl(pbRecordId, r.buktiBroker),
     buktiTrader:        pbFileUrl(pbRecordId, r.buktiTrader),
     buktiMinBun:        pbFileUrl(pbRecordId, r.buktiMinBun),
+    buktiPengembalian:  pbFileUrl(pbRecordId, r.buktiPengembalian),
     bagiHasilChecks:    (() => {
       const raw = r.bagiHasilChecks;
       if (!raw) return {};

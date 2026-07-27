@@ -30,6 +30,16 @@ const COMPANY_OPTIONS = {
 
 export default function InvoicePage() {
   const { buyers = [], pengirimans = [], invoices = [], addInvoice, updateInvoice, isLoading } = useInventory();
+  const invoicedSjIds = useMemo(() => {
+    const result = new Set<string>();
+    for (const invoice of invoices) {
+      for (const ref of String(invoice.ref_sj || "").split(",")) {
+        const value = ref.trim();
+        if (value) result.add(value);
+      }
+    }
+    return result;
+  }, [invoices]);
   
   const [isOpen, setIsOpen] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
@@ -47,8 +57,13 @@ export default function InvoicePage() {
 
   const availableSj = useMemo(() => {
     if (!form.buyer_id) return [];
-    return pengirimans.filter(p => p.buyer === form.buyer_id && p.sj_id !== "");
-  }, [form.buyer_id, pengirimans]);
+    return pengirimans.filter(p =>
+      p.buyer === form.buyer_id &&
+      p.sj_id !== "" &&
+      !p.invoice_id &&
+      !invoicedSjIds.has(String(p.sj_id)),
+    );
+  }, [form.buyer_id, pengirimans, invoicedSjIds]);
 
   const rekap = useMemo(() => {
     const selectedSjData = pengirimans.filter(p => form.selected_sj.includes(p.id));
@@ -113,7 +128,7 @@ export default function InvoicePage() {
       };
 
       if(addInvoice) {
-        await addInvoice(payload as any);
+        await addInvoice(payload as any, form.selected_sj);
       } else {
         toast.warning("Fungsi addInvoice belum tersedia di context, data disimulasikan sukses.");
       }
@@ -121,8 +136,9 @@ export default function InvoicePage() {
       toast.success(`Invoice ${newInvId} berhasil diterbitkan!`);
       setIsOpen(false);
       setForm({ tanggal: todayWibStr().slice(0, 10), jatuh_tempo: "", buyer_id: "", selected_sj: [], harga_a: "", harga_b: "", harga_c: "", harga_baby: "", harga_campur: "" });
-    } catch (err: any) {
-      toast.error("Gagal menerbitkan Invoice.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Gagal menerbitkan Invoice.";
+      toast.error(message);
     }
   };
 

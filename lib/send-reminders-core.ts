@@ -623,7 +623,12 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
     const errorMessagePayload = errors.length > 0
       ? errors.map((e, i) => `[${i + 1}/${errors.length}] ${e}`).join("\n")
       : "";
+    const anyChannelSent = adminEmailStatus === "sent" || waStatus === "sent";
+    const allChannelsSkipped = adminEmailStatus === "skipped" && waStatus === "skipped";
 
+    // Catat attempt untuk audit, tetapi jangan mengembalikan status sukses atau
+    // menghitung task sebagai terkirim bila tidak ada channel yang benar-benar
+    // mengirim pesan. Cron dapat mencoba kembali pada eksekusi berikutnya.
     await Promise.all(
       toSend.map((task) =>
         pb.collection("reminder_logs").create({
@@ -635,11 +640,28 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
           jumlah:       task.amount,
           emailStatus:  adminEmailStatus,
           waStatus,
-          errorMessage: errorMessagePayload,
+          errorMessage: errorMessagePayload || (
+            allChannelsSkipped ? "Tidak ada channel notifikasi yang aktif" : "Semua channel notifikasi gagal"
+          ),
           triggeredBy,
         }).catch(() => {}),
       ),
     );
+
+    if (!anyChannelSent) {
+      return {
+        status: allChannelsSkipped ? 503 : 502,
+        body: {
+          sent: 0,
+          adminEmailStatus,
+          waStatus,
+          errors: errors.length ? errors : [
+            allChannelsSkipped ? "Tidak ada channel notifikasi yang aktif" : "Semua channel notifikasi gagal",
+          ],
+          tasks: toSend.map((t) => ({ id: t.id, type: t.type, date: t.date })),
+        },
+      };
+    }
 
     return {
       status: 200,

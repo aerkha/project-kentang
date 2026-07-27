@@ -39,7 +39,13 @@ export default function SortirPage() {
 
   // Hitung total yang sudah disortir (Grade + Reject/Susut) pada batch ini oleh record LAIN
   const totalSudahDisortirBatch = sortedInBatch.reduce((sum, s: any) => {
-    return sum + (s.grade_a || 0) + (s.grade_b || 0) + (s.grade_c || 0) + (s.grade_baby || 0) + (s.susut || 0);
+    return sum
+      + (s.grade_a || 0)
+      + (s.grade_b || 0)
+      + (s.grade_c || 0)
+      + (s.grade_baby || 0)
+      + (s.grade_reject || 0)
+      + (s.susut || 0);
   }, 0);
 
   // Sisa kentang mentah murni untuk batch ini

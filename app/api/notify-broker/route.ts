@@ -410,10 +410,18 @@ export async function POST(req: NextRequest) {
     errorMessage: logMessage,
   });
 
-  if (allChannelsFailed) {
+  if (!anyChannelSent) {
+    const allChannelsSkipped = waStatus === "skipped" && emailStatus === "skipped";
     return NextResponse.json(
-      { success: false, waStatus, emailStatus, reason: "Semua channel notifikasi gagal" },
-      { status: 500 },
+      {
+        success: false,
+        waStatus,
+        emailStatus,
+        reason: allChannelsSkipped
+          ? "Tidak ada channel notifikasi yang aktif"
+          : "Semua channel notifikasi gagal",
+      },
+      { status: allChannelsSkipped ? 503 : 502 },
     );
   }
 
