@@ -58,6 +58,20 @@ export async function POST(req: NextRequest) {
     if (alreadyInvoicedLegacy) {
       return NextResponse.json({ error: "Salah satu Surat Jalan sudah tercantum pada invoice sebelumnya" }, { status: 409 });
     }
+    if (typeof invoice.invoice_id === "string" && invoice.invoice_id.trim() !== "") {
+      try {
+        const existing = await pb.collection("inv_invoice").getFirstListItem(
+          `invoice_id = "${invoice.invoice_id.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`,
+          { fields: "id" },
+        );
+        if (existing) {
+          return NextResponse.json({ error: `No. invoice "${invoice.invoice_id}" sudah digunakan` }, { status: 409 });
+        }
+      } catch (err) {
+        const status = (err as { status?: number })?.status;
+        if (status && status !== 404) throw err;
+      }
+    }
     const invalid = shipmentRecords.find((record) =>
       record.buyer !== buyer || !record.sj_id || record.invoice_id,
     );
