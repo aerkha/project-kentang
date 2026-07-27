@@ -1,0 +1,62 @@
+name: CI/CD MinBun ERP to VPS
+
+# Trigger workflow setiap kali ada push ke branch 'main'
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # ==========================================
+  # TAHAP 1: TESTING (Continuous Integration)
+  # ==========================================
+  test:
+    name: 🧪 Run Tests (Vitest & Supertest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Sesuaikan jika Anda pakai versi 18 atau lainnya
+
+      - name: Install Dependencies
+        run: npm ci # Lebih aman & cepat dari npm install untuk CI/CD
+
+      - name: Run Tests
+        # Pastikan Anda punya script "test": "vitest run" di package.json
+        run: npm run test
+
+  # ==========================================
+  # TAHAP 2: DEPLOY (Continuous Deployment)
+  # ==========================================
+  deploy:
+    name: 🚀 Deploy to VPS
+    needs: test # TAHAP INI HANYA JALAN JIKA TAHAP TEST LULUS 100%
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute SSH Commands on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          # Perintah ini akan dijalankan langsung di dalam terminal VPS Anda
+          script: |
+            # 1. Masuk ke folder proyek (UBAH PATH INI SESUAI FOLDER VPS ANDA)
+            cd /var/www/minbun-erp
+            
+            # 2. Tarik kode terbaru dari GitHub
+            git pull origin main
+            
+            # 3. Update dependencies & Build
+            npm install
+            npm run build
+            
+            # 4. Pindah ke folder standalone & nyalakan ulang server
+            cd .next/standalone
+            pm2 restart minbun-erp || pm2 start server.js --name "minbun-erp"
+            pm2 save

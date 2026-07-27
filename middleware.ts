@@ -8,39 +8,20 @@ import {
 } from "@/lib/rate-limit";
 
 /**
- * Next.js 16 "proxy" file (formerly `middleware.ts`). Runs on the Node.js
- * runtime and applies a per-IP sliding-window rate limit to every
- * /api/* request, with policy buckets defined in lib/rate-limit.ts.
+ * Next.js Middleware. 
+ * Berjalan di runtime Edge/Node.js untuk menerapkan sliding-window rate limit 
+ * ke setiap request /api/* berdasarkan IP pengguna.
  *
- * Headers added to every response (limited or allowed):
+ * Header yang ditambahkan ke setiap response:
  *   - X-RateLimit-Limit
  *   - X-RateLimit-Remaining
  *   - X-RateLimit-Reset        (unix seconds)
  *   - X-RateLimit-Policy       (notify|admin|credentials|sendReminders|...)
- *
- * On rejection: 429 Too Many Requests with `Retry-After` (seconds) and a
- * small JSON body.
- *
- * Notes:
- *  - The bucket key is `<policy>:<clientKey>` so the same IP cannot exhaust
- *    one policy and be denied in another.
- *  - For Vercel: this proxy runs per-region, so this is best-effort global
- *    limiting. Swap to Upstash if you need strict cross-region accuracy
- *    (see lib/rate-limit.ts bottom).
- *  - We intentionally do NOT skip non-mutating methods, because notify/*
- *    etc. are POST and we want a uniform layer; GET routes are cheap to
- *    count anyway.
- *
- * Migration note (from `middleware.ts` to `proxy.ts`):
- *   - File renamed: middleware.ts -> proxy.ts
- *   - Exported function renamed: middleware -> proxy
- *   - Same `config = { matcher }` syntax
- *   - See: https://nextjs.org/docs/messages/middleware-to-proxy
  */
 
 export const config = {
-  // Run only for /api/*. Static assets and pages are excluded because
-  // Next.js applies the matcher before invoking the function.
+  // Hanya jalankan middleware ini untuk rute API. 
+  // Aset statis dan halaman UI akan dilewati untuk menghemat resource server.
   matcher: ["/api/:path*"],
 };
 
@@ -57,10 +38,11 @@ function withRateLimitHeaders(res: NextResponse, opts: {
   return res;
 }
 
-export function proxy(req: NextRequest) {
+// PERBAIKAN: Nama fungsi WAJIB "middleware"
+export function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
 
-  // Belt-and-braces: matcher already restricts this, but be defensive.
+  // Lapis pertahanan ekstra: pastikan hanya memproses /api/
   if (!pathname.startsWith("/api/")) {
     return NextResponse.next();
   }
@@ -74,7 +56,7 @@ export function proxy(req: NextRequest) {
 
   if (!result.ok) {
     const body = JSON.stringify({
-      error: "Too Many Requests",
+      error: "Terlalu banyak permintaan (Too Many Requests)",
       policy,
       retryAfter: result.retryAfter,
     });
