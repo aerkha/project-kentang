@@ -17,17 +17,27 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # FIX: codebase pakai pnpm (lihat pnpm-lock.yaml + pnpm-workspace.yaml).
+      # Sebelumnya workflow pakai `npm ci` yang membaca package-lock.json
+      # (tidak ada) → install akan download versi paket yang berbeda
+      # dari local dev, menyebabkan "works on my machine" syndrome.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20' # Sesuaikan jika Anda pakai versi 18 atau lainnya
+          node-version: '20'
+          cache: 'pnpm' # cache ~/.local/share/pnpm/store berdasarkan lockfile hash
 
       - name: Install Dependencies
-        run: npm ci # Lebih aman & cepat dari npm install untuk CI/CD
+        run: pnpm install --frozen-lockfile # strict — gagal jika lockfile out-of-sync
 
       - name: Run Tests
         # Pastikan Anda punya script "test": "vitest run" di package.json
-        run: npm run test
+        run: pnpm run test
 
   # ==========================================
   # TAHAP 2: DEPLOY (Continuous Deployment)
@@ -37,6 +47,11 @@ jobs:
     needs: test # TAHAP INI HANYA JALAN JIKA TAHAP TEST LULUS 100%
     runs-on: ubuntu-latest
     steps:
+      - name: Setup pnpm (untuk konsistensi tooling)
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - name: Execute SSH Commands on VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -48,15 +63,31 @@ jobs:
           script: |
             # 1. Masuk ke folder proyek (UBAH PATH INI SESUAI FOLDER VPS ANDA)
             cd /var/www/minbun-erp
-            
+
             # 2. Tarik kode terbaru dari GitHub
             git pull origin main
-            
-            # 3. Update dependencies & Build
-            npm install
-            npm run build
-            
-            # 4. Pindah ke folder standalone & nyalakan ulang server
+
+            # 3. Install dengan lockfile strict (penting untuk konsistensi versi)
+            #    Flag --frozen-lockfile membuat deploy GAGAL jika lockfile
+            #    tidak sinkron dengan package.json — hindari runtime error
+            #    akibat paket yang tidak terkunci.
+            pnpm install --frozen-lockfile
+
+            # 4. Build dengan output standalone (lihat next.config.mjs)
+            pnpm run build
+
+            # 5. Pindah ke folder standalone & nyalakan ulang server
             cd .next/standalone
             pm2 restart minbun-erp || pm2 start server.js --name "minbun-erp"
             pm2 save
+
+            # 6. Smoke test: tunggu 5 detik lalu cek /api/health
+            #    Jika return non-200, rollback ke build sebelumnya (lihat
+            #    scripts/rollback.sh). Untuk saat ini hanya log warning.
+            sleep 5
+            if ! curl -fsS -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/health | grep -q "^200$"; then
+              echo "⚠️  HEALTH CHECK FAILED — server mungkin tidak sehat, periksa log PM2"
+              pm2 logs minbun-erp --lines 50 --nostream --raw
+            else
+              echo "✅ Health check passed — deploy sukses"
+            fi
