@@ -1,93 +1,46 @@
-import { describe, it, beforeEach, expect, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  createCollectionStub,
   buildRequest,
+  createCollectionStub,
 } from "../helpers/setup-pocketbase-mock";
 
 /**
- * Test untuk app/api/admin/change-password/route.ts
+ * Test security dan validasi untuk POST /api/admin/change-password.
  *
- * Route ini security-sensitive — melewati route handler regular PocketBase
- * untuk update password tanpa oldPassword (karena PocketBase mensyaratkan
- * oldPassword untuk regular user update, tapi admin perlu bypass ini).
- *
- * Alur:
- *   1. Same-origin check (CSRF)
- *   2. Caller harus admin (verifikasi via PB authRefresh)
- *   3. Body validation (userId, password, passwordConfirm, length >= 8)
- *   4. Login sebagai service account (PB_SERVICE_EMAIL/PASSWORD)
- *   5. Update password user target
- *
- * Bug yang harus dicegah oleh test:
- *   - Non-admin caller bisa bypass dengan token palsu
- *   - Password lemah (< 8 char) lolos
- *   - Password confirm mismatch
- *   - Service account tidak terkonfigurasi → harus return 500 (bukan 200)
- *   - Cross-origin request lolos
+ * Route memakai dua sesi PocketBase: token caller untuk memastikan role admin,
+ * lalu service account untuk melakukan update password tanpa oldPassword.
  */
-
 const mockState = vi.hoisted(() => ({
   collections: {} as Record<string, any>,
-  // Flag untuk override role per-test
   callerRole: "admin",
   callerAuthShouldFail: false,
   serviceAuthShouldFail: false,
-  serviceAvailable: true,
+  authStoreSave: vi.fn(),
+}));
+
+const pbErrorMocks = vi.hoisted(() => ({
+  isSameOriginRequest: vi.fn(),
 }));
 
 vi.mock("pocketbase", () => ({
   default: class PocketBase {
     authStore = {
-      save: vi.fn(),
-      record: { role: mockState.callerRole },
+      save: mockState.authStoreSave,
+      record: null,
     };
+
     collection(name: string) {
       if (!mockState.collections[name]) {
-        if (name === "users") {
-          mockState.collections[name] = {
-            ...createCollectionStub(),
-            authRefresh: vi.fn().mockImplementation(() => {
-              if (mockState.callerAuthShouldFail) {
-                return Promise.reject({ status: 401, message: "Token invalid" });
-              }
-              return Promise.resolve({ record: { role: mockState.callerRole } });
-            }),
-          };
-        } else {
-          mockState.collections[name] = createCollectionStub();
-        }
+        mockState.collections[name] = createCollectionStub();
       }
       return mockState.collections[name];
     }
-    // Override authWithPassword khusus untuk service account flow
   },
 }));
 
-// Patch: kita butuh authWithPassword di instance kedua (untuk service account).
-// Karena mock PocketBase di-share, kita tambahkan method ini via prototype.
-const PocketBaseMockModule = await import("pocketbase");
-const OriginalPocketBase = (PocketBaseMockModule as any).default;
-// Tambah authWithPassword ke mock class yang akan dipakai kedua instance
-OriginalPocketBase.prototype.authWithPassword = vi.fn().mockImplementation(function (
-  this: any,
-  email: string,
-  password: string,
-) {
-  if (!mockState.serviceAvailable) {
-    return Promise.reject(new Error("Service account tidak dikonfigurasi"));
-  }
-  if (mockState.serviceAuthShouldFail) {
-    return Promise.reject(new Error("Invalid service credentials"));
-  }
-  this.authStore.record = { role: "admin", email };
-  return Promise.resolve({ record: { role: "admin", email } });
-});
+vi.mock("@/lib/pb-error", () => pbErrorMocks);
 
-vi.mock("@/lib/pb-error", () => ({
-  isSameOriginRequest: vi.fn().mockReturnValue(true),
-}));
-
-import { POST } from "@/app/api/admin/change-password/route";
+import { POST } from "../../app/api/admin/change-password/route";
 
 const VALID_BODY = {
   userId: "user-target-123",
@@ -95,131 +48,221 @@ const VALID_BODY = {
   passwordConfirm: "newStrongPass123",
 };
 
+const originalEnv = {
+  NEXT_PUBLIC_PB_URL: process.env.NEXT_PUBLIC_PB_URL,
+  PB_SERVICE_EMAIL: process.env.PB_SERVICE_EMAIL,
+  PB_SERVICE_PASSWORD: process.env.PB_SERVICE_PASSWORD,
+};
+
+function asPostRequest(request: ReturnType<typeof buildRequest>) {
+  return request as unknown as Parameters<typeof POST>[0];
+}
+
+function usersCollection() {
+  return mockState.collections.users as ReturnType<typeof createCollectionStub> & {
+    authRefresh: ReturnType<typeof vi.fn>;
+    authWithPassword: ReturnType<typeof vi.fn>;
+  };
+}
+
 beforeEach(() => {
-  for (const key of Object.keys(mockState.collections)) delete mockState.collections[key];
+  vi.clearAllMocks();
+  for (const key of Object.keys(mockState.collections)) {
+    delete mockState.collections[key];
+  }
+
   mockState.callerRole = "admin";
   mockState.callerAuthShouldFail = false;
   mockState.serviceAuthShouldFail = false;
-  mockState.serviceAvailable = true;
-  // Reset env
+  pbErrorMocks.isSameOriginRequest.mockReturnValue(true);
+
+  mockState.collections.users = createCollectionStub({
+    authRefresh: vi.fn().mockImplementation(() => {
+      if (mockState.callerAuthShouldFail) {
+        return Promise.reject({ status: 401, message: "Token invalid" });
+      }
+      return Promise.resolve({ record: { role: mockState.callerRole } });
+    }),
+    authWithPassword: vi.fn().mockImplementation(() => {
+      if (mockState.serviceAuthShouldFail) {
+        return Promise.reject(new Error("Invalid service credentials"));
+      }
+      return Promise.resolve({ record: { role: "admin" } });
+    }),
+  });
+
   process.env.NEXT_PUBLIC_PB_URL = "http://example.test";
   process.env.PB_SERVICE_EMAIL = "svc@example.test";
   process.env.PB_SERVICE_PASSWORD = "svc-password-xyz";
-  // Reset isSameOriginRequest mock
-  vi.mocked(require("@/lib/pb-error").isSameOriginRequest).mockReturnValue(true);
+});
+
+afterAll(() => {
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
 });
 
 describe("app/api/admin/change-password — security & validation", () => {
-  it("menolak cross-origin request dengan HTTP 403", async () => {
-    vi.mocked(require("@/lib/pb-error").isSameOriginRequest).mockReturnValue(false);
-    const res = await POST(buildRequest(VALID_BODY) as any);
+  it("menolak cross-origin request dengan HTTP 403 sebelum memproses token", async () => {
+    pbErrorMocks.isSameOriginRequest.mockReturnValue(false);
+
+    const res = await POST(asPostRequest(buildRequest(VALID_BODY)));
+
     expect(res.status).toBe(403);
-    const body = await res.json();
-    expect(body.error).toMatch(/invalid origin/i);
+    expect(await res.json()).toEqual({ error: "Forbidden: invalid origin" });
+    expect(usersCollection().authRefresh).not.toHaveBeenCalled();
   });
 
-  it("menolak request tanpa Authorization header", async () => {
-    const req = buildRequest(VALID_BODY, { authorization: "" });
-    const res = await POST(req as any);
-    expect(res.status).toBe(401);
-    const body = await res.json();
-    expect(body.error).toMatch(/unauthorized/i);
-  });
+  it.each(["", "Basic fake-token", "Bearer "])(
+    "menolak Authorization header yang kosong/tidak valid: %j",
+    async (authorization) => {
+      const res = await POST(asPostRequest(buildRequest(VALID_BODY, { authorization })));
 
-  it("menolak caller dengan role bukan admin (403)", async () => {
-    mockState.callerRole = "user";
-    const res = await POST(buildRequest(VALID_BODY) as any);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "Unauthorized" });
+      expect(usersCollection().authRefresh).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["user", "investor"])("menolak caller dengan role %s", async (role) => {
+    mockState.callerRole = role;
+
+    const res = await POST(asPostRequest(buildRequest(VALID_BODY)));
+
     expect(res.status).toBe(403);
-    const body = await res.json();
-    expect(body.error).toMatch(/hanya admin/i);
+    expect((await res.json()).error).toMatch(/hanya admin/i);
+    expect(usersCollection().authWithPassword).not.toHaveBeenCalled();
   });
 
-  it("menolak caller role investor (403)", async () => {
-    mockState.callerRole = "investor";
-    const res = await POST(buildRequest(VALID_BODY) as any);
-    expect(res.status).toBe(403);
-  });
-
-  it("return 401 jika token caller tidak valid / expired", async () => {
+  it("mengembalikan 401 jika token caller tidak valid atau kedaluwarsa", async () => {
     mockState.callerAuthShouldFail = true;
-    const res = await POST(buildRequest(VALID_BODY) as any);
+
+    const res = await POST(asPostRequest(buildRequest(VALID_BODY)));
+
     expect(res.status).toBe(401);
-    const body = await res.json();
-    expect(body.error).toMatch(/tidak valid|kedaluwarsa/i);
+    expect((await res.json()).error).toMatch(/tidak valid|kedaluwarsa/i);
+    expect(usersCollection().authWithPassword).not.toHaveBeenCalled();
   });
 
-  it("menolak body tanpa field wajib (400)", async () => {
-    const res = await POST(buildRequest({ userId: "x" }) as any);
+  it("menyimpan bearer token sebelum melakukan authRefresh", async () => {
+    await POST(asPostRequest(buildRequest(VALID_BODY)));
+
+    expect(mockState.authStoreSave).toHaveBeenCalledWith("fake-token", null);
+    expect(usersCollection().authRefresh).toHaveBeenCalledOnce();
+  });
+
+  it("menolak JSON body yang tidak dapat diparse", async () => {
+    const request = buildRequest(VALID_BODY);
+    request.json = vi.fn().mockRejectedValue(new SyntaxError("Invalid JSON"));
+
+    const res = await POST(asPostRequest(request));
+
     expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/wajib/i);
+    expect(await res.json()).toEqual({ error: "Body tidak valid" });
   });
 
-  it("menolak jika password !== passwordConfirm", async () => {
-    const res = await POST(buildRequest({
+  it.each([
+    null,
+    [],
+    { ...VALID_BODY, userId: 123 },
+    { ...VALID_BODY, password: 123, passwordConfirm: 123 },
+  ])("menolak bentuk atau tipe body yang tidak valid: %j", async (body) => {
+    const res = await POST(asPostRequest(buildRequest(body)));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/body tidak valid|field wajib/i);
+    expect(usersCollection().authWithPassword).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { password: VALID_BODY.password, passwordConfirm: VALID_BODY.passwordConfirm },
+    { userId: VALID_BODY.userId, passwordConfirm: VALID_BODY.passwordConfirm },
+    { userId: VALID_BODY.userId, password: VALID_BODY.password },
+    { ...VALID_BODY, userId: "   " },
+  ])("menolak body dengan field wajib kosong: %j", async (body) => {
+    const res = await POST(asPostRequest(buildRequest(body)));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/wajib/i);
+    expect(usersCollection().authWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("menolak jika password dan passwordConfirm berbeda", async () => {
+    const res = await POST(asPostRequest(buildRequest({
       ...VALID_BODY,
       passwordConfirm: "differentPassword",
-    }) as any);
+    })));
+
     expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/tidak cocok/i);
+    expect((await res.json()).error).toMatch(/tidak cocok/i);
   });
 
-  it("menolak password < 8 karakter", async () => {
-    const res = await POST(buildRequest({
+  it("menolak password kurang dari 8 karakter", async () => {
+    const res = await POST(asPostRequest(buildRequest({
       ...VALID_BODY,
       password: "short",
       passwordConfirm: "short",
-    }) as any);
+    })));
+
     expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/minimal 8 karakter/i);
+    expect((await res.json()).error).toMatch(/minimal 8 karakter/i);
   });
 
-  it("return 500 jika service account tidak dikonfigurasi", async () => {
-    process.env.PB_SERVICE_EMAIL = "";
-    process.env.PB_SERVICE_PASSWORD = "";
-    const res = await POST(buildRequest(VALID_BODY) as any);
-    expect(res.status).toBe(500);
-    const body = await res.json();
-    expect(body.error).toMatch(/service account belum/i);
-  });
+  it.each(["PB_SERVICE_EMAIL", "PB_SERVICE_PASSWORD"])(
+    "mengembalikan 500 jika %s tidak dikonfigurasi",
+    async (envName) => {
+      delete process.env[envName];
 
-  it("return 500 jika service account auth gagal", async () => {
+      const res = await POST(asPostRequest(buildRequest(VALID_BODY)));
+
+      expect(res.status).toBe(500);
+      expect((await res.json()).error).toMatch(/service account belum/i);
+      expect(usersCollection().authWithPassword).not.toHaveBeenCalled();
+    },
+  );
+
+  it("mengembalikan 500 jika login service account gagal", async () => {
     mockState.serviceAuthShouldFail = true;
-    const res = await POST(buildRequest(VALID_BODY) as any);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const res = await POST(asPostRequest(buildRequest(VALID_BODY)));
+
     expect(res.status).toBe(500);
-    const body = await res.json();
-    expect(body.error).toMatch(/gagal/i);
+    expect((await res.json()).error).toBe("Gagal mengganti password");
+    expect(usersCollection().update).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
-  it("sukses update password dengan admin caller + service account valid", async () => {
-    const users = createCollectionStub();
-    mockState.collections.users = users;
+  it("mengganti password dengan service account untuk caller admin", async () => {
+    const res = await POST(asPostRequest(buildRequest(VALID_BODY)));
 
-    const res = await POST(buildRequest(VALID_BODY) as any);
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    // Verify PocketBase update dipanggil dengan userId + password + passwordConfirm
-    expect(users.update).toHaveBeenCalledWith(VALID_BODY.userId, {
+    expect(await res.json()).toEqual({ ok: true });
+    expect(usersCollection().authWithPassword).toHaveBeenCalledWith(
+      "svc@example.test",
+      "svc-password-xyz",
+    );
+    expect(usersCollection().update).toHaveBeenCalledWith(VALID_BODY.userId, {
       password: VALID_BODY.password,
       passwordConfirm: VALID_BODY.passwordConfirm,
     });
   });
 
-  it("tidak leak detail error PocketBase ke client (error.message hanya generic)", async () => {
-    const users = createCollectionStub({
-      update: vi.fn().mockRejectedValue(new Error("DB connection lost: server-123.internal")),
-    });
-    mockState.collections.users = users;
-    const res = await POST(buildRequest(VALID_BODY) as any);
-    expect(res.status).toBe(500);
+  it("tidak membocorkan detail error PocketBase ke client", async () => {
+    usersCollection().update.mockRejectedValue(
+      new Error("DB connection lost: server-123.internal"),
+    );
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const res = await POST(asPostRequest(buildRequest(VALID_BODY)));
     const body = await res.json();
-    // Error detail di-include untuk debugging admin, tapi TIDAK membocorkan
-    // info sensitif seperti hostname internal. Route saat ini include `detail`
-    // via String(err) — test ini verifies behavior exists. Untuk hardening,
-    // bisa ditambahkan filter di route handler.
-    expect(body.error).toBeDefined();
+
+    expect(res.status).toBe(500);
+    expect(body).toEqual({ error: "Gagal mengganti password" });
+    expect(JSON.stringify(body)).not.toContain("server-123.internal");
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });

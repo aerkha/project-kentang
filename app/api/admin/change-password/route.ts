@@ -47,15 +47,23 @@ export async function POST(req: NextRequest) {
   }
 
   // 2. Parse body
-  let body: ChangePasswordBody;
+  let body: unknown;
   try {
-    body = await req.json() as ChangePasswordBody;
+    body = await req.json();
   } catch {
     return NextResponse.json({ error: "Body tidak valid" }, { status: 400 });
   }
 
-  const { userId, password, passwordConfirm } = body;
-  if (!userId || !password || !passwordConfirm) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "Body tidak valid" }, { status: 400 });
+  }
+
+  const { userId, password, passwordConfirm } = body as Partial<ChangePasswordBody>;
+  if (
+    typeof userId !== "string" || !userId.trim()
+    || typeof password !== "string" || !password
+    || typeof passwordConfirm !== "string" || !passwordConfirm
+  ) {
     return NextResponse.json({ error: "Field wajib kurang" }, { status: 400 });
   }
   if (password !== passwordConfirm) {
@@ -83,7 +91,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[change-password] gagal update via service account:", err);
     return NextResponse.json(
-      { error: "Gagal mengganti password", detail: String(err) },
+      { error: "Gagal mengganti password" },
       { status: 500 },
     );
   }
