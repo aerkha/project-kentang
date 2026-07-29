@@ -3,7 +3,7 @@ import { runReminders, runRemindersTest } from "@/lib/send-reminders-core";
 
 /**
  * 1. GET /api/send-reminders
- * Dipanggil otomatis oleh cron Vercel (vercel.json: "0 0 * * *" UTC = 07:00 WIB).
+ * Dipanggil otomatis oleh cron VPS (systemd timer / crontab "0 0 * * *" UTC = 07:00 WIB).
  * Auth menggunakan rahasia CRON_SECRET.
  */
 export async function GET(req: NextRequest) {

@@ -7,7 +7,7 @@ export function cn(...inputs: ClassValue[]) {
 
 // ── Zona waktu aplikasi: WIB (Asia/Jakarta, UTC+7) ──────────────────────────
 // Semua perhitungan "hari ini" memakai kalender WIB agar konsisten
-// di mana pun aplikasi/server berjalan (browser user maupun Vercel UTC).
+// di mana pun aplikasi/server berjalan (browser user maupun VPS UTC).
 // Pakai Intl.DateTimeFormat("en-CA") dengan timeZone eksplisit — lebih
 // robust terhadap bug TZ di V8/Node dibanding toLocaleDateString.
 

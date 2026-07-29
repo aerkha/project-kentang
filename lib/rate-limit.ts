@@ -1,13 +1,13 @@
 /**
- * In-memory sliding-window rate limiter for Next.js middleware (edge runtime).
+ * In-memory sliding-window rate limiter for Next.js middleware.
  *
- * IMPORTANT (Vercel deployments):
- *   On Vercel, middleware runs in the edge region closest to the user, so the
- *   Map below is NOT shared across regions. This is acceptable as a coarse
- *   anti-spam / anti-abuse layer. For strict global limits, swap the
- *   `RateLimitStore` interface for Upstash Redis (see comment at the bottom).
- *
- * Single-instance self-host: works exactly as a normal in-memory limiter.
+ * Implementation notes:
+ *   - Single-instance VPS deployment: the Map below is shared across all
+ *     requests in the Node.js process — works exactly as a normal
+ *     in-memory limiter.
+ *   - For multi-instance deployments (e.g. load-balanced VPS / Docker
+ *     swarm), swap the `RateLimitStore` interface for Upstash Redis (see
+ *     comment at the bottom of this file).
  *
  * Algorithm: sliding window with a coarse bucket per (key, windowSeconds).
  * We keep an array of timestamps for each key and count those within the
@@ -193,8 +193,8 @@ export function classify(pathname: string): PolicyName {
  *      NAT/CGNAT and identifies the real actor.
  *   2. x-forwarded-for (first hop).
  *   3. x-real-ip.
- *   4. cf-connecting-ip (Cloudflare).
- *   5. req.ip (Vercel/Next exposes this).
+ *   4. cf-connecting-ip (Cloudflare, if fronting the VPS).
+ *   5. req.ip (Next exposes this).
  *   6. "unknown" — last-resort bucket shared by all unidentified callers.
  *
  * NOTE: parsing the PB token here is intentionally NOT done; it would
@@ -217,8 +217,8 @@ export function clientKey(req: Request): string {
 
 // ── Upstash swap (commented for future use) ──────────────────────────────────
 //
-// To switch to a globally-consistent store (Vercel multi-region), install
-// @upstash/ratelimit + @upstash/redis, then add:
+// To switch to a globally-consistent store (multi-instance VPS, Docker
+// swarm, Kubernetes), install @upstash/ratelimit + @upstash/redis, then add:
 //
 //   import { Ratelimit } from "@upstash/ratelimit";
 //   import { Redis } from "@upstash/redis";

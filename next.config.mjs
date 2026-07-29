@@ -15,7 +15,6 @@ const PB_WS = PB_ORIGIN.replace(/^http/, "ws");
 
 const SELF = process.env.NEXT_PUBLIC_APP_URL || PB_ORIGIN;
 
-// Vercel-specific domains (vercel.live) telah dihapus karena tidak relevan di VPS.
 const csp = [
   `default-src 'self'`,
   `script-src 'self' 'unsafe-inline' 'unsafe-eval'`,
@@ -65,8 +64,6 @@ export default withSentryConfig(nextConfig, {
   widenClientFileUpload: true,
   tunnelRoute: "/monitoring",
   webpack: {
-    // Dimatikan karena kita tidak menggunakan Vercel Cron di VPS
-    automaticVercelMonitors: false,
     treeshake: {
       removeDebugLogging: true,
     },

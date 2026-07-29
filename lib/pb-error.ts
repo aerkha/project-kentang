@@ -7,7 +7,7 @@
  * m-23: Validasi Origin / Referer untuk semua POST API route.
  * Cegah request dari cross-origin tanpa consent. Izinkan jika:
  * - Header Origin / Referer cocok dengan host request
- * - Atau tidak ada Origin/Referer (cURL, server-to-server, Vercel cron)
+ * - Atau tidak ada Origin/Referer (cURL, server-to-server, VPS cron)
  *   — tapi tetap tolak jika env mismatch (konfigurasi deployment).
  */
 export function isSameOriginRequest(req: Request): boolean {
@@ -19,7 +19,8 @@ export function isSameOriginRequest(req: Request): boolean {
   try {
     const sourceUrl = new URL(source);
     // Ambil host dari request URL sebagai acuan.
-    // Vercel/Next otomatis set host header yang valid.
+    // Next otomatis mengisi host header; reverse-proxy Nginx/Cloudflare
+    // akan meneruskan host asli melalui x-forwarded-host.
     const host = req.headers.get("host") || req.headers.get("x-forwarded-host");
     if (!host) return true;
     return sourceUrl.host === host;

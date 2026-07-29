@@ -3,16 +3,16 @@
  *
  * Replaces ad-hoc console.log calls scattered across route.ts files.
  * Why:
- *   - In production (Vercel), each console.log becomes a billable log line.
+ *   - In production (VPS), stdout/stderr go to PM2 / journald logs.
  *     Consolidating into one logger lets us strip info-level logs in prod.
- *   - Vercel log search and dashboard can filter by tag cheaply.
+ *   - Sentry captures console.error calls for error reporting.
  *   - PII (email, phone, broker name) should be redacted before leaving the box.
  *     Wrapping in helper lets us add redaction in one place.
  *
  * Verbosity rules:
  *   - info is stripped in production (NODE_ENV === production).
  *   - warn and error always emit.
- *   - Errors are emitted with console.error so Vercel groups them as errors.
+ *   - Errors are emitted with console.error so Sentry groups them as errors.
  */
 
 type LogLevel = "info" | "warn" | "error";

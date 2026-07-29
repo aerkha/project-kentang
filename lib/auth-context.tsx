@@ -8,7 +8,7 @@ import { TreeLoader } from "@/components/ui/tree-loader";
 /**
  * Failsafe: lepas loading screen setelah N ms meskipun authRefresh masih
  * menggantung. Mencegah UI stuck selamanya kalau PocketBase unreachable
- * (mis. Cloudflare Tunnel mati saat deploy ke Vercel, atau PB server down).
+ * (mis. reverse-proxy mati saat deploy ke VPS, atau PB server down).
  *
  * 8 detik sudah cukup untuk kebanyakan respons PB; di atas itu kita anggap
  * unreachable dan lepas loading agar user bisa login ulang.
