@@ -276,22 +276,10 @@ async function sendEmail(to: string, opts: Parameters<typeof buildEmailHtml>[0])
     html:    buildEmailHtml(opts),
   });
 
-  // SELALU kirim salinan ke admin (GMAIL_USER) sebagai arsip audit,
-  // kecuali admin = recipient (mis. investorId = admin user).
-  const adminEmail = process.env.GMAIL_USER;
-  if (adminEmail && adminEmail !== to) {
-    try {
-      await transporter.sendMail({
-        from:    `"MinBun ERP" <${user}>`,
-        to:      adminEmail,
-        subject: `[MinBun] 📋 Salinan Notifikasi Bagi Hasil ke ${opts.investorName} — ${opts.transaksiId}`,
-        html:    buildEmailHtml(opts),
-      });
-      log.info(`email SALINAN ke admin=${adminEmail} (arsip ${opts.investorName})`);
-    } catch (e) {
-      console.warn("[notify-investor] gagal kirim salinan email ke admin:", e);
-    }
-  }
+  // PATCH (Tugas Transfer Harian): salinan email ke admin DIHAPUS untuk
+  // mencegah kebanjiran email admin saat user menuntaskan banyak tugas
+  // pelunasan/pengembalian modal sekaligus. Admin tetap bisa memantau
+  // pengiriman via halaman Riwayat Reminder.
   return "sent";
 }
 
