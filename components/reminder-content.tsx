@@ -1228,27 +1228,50 @@ function EntityRow({
           <div className={`font-bold text-base ${showDone ? "text-green-600" : ""}`}>{formatCurrency(ent.totalAmount)}</div>
         </td>
         <td className="py-3 px-3 text-center">
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 z-10"
-                  disabled={isLoading}
-                  onClick={(e) => { e.stopPropagation(); handleActionClick(ent); }}
-                >
-                  {showDone
-                    ? <CheckCircle2 className="h-5 w-5 text-green-500" />
-                    : <Circle className={`h-5 w-5 ${hasDue ? "text-orange-500" : "text-muted-foreground"}`} />
-                  }
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left" className="text-xs">
-                {tooltipText}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          {/* Tombol "Batalkan pelunasan" (muncul di tab Selesai) untuk sementara dinonaktifkan.
+              Logika handleUndoBulk dan getBulkActionTooltipText tetap tersedia agar bisa
+              diaktifkan kembali tanpa perlu restore kode. Untuk mengaktifkan kembali,
+              hapus komentar blok JSX showDone di bawah dan ganti tag TD menjadi ternary. */}
+          {/* showDone && (
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 z-10"
+                    disabled={isLoading}
+                    onClick={(e) => { e.stopPropagation(); handleActionClick(ent); }}
+                  >
+                    <CheckCircle2 className="h-5 w-5 text-green-500" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left" className="text-xs">
+                  {tooltipText}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) */}
+          {!showDone && (
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 z-10"
+                    disabled={isLoading}
+                    onClick={(e) => { e.stopPropagation(); handleActionClick(ent); }}
+                  >
+                    <Circle className={`h-5 w-5 ${hasDue ? "text-orange-500" : "text-muted-foreground"}`} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left" className="text-xs">
+                  {tooltipText}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </td>
       </tr>
       
