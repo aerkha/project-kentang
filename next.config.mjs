@@ -69,5 +69,3 @@ export default withSentryConfig(nextConfig, {
     },
   },
 });
-
-/*test deployment*/

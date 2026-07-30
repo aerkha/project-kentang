@@ -61,20 +61,25 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           # Perintah ini akan dijalankan langsung di dalam terminal VPS Anda
           script: |
-            # 1. Masuk ke folder proyek (UBAH PATH INI SESUAI FOLDER VPS ANDA)
+            # 1. Masuk ke folder proyek
             cd /var/www/minbun-erp
 
             # 2. Tarik kode terbaru dari GitHub
             git pull origin main
 
-            # 3. Install dengan lockfile strict (penting untuk konsistensi versi)
-            #    Flag --frozen-lockfile membuat deploy GAGAL jika lockfile
-            #    tidak sinkron dengan package.json — hindari runtime error
-            #    akibat paket yang tidak terkunci.
+            # 3. Install dengan lockfile strict
             pnpm install --frozen-lockfile
 
-            # 4. Build dengan output standalone (lihat next.config.mjs)
+            # 4. Build dengan output standalone
             pnpm run build
+
+            # ==========================================
+            # FIX STANDALONE: Salin aset statis & .env
+            # ==========================================
+            cp -r public .next/standalone/
+            cp -r .next/static .next/standalone/.next/
+            cp .env .next/standalone/
+            # ==========================================
 
             # 5. Pindah ke folder standalone & nyalakan ulang server
             cd .next/standalone
@@ -82,8 +87,6 @@ jobs:
             pm2 save
 
             # 6. Smoke test: tunggu 5 detik lalu cek /api/health
-            #    Jika return non-200, rollback ke build sebelumnya (lihat
-            #    scripts/rollback.sh). Untuk saat ini hanya log warning.
             sleep 5
             if ! curl -fsS -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/health | grep -q "^200$"; then
               echo "⚠️  HEALTH CHECK FAILED — server mungkin tidak sehat, periksa log PM2"
