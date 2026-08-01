@@ -68,10 +68,10 @@ jobs:
             git pull origin main
 
             # 3. Install dengan lockfile strict
-            pnpm install --frozen-lockfile
+            npm install --frozen-lockfile
 
             # 4. Build dengan output standalone
-            pnpm run build
+            npm run build
 
             # ==========================================
             # FIX STANDALONE: Salin aset statis & .env
