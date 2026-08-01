@@ -8,7 +8,7 @@ export interface ModalEntry {
   investorCustomId: string;
   amount: number;
   date: string;
-  mouId: string;
+  pksId: string;
   buktiTransfer: string;
   type: "initial" | "topup";
   keterangan: string;
@@ -34,7 +34,7 @@ function recordToEntry(r: PbRecord): ModalEntry {
     investorCustomId: (expand?.investorId?.customId as string) ?? "",
     amount:           (r.amount as number) ?? 0,
     date:             (r.date as string) ?? "",
-    mouId:            (r.mouId as string) ?? "",
+    pksId:            (r.pksId as string) ?? "",
     buktiTransfer:    (r.buktiTransfer as string) ?? "",
     type:             (r.type as "initial" | "topup") ?? "initial",
     keterangan:       (r.keterangan as string) ?? "",

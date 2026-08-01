@@ -217,7 +217,7 @@ async function processAutorenewals(pb: PocketBase) {
            await pb.collection("transaksi_investors").create({
               transaksiId: newTrx.id,
               investorId: inv.investorId,
-              mouId: inv.mouId,
+              pksId: inv.pksId,
               investorName: inv.investorName,
               investorBrokerName: inv.investorBrokerName,
               nilaiInvestasi: safeNum(inv.nilaiInvestasi),
@@ -337,21 +337,21 @@ async function processBagiHasilTasks(pb: PocketBase, tasks: PendingTask[]): Prom
   }
 }
 
-// Helper: Process Pengembalian Modal (MoU)
+// Helper: Process Pengembalian Modal (Pks)
 async function processPengembalianModalTasks(pb: PocketBase, tasks: PendingTask[], today: string): Promise<void> {
-  const mous = await pb.collection("mous").getFullList<any>({
+  const pksList = await pb.collection("mous").getFullList<any>({
     filter: `isTerminated = false`,
   });
 
-  for (const mou of mous) {
-    const endStr = endDatePks(mou);
+  for (const pks of pksList) {
+    const endStr = endDatePks(pks);
     if (diffDays(today, endStr) <= 0) {
       tasks.push({
         type: "Pengembalian Modal",
-        id: mou.id,
+        id: pks.id,
         date: endStr,
-        investors: mou.investorName || "—",
-        amount: mou.investmentAmount || 0,
+        investors: pks.investorName || "—",
+        amount: pks.investmentAmount || 0,
         statusLabel: "Jatuh Tempo",
       });
     }
@@ -588,7 +588,7 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
         allPending.map((task) =>
           pb.collection("reminder_logs")
             .getList(1, 1, {
-              filter: `(mouCustomId = "${pbEsc(task.id)}") && (triggeredBy = "cron" || triggeredBy = "manual") && (sentAt >= "${twentyHoursAgo}")`,
+              filter: `(pksCustomId = "${pbEsc(task.id)}") && (triggeredBy = "cron" || triggeredBy = "manual") && (sentAt >= "${twentyHoursAgo}")`,
             })
             .then((r) => r.totalItems > 0)
             .catch(() => false),
@@ -632,7 +632,7 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
     await Promise.all(
       toSend.map((task) =>
         pb.collection("reminder_logs").create({
-          mouCustomId:  task.id,
+          pksCustomId:  task.id,
           cycleNumber:  0,
           sentAt:       new Date().toISOString(),
           investorName: task.investors || "",

@@ -1,10 +1,10 @@
-// Set env SEBELUM import MouContext agar PB_BASE di-evaluasi dengan benar.
+// Set env SEBELUM import PksContext agar PB_BASE di-evaluasi dengan benar.
 process.env.NEXT_PUBLIC_PB_URL = "http://example.test";
 
 import { describe, expect, it, vi } from "vitest";
 
-// Mock pocketbase agar MouContext tidak membuat instance PocketBase hidup
-// ketika modul di-load (MouProvider memicu getFullList di useEffect).
+// Mock pocketbase agar PksContext tidak membuat instance PocketBase hidup
+// ketika modul di-load (PksProvider memicu getFullList di useEffect).
 vi.mock("@/lib/pocketbase", () => ({
   default: {
     authStore: { record: { id: "user-1", role: "admin" } },
@@ -15,11 +15,11 @@ vi.mock("@/lib/pocketbase", () => ({
   },
 }));
 
-import { recordToMou, pbFileUrl } from "@/lib/mou-context";
+import { recordToPks, pbFileUrl } from "@/lib/pks-context";
 
 function buildRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    customId: "MOU-202507-001",
+    customId: "PKS-202507-001",
     id: "pbrecord-1",
     buktiPengembalian: "bukti-kembali.pdf",
     buktiInvestor: "bukti-investor.pdf",
@@ -30,16 +30,16 @@ function buildRecord(overrides: Record<string, unknown> = {}): Record<string, un
   };
 }
 
-describe("lib/mou-context.recordToMou — pemetaan bukti transfer", () => {
+describe("lib/pks-context.recordToPks — pemetaan bukti transfer", () => {
   it("memetakan buktiPengembalian menjadi URL lengkap PocketBase", () => {
-    const result = recordToMou(buildRecord(), new Map());
+    const result = recordToPks(buildRecord(), new Map());
     expect(result.buktiPengembalian).toBe(
       "http://example.test/api/files/mous/pbrecord-1/bukti-kembali.pdf",
     );
   });
 
   it("memetakan buktiInvestor dan buktiTrader dengan pola yang sama", () => {
-    const result = recordToMou(buildRecord(), new Map());
+    const result = recordToPks(buildRecord(), new Map());
     expect(result.buktiInvestor).toBe(
       "http://example.test/api/files/mous/pbrecord-1/bukti-investor.pdf",
     );
@@ -49,13 +49,13 @@ describe("lib/mou-context.recordToMou — pemetaan bukti transfer", () => {
   });
 
   it("mengembalikan string kosong untuk field bukti yang tidak diisi", () => {
-    const result = recordToMou(buildRecord(), new Map());
+    const result = recordToPks(buildRecord(), new Map());
     expect(result.buktiBroker).toBe("");
     expect(result.buktiMinBun).toBe("");
   });
 
   it("memetakan bukti array (koleksi) menjadi elemen pertama", () => {
-    const result = recordToMou(
+    const result = recordToPks(
       buildRecord({ buktiInvestor: ["first.pdf", "second.pdf"] }),
       new Map(),
     );

@@ -6,8 +6,8 @@ import { todayWibStr } from "./utils";
 
 const currentUserId = () => pb.authStore.record?.id ?? "";
 
-export interface MoU {
-  id: string;             // MOU-YYYYMM-NNN (customId, e.g. MOU-202505-001)
+export interface Pks {
+  id: string;             // PKS-YYYYMM-NNN (customId, e.g. PKS-202505-001)
   date: string;
   investorId: string;
   investorName: string;
@@ -58,18 +58,18 @@ export const BUKTI_FIELD: Record<string, string> = {
   MinBun:   "buktiMinBun",
 };
 
-interface MouContextType {
-  mous: MoU[];
-  addMou:              (mou: Omit<MoU, "id">) => Promise<void>;
-  updateMou:           (id: string, updates: Partial<MoU>) => Promise<void>;
-  deleteMou:           (id: string) => Promise<void>;
+interface PksContextType {
+  pksList: Pks[];
+  addPks:              (pks: Omit<Pks, "id">) => Promise<void>;
+  updatePks:           (id: string, updates: Partial<Pks>) => Promise<void>;
+  deletePks:           (id: string) => Promise<void>;
   uploadSignedDoc:     (id: string, file: File) => Promise<void>;
   uploadBuktiTransfer: (id: string, keterangan: string, file: File) => Promise<string>;
   /** Upload bukti pengembalian modal (untuk alur Reminder). */
   uploadBuktiPengembalian: (id: string, file: File) => Promise<string>;
 }
 
-const MouContext = createContext<MouContextType | undefined>(undefined);
+const PksContext = createContext<PksContextType | undefined>(undefined);
 
 const PB_BASE = () => process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
 
@@ -99,7 +99,7 @@ export function pbFileUrl(pbRecordId: string, fieldValue: unknown): string {
   return filename ? `${PB_BASE()}/api/files/mous/${pbRecordId}/${filename}` : "";
 }
 
-export function recordToMou(r: Record<string, unknown>, pbIdMap: Map<string, string>): MoU {
+export function recordToPks(r: Record<string, unknown>, pbIdMap: Map<string, string>): Pks {
   const customId   = r.customId as string;
   const pbRecordId = r.id as string;
   pbIdMap.set(customId, pbRecordId);
@@ -171,12 +171,12 @@ function todayUtc(): Date {
   return parseUtcDate(todayWibStr());
 }
 
-export type MouStatus = "draft" | "complete" | "terminated";
+export type PksStatus = "draft" | "complete" | "terminated";
 
 /** Status PKS: terminated > complete > draft. */
-export function getMouStatus(mou: MoU): MouStatus {
-  if (mou.isTerminated) return "terminated";
-  return mou.isComplete ? "complete" : "draft";
+export function getPksStatus(pks: Pks): PksStatus {
+  if (pks.isTerminated) return "terminated";
+  return pks.isComplete ? "complete" : "draft";
 }
 
 /**
@@ -186,8 +186,8 @@ export function getMouStatus(mou: MoU): MouStatus {
  * filter window/terminate; ambil PKS terbaru bila lebih dari satu. Dipakai bersama
  * oleh dashboard & halaman investor agar konsisten. Default 35 hanya jaring pengaman.
  */
-export function investorPkPct(investorId: string, mous: MoU[]): number {
-  const latest = mous
+export function investorPkPct(investorId: string, pksList: Pks[]): number {
+  const latest = pksList
     .filter((m) => m.investorId === investorId)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
   return latest?.bagiHasilPK ?? 35;
@@ -199,10 +199,10 @@ function isCustomIdConflict(err: unknown): boolean {
   return data?.data?.customId?.code === "validation_not_unique";
 }
 
-/** Format ID: MOU-YYYYMM-NNN */
+/** Format ID: PKS-YYYYMM-NNN */
 async function generateCustomId(date: string): Promise<string> {
   const ym     = date.slice(0, 7).replace("-", "");
-  const prefix = `MOU-${ym}-`;
+  const prefix = `PKS-${ym}-`;
   try {
     const res = await pb.collection("mous").getFullList({
       filter: `customId ~ "${prefix}"`,
@@ -220,10 +220,10 @@ async function generateCustomId(date: string): Promise<string> {
   }
 }
 
-export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
-  const [mous, setMous] = useState<MoU[]>([]);
-  const mousRef = useRef<MoU[]>([]);
-  mousRef.current = mous;
+export function PksProvider({ children }: Readonly<{ children: ReactNode }>) {
+  const [pksList, setPkss] = useState<Pks[]>([]);
+  const pkssRef = useRef<Pks[]>([]);
+  pkssRef.current = pksList;
 
   const pbIdMapRef = useRef(new Map<string, string>());
   const map = pbIdMapRef.current;
@@ -253,49 +253,49 @@ export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
   useEffect(() => {
     pb.collection("mous")
       .getFullList({ sort: "customId" })
-      .then((records) => setMous(records.map((r) => recordToMou(r, map))))
+      .then((records) => setPkss(records.map((r) => recordToPks(r, map))))
       .catch(console.error);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const addMou = useCallback(async (mou: Omit<MoU, "id">) => {
-    const pp1 = mou.bagiHasilPP1 ?? 50;
-    const pp2 = mou.bagiHasilPP2 ?? 15;
-    const pp3 = mou.bagiHasilPP3 ?? 0;
-    const pk  = mou.bagiHasilPK  ?? 35;
+  const addPks = useCallback(async (pks: Omit<Pks, "id">) => {
+    const pp1 = pks.bagiHasilPP1 ?? 50;
+    const pp2 = pks.bagiHasilPP2 ?? 15;
+    const pp3 = pks.bagiHasilPP3 ?? 0;
+    const pk  = pks.bagiHasilPK  ?? 35;
     if (pp1 + pp2 + pp3 + pk !== 100) {
       throw new Error(`Persentase bagi hasil harus berjumlah 100% (saat ini ${pp1 + pp2 + pp3 + pk}%)`);
     }
 
-    let customId = await generateCustomId(mou.date);
+    let customId = await generateCustomId(pks.date);
 
     const createPayload = (id: string) => pb.collection("mous").create({
       customId: id,
       createdBy: currentUserId(),
       updatedBy: currentUserId(),
-      date:               mou.date,
-      endDate:            mou.endDate || "",
-      investorId:         mou.investorId,
-      investorName:       mou.investorName,
-      investorAddress:    mou.investorAddress,
-      investorOccupation: mou.investorOccupation || "",
-      investorIdNumber:   mou.investorIdNumber,
-      investorPhone:      mou.investorPhone,
-      contractPeriod:     mou.contractPeriod,
-      investmentAmount:   mou.investmentAmount,
-      heirName:           mou.heirName,
-      heirRelationship:   mou.heirRelationship,
-      heirPhone:          mou.heirPhone,
-      keterangan:         mou.keterangan || "",
-      bagiHasilPP1:       mou.bagiHasilPP1 ?? 50,
-      bagiHasilPP2:       mou.bagiHasilPP2 ?? 15,
-      bagiHasilPK:        mou.bagiHasilPK  ?? 35,
-      brokerId:           mou.brokerId     || "",
-      brokerName:         mou.brokerName   || "",
-      brokerAddress:      mou.brokerAddress || "",
-      brokerIdNumber:     mou.brokerIdNumber || "",
-      brokerPhone:        mou.brokerPhone   || "",
-      bagiHasilPP3:       mou.bagiHasilPP3 ?? 0,
+      date:               pks.date,
+      endDate:            pks.endDate || "",
+      investorId:         pks.investorId,
+      investorName:       pks.investorName,
+      investorAddress:    pks.investorAddress,
+      investorOccupation: pks.investorOccupation || "",
+      investorIdNumber:   pks.investorIdNumber,
+      investorPhone:      pks.investorPhone,
+      contractPeriod:     pks.contractPeriod,
+      investmentAmount:   pks.investmentAmount,
+      heirName:           pks.heirName,
+      heirRelationship:   pks.heirRelationship,
+      heirPhone:          pks.heirPhone,
+      keterangan:         pks.keterangan || "",
+      bagiHasilPP1:       pks.bagiHasilPP1 ?? 50,
+      bagiHasilPP2:       pks.bagiHasilPP2 ?? 15,
+      bagiHasilPK:        pks.bagiHasilPK  ?? 35,
+      brokerId:           pks.brokerId     || "",
+      brokerName:         pks.brokerName   || "",
+      brokerAddress:      pks.brokerAddress || "",
+      brokerIdNumber:     pks.brokerIdNumber || "",
+      brokerPhone:        pks.brokerPhone   || "",
+      bagiHasilPP3:       pks.bagiHasilPP3 ?? 0,
       isTerminated:       false,
       isComplete:         false,
     });
@@ -303,7 +303,7 @@ export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
     let record = await createPayload(customId).catch(async (err) => {
       for (let attempt = 1; attempt < 5; attempt++) {
         if (!isCustomIdConflict(err)) throw err;
-        customId = await generateCustomId(mou.date);
+        customId = await generateCustomId(pks.date);
         try { return await createPayload(customId); } catch (e) { err = e; }
       }
       throw err;
@@ -312,10 +312,10 @@ export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
     // Upload esign sebagai file jika ada (base64 data URL)
     const esignPairs: [string, string][] = (
       [
-        ["esignPihakPertama1", mou.esignPihakPertama1  ?? ""],
-        ["esignPihakPertama2", mou.esignPihakPertama2  ?? ""],
-        ["esignPihakKedua",    mou.esignPihakKedua     ?? ""],
-        ["esignPihakPertama3", mou.esignPihakPertama3  ?? ""],
+        ["esignPihakPertama1", pks.esignPihakPertama1  ?? ""],
+        ["esignPihakPertama2", pks.esignPihakPertama2  ?? ""],
+        ["esignPihakKedua",    pks.esignPihakKedua     ?? ""],
+        ["esignPihakPertama3", pks.esignPihakPertama3  ?? ""],
       ] as [string, string][]
     ).filter(([, v]) => v.startsWith("data:"));
 
@@ -327,12 +327,12 @@ export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
       record = await pb.collection("mous").update(record.id, fd);
     }
 
-    const newMou = recordToMou(record, map);
-    mousRef.current = [...mousRef.current, newMou];
-    setMous(mousRef.current);
+    const newPks = recordToPks(record, map);
+    pkssRef.current = [...pkssRef.current, newPks];
+    setPkss(pkssRef.current);
   }, [map]);
 
-  const updateMou = useCallback(async (id: string, updates: Partial<MoU>) => {
+  const updatePks = useCallback(async (id: string, updates: Partial<Pks>) => {
     const pbId = await resolvePbId(id);
     if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan.`);
 
@@ -376,18 +376,18 @@ export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
       record = await pb.collection("mous").update(pbId, fd);
     }
 
-    const updatedMou = recordToMou(record, map);
-    mousRef.current = mousRef.current.map((m) => (m.id === id ? updatedMou : m));
-    setMous(mousRef.current);
+    const updatedPks = recordToPks(record, map);
+    pkssRef.current = pkssRef.current.map((m) => (m.id === id ? updatedPks : m));
+    setPkss(pkssRef.current);
   }, [map]);
 
-  const deleteMou = useCallback(async (id: string) => {
+  const deletePks = useCallback(async (id: string) => {
     const pbId       = await resolvePbId(id);
     if (!pbId) throw new Error(`PKS "${id}" tidak ditemukan.`);
     await pb.collection("mous").delete(pbId);
     map.delete(id);
-    mousRef.current = mousRef.current.filter((m) => m.id !== id);
-    setMous(mousRef.current);
+    pkssRef.current = pkssRef.current.filter((m) => m.id !== id);
+    setPkss(pkssRef.current);
   }, [map]);
 
   const uploadBuktiTransfer = useCallback(async (id: string, keterangan: string, file: File): Promise<string> => {
@@ -398,9 +398,9 @@ export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
     const fd = new FormData();
     fd.append(fieldName, file);
     const record     = await pb.collection("mous").update(pbId, fd);
-    const updatedMou = recordToMou(record, map);
-    setMous((prev) => prev.map((m) => (m.id === id ? updatedMou : m)));
-    return (updatedMou[fieldName as keyof MoU] as string) ?? "";
+    const updatedPks = recordToPks(record, map);
+    setPkss((prev) => prev.map((m) => (m.id === id ? updatedPks : m)));
+    return (updatedPks[fieldName as keyof Pks] as string) ?? "";
   }, [map]);
 
   const uploadSignedDoc = useCallback(async (id: string, file: File) => {
@@ -410,9 +410,9 @@ export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
     fd.append("signedDoc", file);
     fd.append("isComplete", "true");
     const record     = await pb.collection("mous").update(pbId, fd);
-    const updatedMou = recordToMou(record, map);
-    mousRef.current  = mousRef.current.map((m) => (m.id === id ? updatedMou : m));
-    setMous(mousRef.current);
+    const updatedPks = recordToPks(record, map);
+    pkssRef.current  = pkssRef.current.map((m) => (m.id === id ? updatedPks : m));
+    setPkss(pkssRef.current);
   }, [map]);
 
   /** Upload bukti pengembalian modal — dipanggil dari Reminder. */
@@ -422,26 +422,26 @@ export function MouProvider({ children }: Readonly<{ children: ReactNode }>) {
     const fd = new FormData();
     fd.append("buktiPengembalian", file);
     const record     = await pb.collection("mous").update(pbId, fd);
-    const updatedMou = recordToMou(record, map);
-    mousRef.current = mousRef.current.map((m) => (m.id === id ? updatedMou : m));
-    setMous(mousRef.current);
-    return updatedMou.buktiPengembalian ?? "";
+    const updatedPks = recordToPks(record, map);
+    pkssRef.current = pkssRef.current.map((m) => (m.id === id ? updatedPks : m));
+    setPkss(pkssRef.current);
+    return updatedPks.buktiPengembalian ?? "";
   }, [map]);
 
   const value = useMemo(
-    () => ({ mous, addMou, updateMou, deleteMou, uploadSignedDoc, uploadBuktiTransfer, uploadBuktiPengembalian }),
-    [mous, addMou, updateMou, deleteMou, uploadSignedDoc, uploadBuktiTransfer, uploadBuktiPengembalian],
+    () => ({ pksList, addPks, updatePks, deletePks, uploadSignedDoc, uploadBuktiTransfer, uploadBuktiPengembalian }),
+    [pksList, addPks, updatePks, deletePks, uploadSignedDoc, uploadBuktiTransfer, uploadBuktiPengembalian],
   );
 
   return (
-    <MouContext.Provider value={value}>
+    <PksContext.Provider value={value}>
       {children}
-    </MouContext.Provider>
+    </PksContext.Provider>
   );
 }
 
-export function useMou() {
-  const ctx = useContext(MouContext);
-  if (!ctx) throw new Error("useMou must be used within a MouProvider");
+export function usePks() {
+  const ctx = useContext(PksContext);
+  if (!ctx) throw new Error("usePks must be used within a PksProvider");
   return ctx;
 }

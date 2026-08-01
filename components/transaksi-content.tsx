@@ -11,7 +11,7 @@ import pb from "@/lib/pocketbase";
 import { parsePeriodeDays, endDatePks } from "@/lib/utils";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
-import { useMou, type MoU } from "@/lib/mou-context";
+import { usePks, type Pks } from "@/lib/pks-context";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
@@ -57,7 +57,7 @@ import {
 // ─────────────────────────────────────────────
 
 interface InvestorEntryForm {
-  mouId: string;
+  pksId: string;
   investorId: string;
   nilaiInvestasi: string;
   pctTrader: string;
@@ -92,7 +92,7 @@ function investorPct(
 }
 
 const emptyEntry = (): InvestorEntryForm => ({
-  mouId: "", investorId: "", nilaiInvestasi: "",
+  pksId: "", investorId: "", nilaiInvestasi: "",
   pctTrader: "10", pctMinBun: "5", pctBrokerI: "0", pctBrokerII: "0",
 });
 
@@ -168,9 +168,9 @@ function sisaHari(t: { date: string; description: string }): number {
 }
 
 
-function sisaHariPks(mou: MoU): number {
-  if (!mou.date) return 0;
-  const endStr = endDatePks(mou);
+function sisaHariPks(pks: Pks): number {
+  if (!pks.date) return 0;
+  const endStr = endDatePks(pks);
   const now = new Date();
   const todayMs = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
   const [ey, em, ed] = endStr.split("-").map(Number);
@@ -232,14 +232,14 @@ interface TrxFormProps {
   readonly submitLabel: string;
   readonly previewId: string;
   readonly investors: Investor[];
-  readonly activeMous: MoU[];
+  readonly activePkss: Pks[];
   readonly committedModal: Map<string, number>;
   readonly isSaving?: boolean;
 }
 
 function TrxFormFields({
   formData, setFormData, onSubmit, submitLabel, previewId,
-  investors, activeMous, committedModal,
+  investors, activePkss, committedModal,
   isSaving = false,
 }: TrxFormProps) {
   // PATCH (sedang #19): sebelumnya `openJalurs` hanya di-init pada mount
@@ -266,22 +266,22 @@ function TrxFormFields({
   const sisaModal = (inv: Investor) =>
     Math.max(0, inv.investmentAmount - (committedModal.get(inv.id) ?? 0));
 
-  const displaySisaForPks = (mou: MoU): number => {
-    const inv = investors.find((x) => x.id === mou.investorId);
-    if (!inv) return mou.investmentAmount;
-    // m-15: gunakan min() antara MoU.investmentAmount dan sisa modal investor.
+  const displaySisaForPks = (pks: Pks): number => {
+    const inv = investors.find((x) => x.id === pks.investorId);
+    if (!inv) return pks.investmentAmount;
+    // m-15: gunakan min() antara Pks.investmentAmount dan sisa modal investor.
     // Sebelumnya Math.min() sudah dipanggil — tetap, hanya dokumentasikan.
-    return Math.min(mou.investmentAmount, sisaModal(inv));
+    return Math.min(pks.investmentAmount, sisaModal(inv));
   };
 
-  const isPksChecked = (mou: MoU): boolean =>
-    formData.investorEntries.some((e) => e.mouId === mou.id);
+  const isPksChecked = (pks: Pks): boolean =>
+    formData.investorEntries.some((e) => e.pksId === pks.id);
 
-  const getEntryForPks = (mou: MoU): InvestorEntryForm | undefined =>
-    formData.investorEntries.find((e) => e.mouId === mou.id);
+  const getEntryForPks = (pks: Pks): InvestorEntryForm | undefined =>
+    formData.investorEntries.find((e) => e.pksId === pks.id);
 
-  const pksByJalur = (jalur: InvestorJalur): MoU[] =>
-    activeMous.filter((m) => {
+  const pksByJalur = (jalur: InvestorJalur): Pks[] =>
+    activePkss.filter((m) => {
       const inv = investors.find((x) => x.id === m.investorId);
       if (!inv || getJalur(inv) !== jalur) return false;
       return displaySisaForPks(m) > 0 || isPksChecked(m);
@@ -289,14 +289,14 @@ function TrxFormFields({
 
   const toggleJalur = (jalur: InvestorJalur) => {
     if (openJalurs.has(jalur)) {
-      const mouIds = new Set(
-        activeMous
+      const pksIds = new Set(
+        activePkss
           .filter((m) => { const inv = investors.find((x) => x.id === m.investorId); return inv && getJalur(inv) === jalur; })
           .map((m) => m.id),
       );
       setFormData((prev) => ({
         ...prev,
-        investorEntries: prev.investorEntries.filter((e) => !mouIds.has(e.mouId)),
+        investorEntries: prev.investorEntries.filter((e) => !pksIds.has(e.pksId)),
       }));
       setOpenJalurs((prev) => { const n = new Set(prev); n.delete(jalur); return n; });
     } else {
@@ -310,7 +310,7 @@ function TrxFormFields({
             .reduce((s, e) => s + (Number.parseFloat(e.nilaiInvestasi) || 0), 0);
           const remaining = Math.max(0, (inv ? sisaModal(inv) : 0) - alreadyEntered);
           return {
-            mouId: m.id,
+            pksId: m.id,
             investorId: m.investorId,
             nilaiInvestasi: Math.min(m.investmentAmount, remaining).toString(),
             ...pct,
@@ -327,16 +327,16 @@ function TrxFormFields({
     }
   };
 
-  const togglePks = (mou: MoU) => {
+  const togglePks = (pks: Pks) => {
     setFormData((prev) => {
-      const alreadyIn = prev.investorEntries.some((e) => e.mouId === mou.id);
+      const alreadyIn = prev.investorEntries.some((e) => e.pksId === pks.id);
       if (alreadyIn) {
-        return { ...prev, investorEntries: prev.investorEntries.filter((e) => e.mouId !== mou.id) };
+        return { ...prev, investorEntries: prev.investorEntries.filter((e) => e.pksId !== pks.id) };
       }
-      const inv = investors.find((x) => x.id === mou.investorId);
+      const inv = investors.find((x) => x.id === pks.investorId);
       const pct = investorPct(inv?.brokerName ?? "");
       const alreadyEntered = prev.investorEntries
-        .filter((e) => e.investorId === mou.investorId)
+        .filter((e) => e.investorId === pks.investorId)
         .reduce((s, e) => s + (Number.parseFloat(e.nilaiInvestasi) || 0), 0);
       const remaining = Math.max(0, (inv ? sisaModal(inv) : 0) - alreadyEntered);
       return {
@@ -344,9 +344,9 @@ function TrxFormFields({
         investorEntries: [
           ...prev.investorEntries.filter((e) => e.investorId),
           {
-            mouId: mou.id,
-            investorId: mou.investorId,
-            nilaiInvestasi: Math.min(mou.investmentAmount, remaining).toString(),
+            pksId: pks.id,
+            investorId: pks.investorId,
+            nilaiInvestasi: Math.min(pks.investmentAmount, remaining).toString(),
             ...pct,
           },
         ],
@@ -354,11 +354,11 @@ function TrxFormFields({
     });
   };
 
-  const updateNilai = (mouId: string, value: string) => {
+  const updateNilai = (pksId: string, value: string) => {
     setFormData((prev) => ({
       ...prev,
       investorEntries: prev.investorEntries.map((e) =>
-        e.mouId === mouId ? { ...e, nilaiInvestasi: value } : e,
+        e.pksId === pksId ? { ...e, nilaiInvestasi: value } : e,
       ),
     }));
   };
@@ -372,27 +372,27 @@ function TrxFormFields({
     const totalByInvestor = new Map<string, number>();
     
     formData.investorEntries.forEach((e) => {
-      if (!e.mouId || !e.nilaiInvestasi) return;
+      if (!e.pksId || !e.nilaiInvestasi) return;
       const nilai = Number.parseFloat(e.nilaiInvestasi) || 0;
       totalByInvestor.set(e.investorId, (totalByInvestor.get(e.investorId) ?? 0) + nilai);
     });
     
     formData.investorEntries.forEach((e) => {
-      if (!e.mouId || !e.nilaiInvestasi) return;
-      const mou = activeMous.find((m) => m.id === e.mouId);
-      if (!mou) return;
+      if (!e.pksId || !e.nilaiInvestasi) return;
+      const pks = activePkss.find((m) => m.id === e.pksId);
+      if (!pks) return;
       const nilai = Number.parseFloat(e.nilaiInvestasi) || 0;
       
-      if (nilai > mou.investmentAmount) { ids.add(e.mouId); return; }
+      if (nilai > pks.investmentAmount) { ids.add(e.pksId); return; }
       
       const inv = investors.find((x) => x.id === e.investorId);
       if (!inv) return;
       
       const sisa = Math.max(0, inv.investmentAmount - (committedModal.get(inv.id) ?? 0));
-      if ((totalByInvestor.get(e.investorId) ?? 0) > sisa) ids.add(e.mouId);
+      if ((totalByInvestor.get(e.investorId) ?? 0) > sisa) ids.add(e.pksId);
     });
     return ids;
-  }, [formData.investorEntries, activeMous, investors, committedModal]);
+  }, [formData.investorEntries, activePkss, investors, committedModal]);
 
   const handleFormSubmit = (e: React.SubmitEvent<HTMLFormElement>) => {
     if (overLimitEntries.size > 0) {
@@ -559,13 +559,13 @@ function TrxFormFields({
                   <p className="text-xs text-muted-foreground italic">Mohon buat PKS terlebih dahulu</p>
                 ) : (
                   <div className="space-y-2">
-                    {jalurPks.map((mou) => {
-                      const checked   = isPksChecked(mou);
-                      const entry     = getEntryForPks(mou);
-                      const isOver    = overLimitEntries.has(mou.id);
-                      const sisa      = displaySisaForPks(mou);
-                      const inv       = investors.find((x) => x.id === mou.investorId);
-                      const pksSisa   = sisaHariPks(mou);
+                    {jalurPks.map((pks) => {
+                      const checked   = isPksChecked(pks);
+                      const entry     = getEntryForPks(pks);
+                      const isOver    = overLimitEntries.has(pks.id);
+                      const sisa      = displaySisaForPks(pks);
+                      const inv       = investors.find((x) => x.id === pks.investorId);
+                      const pksSisa   = sisaHariPks(pks);
                       let pksSisaClass = 'text-muted-foreground';
                       if (pksSisa <= 0) {
                         pksSisaClass = 'text-red-500 font-bold';
@@ -574,11 +574,11 @@ function TrxFormFields({
                       }
                       
                       return (
-                        <div key={mou.id} className="flex items-center gap-3">
-                          <Checkbox checked={checked} onCheckedChange={() => togglePks(mou)} />
+                        <div key={pks.id} className="flex items-center gap-3">
+                          <Checkbox checked={checked} onCheckedChange={() => togglePks(pks)} />
                           <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                             <div className="flex items-center gap-2">
-                              <span className="font-mono text-sm font-semibold text-foreground shrink-0">{mou.id}</span>
+                              <span className="font-mono text-sm font-semibold text-foreground shrink-0">{pks.id}</span>
                               {inv?.brokerName && (
                                 <span className="text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-1.5 py-0.5 rounded shrink-0">
                                   {inv.brokerName}
@@ -588,14 +588,14 @@ function TrxFormFields({
                                 (Sisa PKS: {pksSisa <= 0 ? 'Jatuh Tempo' : `${pksSisa} hari`})
                               </span>
                             </div>
-                            <span className="text-xs text-muted-foreground truncate">{mou.investorName}</span>
+                            <span className="text-xs text-muted-foreground truncate">{pks.investorName}</span>
                           </div>
                           {checked && (
                             <div className="flex flex-col items-end gap-0.5 shrink-0">
                               <Input
                                 type="number" min="0" step="1"
                                 value={entry?.nilaiInvestasi ?? ""}
-                                onChange={(e) => updateNilai(mou.id, e.target.value)}
+                                onChange={(e) => updateNilai(pks.id, e.target.value)}
                                 className={`w-36 h-8 text-xs ${isOver ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                                 placeholder="Nilai investasi"
                               />
@@ -683,7 +683,7 @@ interface PksExpiryRow {
 function PksExpiryWarning() {
   const { transaksis } = useTransaksi();
   const { investors } = useInvestors();
-  const { mous } = useMou();
+  const { pksList } = usePks();
 
   // Default: 60 hari ke depan dari hari ini
   const today = new Date();
@@ -713,16 +713,16 @@ function PksExpiryWarning() {
   const rows = useMemo<PksExpiryRow[]>(() => {
     const result: PksExpiryRow[] = [];
 
-    for (const mou of mous) {
+    for (const pks of pksList) {
       // Hanya PKS yang aktif (belum terminated) dan milik investor dengan ID valid
-      if (mou.isTerminated) continue;
-      if (!mou.investorId) continue;
+      if (pks.isTerminated) continue;
+      if (!pks.investorId) continue;
 
-      const investor = investors.find((i) => i.id === mou.investorId);
+      const investor = investors.find((i) => i.id === pks.investorId);
       if (!investor) continue;
 
-      const pksEnd = endDatePks(mou);
-      const pksSisa = sisaHariPks(mou);
+      const pksEnd = endDatePks(pks);
+      const pksSisa = sisaHariPks(pks);
 
       // Hanya tampilkan PKS yang akan jatuh tempo dalam rentang window
       // (<= PKS_WARN_WINDOW_DAYS ke depan). PKS yang sudah lewat tetap
@@ -734,7 +734,7 @@ function PksExpiryWarning() {
         const eff = effectiveStatus(t);
         // Terapkan hanya pada transaksi yang statusnya 'berjalan'
         if (eff !== "berjalan") return false;
-        return t.investorEntries.some((e) => e.mouId === mou.id);
+        return t.investorEntries.some((e) => e.pksId === pks.id);
       });
 
       // Tampilkan hanya PKS yang dipakai oleh transaksi 'berjalan'
@@ -746,11 +746,11 @@ function PksExpiryWarning() {
       if (!earlyEnough) continue;
 
       result.push({
-        pksId: mou.id,
-        investorId: mou.investorId,
-        investorName: mou.investorName || investor.name,
-        brokerName: mou.brokerName || investor.brokerName || "",
-        investmentAmount: mou.investmentAmount,
+        pksId: pks.id,
+        investorId: pks.investorId,
+        investorName: pks.investorName || investor.name,
+        brokerName: pks.brokerName || investor.brokerName || "",
+        investmentAmount: pks.investmentAmount,
         pksEndDate: pksEnd,
         pksSisa,
         usedBy,
@@ -760,7 +760,7 @@ function PksExpiryWarning() {
     // Urutkan berdasarkan tanggal berakhir PKS (yang paling dekat dulu)
     result.sort((a, b) => a.pksEndDate.localeCompare(b.pksEndDate));
     return result;
-  }, [mous, investors, transaksis]);
+  }, [pksList, investors, transaksis]);
 
   // Filter berdasarkan rentang tanggal yang dipilih user
   const filteredRows = useMemo(() => {
@@ -935,7 +935,7 @@ function PksExpiryWarning() {
 export default function TransaksiContent() {
   const { transaksis, addTransaksi, updateTransaksi, deleteTransaksi } = useTransaksi();
   const { investors }  = useInvestors();
-  const { mous, updateMou, deleteMou } = useMou();
+  const { pksList, updatePks, deletePks } = usePks();
   const { user, isInvestor } = useAuth();
   const { brokers } = useBrokers();
   
@@ -1013,7 +1013,7 @@ export default function TransaksiContent() {
       .map((e) => {
         const inv = investors.find((x) => x.id === e.investorId);
         return {
-          mouId:              e.mouId,
+          pksId:              e.pksId,
           investorId:         e.investorId,
           investorName:       inv?.name ?? e.investorId,
           investorBrokerName: inv?.brokerName ?? "",
@@ -1081,9 +1081,9 @@ export default function TransaksiContent() {
       const currentList = latestTransaksisForReconcileRef.current;
       for (const invId of ids) {
         const desired = !isInvestorActive(invId, currentList);
-        for (const pks of mous.filter((m) => m.investorId === invId)) {
+        for (const pks of pksList.filter((m) => m.investorId === invId)) {
           if ((pks.isTerminated ?? false) !== desired) {
-            await updateMou(pks.id, { isTerminated: desired });
+            await updatePks(pks.id, { isTerminated: desired });
           }
         }
       }
@@ -1139,7 +1139,7 @@ export default function TransaksiContent() {
 
   const openEdit = (t: Transaksi) => {
     setSelected(t);
-    const assignedMouIds = new Set<string>();
+    const assignedPksIds = new Set<string>();
     const tAny = t as any;
     setForm({
       date:        t.date,
@@ -1150,13 +1150,13 @@ export default function TransaksiContent() {
       kebutuhanModal: t.kebutuhanModal.toString(),
       investorEntries: t.investorEntries.length > 0
         ? t.investorEntries.map((e) => {
-            const available = mous.find(
-              (m) => m.investorId === e.investorId && !m.isTerminated && !assignedMouIds.has(m.id),
+            const available = pksList.find(
+              (m) => m.investorId === e.investorId && !m.isTerminated && !assignedPksIds.has(m.id),
             );
-            const mouId = e.mouId || (available?.id ?? "");
-            if (mouId) assignedMouIds.add(mouId);
+            const pksId = e.pksId || (available?.id ?? "");
+            if (pksId) assignedPksIds.add(pksId);
             return {
-              mouId,
+              pksId,
               investorId:     e.investorId,
               nilaiInvestasi: e.nilaiInvestasi.toString(),
               pctTrader:      e.pctTrader.toString(),
@@ -1177,17 +1177,17 @@ export default function TransaksiContent() {
   const confirmDelete = async () => {
     if (!selected) return;
     setIsDeleting(true);
-    // M-4: Hapus MoU terlebih dahulu; bila transaksi gagal dihapus setelah
-    // MoU hilang, MoU bisa dibuat ulang dari snapshot `pksToBulkDelete`.
-    // Strategi ini menghindari kebocoran MoU orphan (MoU tanpa transaksi).
+    // M-4: Hapus Pks terlebih dahulu; bila transaksi gagal dihapus setelah
+    // Pks hilang, Pks bisa dibuat ulang dari snapshot `pksToBulkDelete`.
+    // Strategi ini menghindari kebocoran Pks orphan (Pks tanpa transaksi).
     const pksSnapshot = [...pksToBulkDelete];
     // PATCH (serius #6): tambah field wajib (investorAddress, contractPeriod,
-    // bagiHasilPP1/PP2/PK, investorPhone, heir data, dst) agar MoU hasil restore
+    // bagiHasilPP1/PP2/PK, investorPhone, heir data, dst) agar Pks hasil restore
     // TIDAK kehilangan fungsi utama (perhitungan bagi hasil, kontak, dll).
-    // Sebelumnya, field selain beberapa di-pass menghasilkan MoU dengan default
+    // Sebelumnya, field selain beberapa di-pass menghasilkan Pks dengan default
     // kosong — secara teknis valid tapi data loss fungsional.
     try {
-      await Promise.all(pksSnapshot.map((m) => deleteMou(m.id)));
+      await Promise.all(pksSnapshot.map((m) => deletePks(m.id)));
       await deleteTransaksi(selected.id);
       toast.success("Mapping Modal berhasil dihapus");
       setSelected(null);
@@ -1278,7 +1278,7 @@ export default function TransaksiContent() {
     return map;
   }, [transaksis, editingTransaksi]);
 
-  const activeMous = useMemo(() => mous.filter((m) => !m.isTerminated), [mous]);
+  const activePkss = useMemo(() => pksList.filter((m) => !m.isTerminated), [pksList]);
 
   const pksToBulkDelete = useMemo(() => {
     if (!selected) return [];
@@ -1288,14 +1288,14 @@ export default function TransaksiContent() {
         .filter((t) => { const e = effectiveStatus(t); return e === "berjalan" || e === "bermasalah"; })
         .flatMap((t) => t.investorEntries.map((e) => e.investorId)),
     );
-    return mous.filter((m) => {
+    return pksList.filter((m) => {
       if (!selected.investorEntries.some((e) => e.investorId === m.investorId)) return false;
       if (remainingActiveInvestors.has(m.investorId)) return false;
       return !m.isTerminated && !m.isComplete;
     });
-  }, [selected, transaksis, mous]);
+  }, [selected, transaksis, pksList]);
 
-  const sharedFormProps = { investors, activeMous, committedModal, isSaving };
+  const sharedFormProps = { investors, activePkss, committedModal, isSaving };
 
   return (
     <div className="space-y-6">

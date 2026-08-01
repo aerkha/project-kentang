@@ -6,7 +6,7 @@ import pb from "./pocketbase";
 const currentUserId = () => pb.authStore.record?.id ?? "";
 
 export interface TransaksiInvestorEntry {
-  mouId: string;              
+  pksId: string;              
   investorId: string;
   investorName: string;
   investorBrokerName: string;  
@@ -159,7 +159,7 @@ function recordToTransaksi(
 
 function recordToInvestorEntry(r: Record<string, unknown>): TransaksiInvestorEntry {
   return {
-    mouId:              (r.mouId              as string) || "",
+    pksId:              (r.pksId              as string) || "",
     investorId:         r.investorId         as string,
     investorName:       r.investorName       as string,
     investorBrokerName: (r.investorBrokerName as string) || "",
@@ -219,7 +219,7 @@ async function createInvestorEntries(
     entries.map((e) =>
       pb.collection("transaksi_investors").create({
         transaksiId:         transaksiPbId,
-        mouId:               e.mouId ?? "",
+        pksId:               e.pksId ?? "",
         investorId:          e.investorId,
         investorName:        e.investorName,
         investorBrokerName:  e.investorBrokerName,
@@ -398,7 +398,7 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
         const createdEntries = await Promise.all(
           investorEntries.map((entry) => pb.collection("transaksi_investors").create({
             transaksiId: pbId,
-            mouId: entry.mouId ?? "",
+            pksId: entry.pksId ?? "",
             investorId: entry.investorId,
             investorName: entry.investorName,
             investorBrokerName: entry.investorBrokerName,

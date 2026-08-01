@@ -39,19 +39,19 @@ export function parsePeriodeDays(desc: string): number {
 }
 
 /**
- * Calculate the end date of a PKS (MoU) â€” prefers the explicit endDate if set,
+ * Calculate the end date of a PKS (Pks) â€” prefers the explicit endDate if set,
  * otherwise falls back to date + (contractPeriod * siklus) days.
  * Returns "YYYY-MM-DD".
  */
-export function endDatePks(mou: {
+export function endDatePks(pks: {
   endDate?: string;
   date: string;
   contractPeriod: number;
   siklus?: number;
 }): string {
-  if (mou.endDate) return mou.endDate.slice(0, 10);
-  const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + (mou.contractPeriod * (mou.siklus ?? 1))))
+  if (pks.endDate) return pks.endDate.slice(0, 10);
+  const [y, m, d] = pks.date.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + (pks.contractPeriod * (pks.siklus ?? 1))))
     .toISOString()
     .slice(0, 10);
 }

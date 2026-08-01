@@ -9,7 +9,7 @@ export type ChannelStatus = "sent" | "failed" | "skipped";
 
 export interface ReminderLog {
   id:           string;
-  mouCustomId:  string;
+  pksCustomId:  string;
   cycleNumber:  number;
   sentAt:       string;       // ISO string
   investorName: string;
@@ -34,7 +34,7 @@ const ReminderLogsContext = createContext<ReminderLogsContextType | undefined>(u
 function recordToLog(r: Record<string, unknown>): ReminderLog {
   return {
     id:           r.id           as string,
-    mouCustomId:  r.mouCustomId  as string,
+    pksCustomId:  r.pksCustomId  as string,
     cycleNumber:  (r.cycleNumber as number) || 0,
     sentAt:       r.sentAt       as string,
     investorName: (r.investorName as string) || "",

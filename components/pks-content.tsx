@@ -6,9 +6,9 @@ import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
-import { generateMouHtml } from "@/lib/mou-html";
+import { generatePksHtml } from "@/lib/pks-html";
 import { useTransaksi } from "@/lib/transaksi-context";
-import { useMou, getMouStatus, type MoU } from "@/lib/mou-context";
+import { usePks, getPksStatus, type Pks } from "@/lib/pks-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -87,7 +87,7 @@ function deleteStoredEsign(key: string): void {
   try { localStorage.removeItem(key); } catch {}
 }
 
-interface MouFormData {
+interface PksFormData {
   date: string;
   endDate: string;
   keterangan: string;
@@ -116,7 +116,7 @@ interface MouFormData {
   bagiHasilPP3: string; // << DIKEMBALIKAN
 }
 
-const initialForm: MouFormData = {
+const initialForm: PksFormData = {
   date: "",
   endDate: "",
   keterangan: "",
@@ -163,20 +163,20 @@ function formatRp(n: number) {
   }).format(n);
 }
 
-function endDate(mou: MoU) {
-  return mou.endDate || addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
+function endDate(pks: Pks) {
+  return pks.endDate || addDays(pks.date, pks.contractPeriod * (pks.siklus ?? 1));
 }
 
-function durationMonths(mou: MoU) {
-  const [sy, sm, sd] = mou.date.slice(0, 10).split("-").map(Number);
-  const [ey, em, ed] = endDate(mou).slice(0, 10).split("-").map(Number);
+function durationMonths(pks: Pks) {
+  const [sy, sm, sd] = pks.date.slice(0, 10).split("-").map(Number);
+  const [ey, em, ed] = endDate(pks).slice(0, 10).split("-").map(Number);
   const days = Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86_400_000);
   return Math.max(1, Math.round(days / 30));
 }
 
 interface FormProps {
-  readonly formData: MouFormData;
-  readonly setFormData: (d: MouFormData) => void;
+  readonly formData: PksFormData;
+  readonly setFormData: (d: PksFormData) => void;
   readonly onSubmit: (e: SyntheticEvent<HTMLFormElement>) => void;
   readonly submitLabel: string;
   readonly previewId: string;
@@ -189,7 +189,7 @@ interface FormProps {
   readonly brokerOptions: { id: string; name: string }[];
 }
 
-function MouFormFields({
+function PksFormFields({
   formData,
   setFormData,
   onSubmit,
@@ -203,31 +203,31 @@ function MouFormFields({
   savedEsignFields,
   brokerOptions,
 }: FormProps) {
-  const set = (k: keyof MouFormData, v: string) =>
+  const set = (k: keyof PksFormData, v: string) =>
     setFormData({ ...formData, [k]: v });
 
   return (
     <form onSubmit={onSubmit}>
       <div className="overflow-y-auto max-h-[65vh] pr-2 space-y-5">
 
-        {/* ── Informasi MoU ── */}
+        {/* ── Informasi Pks ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
-            Informasi MoU
+            Informasi Pks
           </p>
           <div className="space-y-1.5">
-            <Label className="text-xs">No. MoU</Label>
+            <Label className="text-xs">No. Pks</Label>
             <div className="px-3 py-2 bg-muted rounded-md text-sm font-mono text-muted-foreground">
               {previewId}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="mou-date" className="text-xs">
+              <Label htmlFor="pks-date" className="text-xs">
                 Tanggal Mulai <span className="text-destructive">*</span>
               </Label>
               <Input
-                id="mou-date"
+                id="pks-date"
                 type="date"
                 value={formData.date}
                 onChange={(e) => set("date", e.target.value)}
@@ -235,11 +235,11 @@ function MouFormFields({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="mou-end-date" className="text-xs">
+              <Label htmlFor="pks-end-date" className="text-xs">
                 Tanggal Berakhir <span className="text-destructive">*</span>
               </Label>
               <Input
-                id="mou-end-date"
+                id="pks-end-date"
                 type="date"
                 value={formData.endDate}
                 min={formData.date || undefined}
@@ -274,9 +274,9 @@ function MouFormFields({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="mou-keterangan" className="text-xs">Keterangan</Label>
+            <Label htmlFor="pks-keterangan" className="text-xs">Keterangan</Label>
             <Input
-              id="mou-keterangan"
+              id="pks-keterangan"
               value={formData.keterangan}
               onChange={(e) => set("keterangan", e.target.value)}
               placeholder="Catatan tambahan (opsional)"
@@ -292,11 +292,11 @@ function MouFormFields({
 
           {!isEdit && (
             <div className="space-y-1.5">
-              <Label htmlFor="mou-investor" className="text-xs">
+              <Label htmlFor="pks-investor" className="text-xs">
                 Pilih Investor <span className="text-destructive">*</span>
               </Label>
               <Select value={formData.investorId} onValueChange={onInvestorSelect} required>
-                <SelectTrigger id="mou-investor">
+                <SelectTrigger id="pks-investor">
                   <SelectValue placeholder="Pilih investor untuk auto-isi..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -322,11 +322,11 @@ function MouFormFields({
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="mou-inv-name" className="text-xs">
+            <Label htmlFor="pks-inv-name" className="text-xs">
               Nama Investor <span className="text-destructive">*</span>
             </Label>
             <Input
-              id="mou-inv-name"
+              id="pks-inv-name"
               value={formData.investorName}
               onChange={(e) => set("investorName", e.target.value)}
               placeholder="Nama lengkap"
@@ -334,11 +334,11 @@ function MouFormFields({
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="mou-inv-addr" className="text-xs">
+            <Label htmlFor="pks-inv-addr" className="text-xs">
               Alamat <span className="text-destructive">*</span>
             </Label>
             <Input
-              id="mou-inv-addr"
+              id="pks-inv-addr"
               value={formData.investorAddress}
               onChange={(e) => set("investorAddress", e.target.value)}
               placeholder="Alamat lengkap"
@@ -347,11 +347,11 @@ function MouFormFields({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="mou-inv-job" className="text-xs">
+              <Label htmlFor="pks-inv-job" className="text-xs">
                 Pekerjaan <span className="text-destructive">*</span>
               </Label>
               <Input
-                id="mou-inv-job"
+                id="pks-inv-job"
                 value={formData.investorOccupation}
                 onChange={(e) => set("investorOccupation", e.target.value)}
                 placeholder="Pekerjaan"
@@ -359,11 +359,11 @@ function MouFormFields({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="mou-inv-ktp" className="text-xs">
+              <Label htmlFor="pks-inv-ktp" className="text-xs">
                 No KTP <span className="text-destructive">*</span>
               </Label>
               <Input
-                id="mou-inv-ktp"
+                id="pks-inv-ktp"
                 value={formData.investorIdNumber}
                 onChange={(e) => set("investorIdNumber", e.target.value)}
                 placeholder="16 digit"
@@ -373,11 +373,11 @@ function MouFormFields({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="mou-inv-phone" className="text-xs">
+            <Label htmlFor="pks-inv-phone" className="text-xs">
               No Telepon <span className="text-destructive">*</span>
             </Label>
             <Input
-              id="mou-inv-phone"
+              id="pks-inv-phone"
               value={formData.investorPhone}
               onChange={(e) => set("investorPhone", e.target.value)}
               placeholder="+62 812-xxxx-xxxx"
@@ -393,11 +393,11 @@ function MouFormFields({
           </p>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="mou-period" className="text-xs">
+              <Label htmlFor="pks-period" className="text-xs">
                 Periode Bagi Hasil (hari) <span className="text-destructive">*</span>
               </Label>
               <Input
-                id="mou-period"
+                id="pks-period"
                 type="number"
                 min="1"
                 value={formData.contractPeriod}
@@ -407,11 +407,11 @@ function MouFormFields({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="mou-amount" className="text-xs">
+              <Label htmlFor="pks-amount" className="text-xs">
                 Nilai Investasi (Rp) <span className="text-destructive">*</span>
               </Label>
               <Input
-                id="mou-amount"
+                id="pks-amount"
                 type="number"
                 min="0"
                 step="1"
@@ -430,11 +430,11 @@ function MouFormFields({
             Data Ahli Waris
           </p>
           <div className="space-y-1.5">
-            <Label htmlFor="mou-heir-name" className="text-xs">
+            <Label htmlFor="pks-heir-name" className="text-xs">
               Nama Ahli Waris <span className="text-destructive">*</span>
             </Label>
             <Input
-              id="mou-heir-name"
+              id="pks-heir-name"
               value={formData.heirName}
               onChange={(e) => set("heirName", e.target.value)}
               placeholder="Nama lengkap ahli waris"
@@ -443,11 +443,11 @@ function MouFormFields({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="mou-heir-rel" className="text-xs">
+              <Label htmlFor="pks-heir-rel" className="text-xs">
                 Hubungan dengan Investor <span className="text-destructive">*</span>
               </Label>
               <Input
-                id="mou-heir-rel"
+                id="pks-heir-rel"
                 value={formData.heirRelationship}
                 onChange={(e) => set("heirRelationship", e.target.value)}
                 placeholder="Ibu / Suami / Istri / ..."
@@ -455,11 +455,11 @@ function MouFormFields({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="mou-heir-phone" className="text-xs">
+              <Label htmlFor="pks-heir-phone" className="text-xs">
                 No HP Ahli Waris <span className="text-destructive">*</span>
               </Label>
               <Input
-                id="mou-heir-phone"
+                id="pks-heir-phone"
                 value={formData.heirPhone}
                 onChange={(e) => set("heirPhone", e.target.value)}
                 placeholder="+62 858-xxxx-xxxx"
@@ -492,10 +492,10 @@ function MouFormFields({
                     ]
                   ).map(({ key, label, placeholder }) => (
                     <div key={key} className="space-y-1.5">
-                      <Label htmlFor={`mou-${key}`} className="text-xs">{label}</Label>
+                      <Label htmlFor={`pks-${key}`} className="text-xs">{label}</Label>
                       <div className="relative">
                         <Input
-                          id={`mou-${key}`}
+                          id={`pks-${key}`}
                           type="number"
                           min="0"
                           max="100"
@@ -574,12 +574,12 @@ function MouFormFields({
           {/* Kolom Persentase Broker Dikembalikan */}
           {formData.brokerId && (
             <div className="space-y-1.5">
-              <Label htmlFor="mou-bh-pp3" className="text-xs">
+              <Label htmlFor="pks-bh-pp3" className="text-xs">
                 Bagi Hasil Pihak Pertama III (%) <span className="text-destructive">*</span>
               </Label>
               <div className="relative">
                 <Input
-                  id="mou-bh-pp3"
+                  id="pks-bh-pp3"
                   type="number"
                   min="0"
                   max="100"
@@ -679,8 +679,8 @@ function MouFormFields({
 
 type Filter = "semua" | "draft" | "complete" | "terminated";
 
-export function MouContent() {
-  const { mous, addMou, updateMou, deleteMou, uploadSignedDoc } = useMou();
+export function PksContent() {
+  const { pksList, addPks, updatePks, deletePks, uploadSignedDoc } = usePks();
   const { investors } = useInvestors();
   const { brokers } = useBrokers();
   const { transaksis } = useTransaksi();
@@ -697,11 +697,11 @@ export function MouContent() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-  const [selected, setSelected] = useState<MoU | null>(null);
-  const [form, setForm] = useState<MouFormData>(initialForm);
+  const [selected, setSelected] = useState<Pks | null>(null);
+  const [form, setForm] = useState<PksFormData>(initialForm);
 
   const [isUploadDocOpen, setIsUploadDocOpen] = useState(false);
-  const [uploadDocTarget, setUploadDocTarget] = useState<MoU | null>(null);
+  const [uploadDocTarget, setUploadDocTarget] = useState<Pks | null>(null);
   const [uploadDocFile, setUploadDocFile] = useState<File | null>(null);
   const [uploadPreviewUrl, setUploadPreviewUrl] = useState<string | null>(null);
   const [docConfirmed, setDocConfirmed] = useState(false);
@@ -710,13 +710,13 @@ export function MouContent() {
 
   // ── Dialog TTD investor ──
   const [isTtdOpen,    setIsTtdOpen]    = useState(false);
-  const [ttdTarget,    setTtdTarget]    = useState<MoU | null>(null);
+  const [ttdTarget,    setTtdTarget]    = useState<Pks | null>(null);
   const [ttdPreview,   setTtdPreview]   = useState<string>("");
   const [isSavingTtd,  setIsSavingTtd]  = useState(false);
 
-  const openTtd = (mou: MoU) => {
-    setTtdTarget(mou);
-    setTtdPreview(mou.esignPihakKedua ?? "");
+  const openTtd = (pks: Pks) => {
+    setTtdTarget(pks);
+    setTtdPreview(pks.esignPihakKedua ?? "");
     setIsTtdOpen(true);
   };
 
@@ -743,7 +743,7 @@ export function MouContent() {
     if (!ttdTarget) return;
     setIsSavingTtd(true);
     try {
-      await updateMou(ttdTarget.id, { esignPihakKedua: ttdPreview });
+      await updatePks(ttdTarget.id, { esignPihakKedua: ttdPreview });
       toast.success(ttdPreview ? "Tanda tangan berhasil disimpan" : "Tanda tangan berhasil dihapus");
       setIsTtdOpen(false);
       setTtdTarget(null);
@@ -763,26 +763,26 @@ export function MouContent() {
   const isBroker = user?.role === "broker";
   const currentBroker = brokers.find((b) => b.id === user?.brokerId);
 
-  const visibleMous = isInvestor && user?.investorId
-    ? mous.filter((m) => m.investorId === user.investorId)
+  const visiblePkss = isInvestor && user?.investorId
+    ? pksList.filter((m) => m.investorId === user.investorId)
     : isBroker && currentBroker
-    ? mous.filter((m) => m.brokerId === currentBroker.id)
-    : mous;
+    ? pksList.filter((m) => m.brokerId === currentBroker.id)
+    : pksList;
   // ── Filter ──
-  const filtered = visibleMous.filter((m) => {
+  const filtered = visiblePkss.filter((m) => {
     if (filter === "semua") return true;
-    return getMouStatus(m) === filter;
+    return getPksStatus(m) === filter;
   });
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const paginated  = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
   // ── Toggle Complete ──
-  const handleToggleComplete = async (mou: MoU) => {
+  const handleToggleComplete = async (pks: Pks) => {
     setIsConfirming(true);
     try {
-      await updateMou(mou.id, { isComplete: !mou.isComplete });
-      toast.success(mou.isComplete ? "PKS dikembalikan ke Draft" : "PKS ditandai Complete");
+      await updatePks(pks.id, { isComplete: !pks.isComplete });
+      toast.success(pks.isComplete ? "PKS dikembalikan ke Draft" : "PKS ditandai Complete");
     } catch (err) {
       setErrorInfo(formatPbError(err, "Gagal mengubah status PKS"));
     } finally {
@@ -790,12 +790,12 @@ export function MouContent() {
     }
   };
 
-  // ── Preview ID (MOU-YYYYMM-NNN) ──
+  // ── Preview ID (PKS-YYYYMM-NNN) ──
   const nextId = (date: string) => {
-    if (!date) return "MOU-??????-???";
+    if (!date) return "PKS-??????-???";
     const ym     = date.slice(0, 7).replace("-", ""); 
-    const prefix = `MOU-${ym}-`;
-    const max = mous.reduce((m, x) => {
+    const prefix = `PKS-${ym}-`;
+    const max = pksList.reduce((m, x) => {
       if (!x.id.startsWith(prefix)) return m;
       const n = Number.parseInt(x.id.slice(prefix.length)) || 0;
       return Math.max(m, n);
@@ -872,7 +872,7 @@ export function MouContent() {
     }
   };
 
-  const handleFormChange = (newForm: MouFormData) => {
+  const handleFormChange = (newForm: PksFormData) => {
     handleEsignChange("esignPihakPertama1", newForm.esignPihakPertama1, form.esignPihakPertama1, ESIGN_KEYS.esignPihakPertama1);
     handleEsignChange("esignPihakPertama2", newForm.esignPihakPertama2, form.esignPihakPertama2, ESIGN_KEYS.esignPihakPertama2);
     handleEsignChange("esignPihakKedua", newForm.esignPihakKedua, form.esignPihakKedua, esignInvKey(newForm.investorId), Boolean(newForm.investorId));
@@ -905,7 +905,7 @@ export function MouContent() {
 
     const inv = investors.find((i) => i.id === form.investorId);
     if (inv) {
-      const allocated = mous
+      const allocated = pksList
         .filter((m) => m.investorId === form.investorId && !m.isTerminated)
         .reduce((sum, m) => sum + m.investmentAmount, 0);
       const available = inv.investmentAmount - allocated;
@@ -923,7 +923,7 @@ export function MouContent() {
 
     setIsSaving(true);
     try {
-      await addMou({
+      await addPks({
         date: form.date,
         endDate: form.endDate,
         investorId: form.investorId,
@@ -968,7 +968,7 @@ export function MouContent() {
 
     const inv = investors.find((i) => i.id === selected.investorId);
     if (inv) {
-      const allocated = mous
+      const allocated = pksList
         .filter((m) => m.investorId === selected.investorId && !m.isTerminated && m.id !== selected.id)
         .reduce((sum, m) => sum + m.investmentAmount, 0);
       const available = inv.investmentAmount - allocated;
@@ -986,7 +986,7 @@ export function MouContent() {
 
     setIsSaving(true);
     try {
-      await updateMou(selected.id, {
+      await updatePks(selected.id, {
         date: form.date,
         endDate: form.endDate,
         investorName: form.investorName,
@@ -1024,46 +1024,46 @@ export function MouContent() {
     }
   };
 
-  const openEdit = (mou: MoU) => {
-    setSelected(mou);
+  const openEdit = (pks: Pks) => {
+    setSelected(pks);
     setSavedEsignFields(new Set());
     const resolvedBroker =
-      !mou.brokerId && mou.brokerName
-        ? brokers.find((b) => b.name === mou.brokerName) ?? null
+      !pks.brokerId && pks.brokerName
+        ? brokers.find((b) => b.name === pks.brokerName) ?? null
         : null;
     setForm({
-      date: mou.date,
-      endDate: mou.endDate ?? "",
-      keterangan: mou.keterangan ?? "",
-      investorId: mou.investorId,
-      investorName: mou.investorName,
-      investorAddress: mou.investorAddress,
-      investorOccupation: mou.investorOccupation,
-      investorIdNumber: mou.investorIdNumber,
-      investorPhone: mou.investorPhone,
-      contractPeriod: mou.contractPeriod.toString(),
-      investmentAmount: mou.investmentAmount.toString(),
-      heirName: mou.heirName,
-      heirRelationship: mou.heirRelationship,
-      heirPhone: mou.heirPhone,
-      bagiHasilPP1: String(mou.bagiHasilPP1 ?? 50),
-      bagiHasilPP2: String(mou.bagiHasilPP2 ?? 15),
-      bagiHasilPK:  String(mou.bagiHasilPK  ?? 35),
-      esignPihakPertama1: mou.esignPihakPertama1 ?? "",
-      esignPihakPertama2: mou.esignPihakPertama2 ?? "",
-      esignPihakKedua: mou.esignPihakKedua ?? "",
-      brokerId:       resolvedBroker ? resolvedBroker.id       : (mou.brokerId      ?? ""),
-      brokerName:     resolvedBroker ? resolvedBroker.name     : (mou.brokerName    ?? ""),
-      brokerAddress:  resolvedBroker ? resolvedBroker.address  : (mou.brokerAddress ?? ""),
-      brokerIdNumber: resolvedBroker ? resolvedBroker.idNumber : (mou.brokerIdNumber ?? ""),
-      brokerPhone:    resolvedBroker ? resolvedBroker.phone    : (mou.brokerPhone   ?? ""),
-      bagiHasilPP3:   String(mou.bagiHasilPP3 ?? 0), // << STATE PP3 DIKEMBALIKAN
+      date: pks.date,
+      endDate: pks.endDate ?? "",
+      keterangan: pks.keterangan ?? "",
+      investorId: pks.investorId,
+      investorName: pks.investorName,
+      investorAddress: pks.investorAddress,
+      investorOccupation: pks.investorOccupation,
+      investorIdNumber: pks.investorIdNumber,
+      investorPhone: pks.investorPhone,
+      contractPeriod: pks.contractPeriod.toString(),
+      investmentAmount: pks.investmentAmount.toString(),
+      heirName: pks.heirName,
+      heirRelationship: pks.heirRelationship,
+      heirPhone: pks.heirPhone,
+      bagiHasilPP1: String(pks.bagiHasilPP1 ?? 50),
+      bagiHasilPP2: String(pks.bagiHasilPP2 ?? 15),
+      bagiHasilPK:  String(pks.bagiHasilPK  ?? 35),
+      esignPihakPertama1: pks.esignPihakPertama1 ?? "",
+      esignPihakPertama2: pks.esignPihakPertama2 ?? "",
+      esignPihakKedua: pks.esignPihakKedua ?? "",
+      brokerId:       resolvedBroker ? resolvedBroker.id       : (pks.brokerId      ?? ""),
+      brokerName:     resolvedBroker ? resolvedBroker.name     : (pks.brokerName    ?? ""),
+      brokerAddress:  resolvedBroker ? resolvedBroker.address  : (pks.brokerAddress ?? ""),
+      brokerIdNumber: resolvedBroker ? resolvedBroker.idNumber : (pks.brokerIdNumber ?? ""),
+      brokerPhone:    resolvedBroker ? resolvedBroker.phone    : (pks.brokerPhone   ?? ""),
+      bagiHasilPP3:   String(pks.bagiHasilPP3 ?? 0), // << STATE PP3 DIKEMBALIKAN
     });
     setIsEditOpen(true);
   };
 
-  const openUploadDoc = (mou: MoU) => {
-    setUploadDocTarget(mou);
+  const openUploadDoc = (pks: Pks) => {
+    setUploadDocTarget(pks);
     setUploadDocFile(null);
     setUploadPreviewUrl(null);
     setDocConfirmed(false);
@@ -1102,8 +1102,8 @@ export function MouContent() {
     }
   };
 
-  const openDelete = (mou: MoU) => {
-    setSelected(mou);
+  const openDelete = (pks: Pks) => {
+    setSelected(pks);
     setIsDeleteOpen(true);
   };
 
@@ -1111,7 +1111,7 @@ export function MouContent() {
     if (!selected) return;
     setIsConfirming(true);
     try {
-      await deleteMou(selected.id);
+      await deletePks(selected.id);
       toast.success("PKS berhasil dihapus");
       setSelected(null);
       setIsDeleteOpen(false);
@@ -1122,12 +1122,12 @@ export function MouContent() {
     }
   };
 
-  const handlePrint = (mou: MoU) => {
-    if (mou.hasSignedDoc && mou.signedDocUrl) {
-      window.open(mou.signedDocUrl, "_blank");
+  const handlePrint = (pks: Pks) => {
+    if (pks.hasSignedDoc && pks.signedDocUrl) {
+      window.open(pks.signedDocUrl, "_blank");
       return;
     }
-    const html = generateMouHtml(mou, transaksis);
+    const html = generatePksHtml(pks, transaksis);
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const url  = URL.createObjectURL(blob);
     const w    = window.open(url, "_blank");
@@ -1137,10 +1137,10 @@ export function MouContent() {
 
   // ── Count per status ──
   const counts = {
-    semua:      visibleMous.length,
-    draft:      visibleMous.filter((m) => getMouStatus(m) === "draft").length,
-    complete:   visibleMous.filter((m) => getMouStatus(m) === "complete").length,
-    terminated: visibleMous.filter((m) => getMouStatus(m) === "terminated").length,
+    semua:      visiblePkss.length,
+    draft:      visiblePkss.filter((m) => getPksStatus(m) === "draft").length,
+    complete:   visiblePkss.filter((m) => getPksStatus(m) === "complete").length,
+    terminated: visiblePkss.filter((m) => getPksStatus(m) === "terminated").length,
   };
 
   return (
@@ -1157,7 +1157,7 @@ export function MouContent() {
             const pp1 = loadStoredEsign(ESIGN_KEYS.esignPihakPertama1);
             const pp2 = loadStoredEsign(ESIGN_KEYS.esignPihakPertama2);
             const saved = new Set<string>();
-            const updates: Partial<MouFormData> = {};
+            const updates: Partial<PksFormData> = {};
             if (pp1) { updates.esignPihakPertama1 = pp1; saved.add("esignPihakPertama1"); }
             if (pp2) { updates.esignPihakPertama2 = pp2; saved.add("esignPihakPertama2"); }
             if (Object.keys(updates).length) setForm((f) => ({ ...f, ...updates }));
@@ -1180,11 +1180,11 @@ export function MouContent() {
                 Pilih investor untuk auto-isi data, lalu lengkapi sisa kolom
               </DialogDescription>
             </DialogHeader>
-            <MouFormFields
+            <PksFormFields
               formData={form}
               setFormData={handleFormChange}
               onSubmit={handleAdd}
-              submitLabel="Simpan MoU"
+              submitLabel="Simpan Pks"
               previewId={nextId(form.date)}
               investors={investors}
               onInvestorSelect={handleInvestorSelect}
@@ -1230,7 +1230,7 @@ export function MouContent() {
             </h3>
             <p className="text-muted-foreground text-sm">
               {filter === "semua"
-                ? "Buat MoU pertama dengan klik tombol di atas"
+                ? "Buat Pks pertama dengan klik tombol di atas"
                 : "Coba filter lain"}
             </p>
           </CardContent>
@@ -1259,38 +1259,38 @@ export function MouContent() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginated.map((mou) => {
-                    const status = getMouStatus(mou);
+                  {paginated.map((pks) => {
+                    const status = getPksStatus(pks);
                     return (
                       <tr
-                        key={mou.id}
+                        key={pks.id}
                         className="border-b border-border/50 hover:bg-muted/30 transition-colors"
                       >
-                        <td className="py-3 px-4 font-mono text-xs font-medium">{mou.id}</td>
-                        <td className="py-3 px-4 text-muted-foreground">{formatDate(mou.date)}</td>
+                        <td className="py-3 px-4 font-mono text-xs font-medium">{pks.id}</td>
+                        <td className="py-3 px-4 text-muted-foreground">{formatDate(pks.date)}</td>
                         <td className="py-3 px-4">
-                          <div className="font-medium">{mou.investorName}</div>
-                          <div className="text-xs text-muted-foreground">{mou.investorId}</div>
+                          <div className="font-medium">{pks.investorName}</div>
+                          <div className="text-xs text-muted-foreground">{pks.investorId}</div>
                         </td>
                         <td className="py-3 px-4">
-                          {mou.brokerName
-                            ? <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">{mou.brokerName}</span>
+                          {pks.brokerName
+                            ? <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">{pks.brokerName}</span>
                             : <span className="text-xs text-muted-foreground italic">—</span>}
                         </td>
                         <td className="py-3 px-4 text-muted-foreground text-xs max-w-[160px]">
-                          {mou.keterangan || <span className="italic opacity-50">—</span>}
+                          {pks.keterangan || <span className="italic opacity-50">—</span>}
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1 text-muted-foreground">
                             <CalendarDays className="h-3 w-3" />
-                            {durationMonths(mou) * 30} hari
+                            {durationMonths(pks) * 30} hari
                           </div>
                         </td>
                         <td className="py-3 px-4 text-right font-medium">
-                          {formatRp(mou.investmentAmount)}
+                          {formatRp(pks.investmentAmount)}
                         </td>
                         <td className="py-3 px-4 text-muted-foreground">
-                          {formatDate(endDate(mou))}
+                          {formatDate(endDate(pks))}
                         </td>
                         <td className="py-3 px-4 text-center">
                           {(() => {
@@ -1330,7 +1330,7 @@ export function MouContent() {
                               size="icon"
                               className="h-7 w-7"
                               title="Cetak / Download PDF"
-                              onClick={() => handlePrint(mou)}
+                              onClick={() => handlePrint(pks)}
                             >
                               <Printer className="h-3.5 w-3.5" />
                             </Button>
@@ -1340,10 +1340,10 @@ export function MouContent() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7"
-                              title={mou.esignPihakKedua ? "Ubah Tanda Tangan" : "Upload Tanda Tangan"}
-                              onClick={() => openTtd(mou)}
+                              title={pks.esignPihakKedua ? "Ubah Tanda Tangan" : "Upload Tanda Tangan"}
+                              onClick={() => openTtd(pks)}
                             >
-                              <PenLine className={`h-3.5 w-3.5 ${mou.esignPihakKedua ? "text-green-600" : "text-blue-500"}`} />
+                              <PenLine className={`h-3.5 w-3.5 ${pks.esignPihakKedua ? "text-green-600" : "text-blue-500"}`} />
                             </Button>
                             )}
                             {canEdit && (
@@ -1353,19 +1353,19 @@ export function MouContent() {
                               size="icon"
                               className="h-7 w-7"
                               title="Edit"
-                              onClick={() => openEdit(mou)}
+                              onClick={() => openEdit(pks)}
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
-                            {!mou.isTerminated && (
+                            {!pks.isTerminated && (
                             <Button
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7"
-                              title={mou.isComplete ? "Kembalikan ke Draft" : "Tandai Complete"}
-                              onClick={() => handleToggleComplete(mou)}
+                              title={pks.isComplete ? "Kembalikan ke Draft" : "Tandai Complete"}
+                              onClick={() => handleToggleComplete(pks)}
                             >
-                              {mou.isComplete
+                              {pks.isComplete
                                 ? <CircleDashed className="h-3.5 w-3.5 text-muted-foreground" />
                                 : <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />}
                             </Button>
@@ -1375,9 +1375,9 @@ export function MouContent() {
                               size="icon"
                               className="h-7 w-7"
                               title="Upload PKS Bertanda Tangan"
-                              onClick={() => openUploadDoc(mou)}
+                              onClick={() => openUploadDoc(pks)}
                             >
-                              <Upload className={`h-3.5 w-3.5 ${mou.hasSignedDoc ? "text-green-600" : "text-blue-500"}`} />
+                              <Upload className={`h-3.5 w-3.5 ${pks.hasSignedDoc ? "text-green-600" : "text-blue-500"}`} />
                             </Button>
                             </>
                             )}
@@ -1387,7 +1387,7 @@ export function MouContent() {
                               size="icon"
                               className="h-7 w-7"
                               title="Hapus"
-                              onClick={() => openDelete(mou)}
+                              onClick={() => openDelete(pks)}
                             >
                               <Trash2 className="h-3.5 w-3.5 text-destructive" />
                             </Button>
@@ -1477,7 +1477,7 @@ export function MouContent() {
               );
             })()}
           </DialogHeader>
-          <MouFormFields
+          <PksFormFields
             formData={form}
             setFormData={handleFormChange}
             onSubmit={handleEdit}

@@ -7,7 +7,7 @@ import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, SYSTEM_BROKER_ID, type Broker } from "@/lib/brokers-context";
 
 import { useTransaksi, calcTransaksi, activeInvestorIds, type TransaksiStatus } from "@/lib/transaksi-context";
-import { useMou, getMouStatus, investorPkPct } from "@/lib/mou-context";
+import { usePks, getPksStatus, investorPkPct } from "@/lib/pks-context";
 import { usePengeluaran } from "@/lib/cashflow-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1042,7 +1042,7 @@ function parseInternalRef(catatan: string): string | null {
 export function InvestorsContent() {
   const { investors, addInvestor, updateInvestor, deleteInvestor, reloadInvestors, uploadBuktiTransfer, getBuktiUrl } = useInvestors();
   const { entriesByInvestor, addEntry } = useModalEntries();
-  const { mous, addMou } = useMou();
+  const { pksList, addPks } = usePks();
   const { brokers, addBroker, updateBroker, deleteBroker, reloadBrokers } = useBrokers();
   const { transaksis, syncInvestorInfo } = useTransaksi();
   const { pengeluarans, addPengeluaran, updatePengeluaran, deletePengeluaran } = usePengeluaran();
@@ -1096,14 +1096,14 @@ export function InvestorsContent() {
   }, [transaksis]);
 
   // ── Modal yang sudah dialokasikan ke PKS per investor ──
-  const mouAllocatedMap = useMemo(() => {
+  const pksAllocatedMap = useMemo(() => {
     const map = new Map<string, number>();
-    mous.forEach((m) => {
+    pksList.forEach((m) => {
       if (m.isTerminated) return;
       map.set(m.investorId, (map.get(m.investorId) ?? 0) + m.investmentAmount);
     });
     return map;
-  }, [mous]);
+  }, [pksList]);
 
   // ── Estimasi bagi hasil per investor (dari data transaksi) ──
   const investorPnlMap = useMemo(() => {
@@ -1114,13 +1114,13 @@ export function InvestorsContent() {
       if (c.totalInvestasi === 0) return;
       t.investorEntries.forEach((entry) => {
         const ratio = entry.nilaiInvestasi / c.totalInvestasi;
-        const pkPct = investorPkPct(entry.investorId, mous) / 100;
+        const pkPct = investorPkPct(entry.investorId, pksList) / 100;
         const bh    = c.profit > 0 ? c.profit * pkPct * ratio : 0;
         map.set(entry.investorId, (map.get(entry.investorId) ?? 0) + bh);
       });
     });
     return map;
-  }, [transaksis, mous]);
+  }, [transaksis, pksList]);
 
   // Dialog mode: "form" | "import"
   const [addInvestorMode, setAddInvestorMode] = useState<"form" | "import">("form");
@@ -1245,7 +1245,7 @@ export function InvestorsContent() {
   // ── Buat PKS dari investor card ──
 
   const handleCreatePks = async (investor: Investor) => {
-    const allocated = mouAllocatedMap.get(investor.id) ?? 0;
+    const allocated = pksAllocatedMap.get(investor.id) ?? 0;
     const available = investor.investmentAmount - allocated;
     if (available <= 0) {
       toast.error("Semua modal sudah dialokasikan ke PKS. Lakukan top up terlebih dahulu.");
@@ -1271,7 +1271,7 @@ export function InvestorsContent() {
     const [y, m, d] = today.split("-").map(Number);
     const end = new Date(Date.UTC(y, m - 1, d + 30)).toISOString().slice(0, 10);
     try {
-      await addMou({
+      await addPks({
         date: today,
         endDate: end,
         investorId: investor.id,
@@ -1635,12 +1635,12 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
   };
 
   const handleDeleteInvestorClick = (investor: Investor) => {
-    const hasMou = mous.some((m) => m.investorId === investor.id);
-    if (hasMou) {
+    const hasPks = pksList.some((m) => m.investorId === investor.id);
+    if (hasPks) {
       setErrorInfo({
         title: `Investor "${investor.name}" tidak dapat dihapus`,
         fields: [{
-          field: "mous",
+          field: "pksList",
           code: "has_related_records",
           message: "Investor masih memiliki data PKS. Hapus semua PKS terkait terlebih dahulu sebelum menghapus investor.",
         }],
@@ -2048,20 +2048,20 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
           {filteredInvestors.map((investor) => {
             const bagHasil      = investorPnlMap.get(investor.id) ?? 0;
             const danaTermakai  = investorDanaMap.get(investor.id) ?? 0;
-            const mouAllocated  = mouAllocatedMap.get(investor.id) ?? 0;
-            const committed     = Math.max(danaTermakai, mouAllocated);
+            const pksAllocated  = pksAllocatedMap.get(investor.id) ?? 0;
+            const committed     = Math.max(danaTermakai, pksAllocated);
             const danaSisa      = Math.max(0, investor.investmentAmount - committed);
-            const modalTersedia = Math.max(0, investor.investmentAmount - mouAllocated);
+            const modalTersedia = Math.max(0, investor.investmentAmount - pksAllocated);
             const pct = investor.investmentAmount > 0
               ? ((bagHasil / investor.investmentAmount) * 100).toFixed(1)
               : "0.0";
             const isActive = activeIds.has(investor.id);
 
-            const investorMous = mous.filter((m) => m.investorId === investor.id);
-            const hasDraftMou = investorMous.some((m) => getMouStatus(m) === "draft");
+            const investorPkss = pksList.filter((m) => m.investorId === investor.id);
+            const hasDraftPks = investorPkss.some((m) => getPksStatus(m) === "draft");
             const investorBadge = isActive
               ? { label: "Aktif",     cls: "bg-green-100 text-green-800" }
-              : hasDraftMou
+              : hasDraftPks
               ? { label: "Draft PKS", cls: "bg-yellow-100 text-yellow-800" }
               : { label: "Nonaktif",  cls: "bg-red-100 text-red-700" };
 
@@ -2133,7 +2133,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                   <span className="text-muted-foreground">Total Modal</span>
                   <span className="font-bold text-sm">{formatCurrency(investor.investmentAmount)}</span>
                 </div>
-                {mouAllocated > 0 && (
+                {pksAllocated > 0 && (
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Tersedia untuk PKS</span>
                     <span className={`font-semibold ${modalTersedia <= 0 ? "text-red-500" : "text-blue-600"}`}>
@@ -2230,8 +2230,8 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                                 {entry.keterangan && (
                                   <span className="text-muted-foreground ml-1">· {entry.keterangan}</span>
                                 )}
-                                {entry.mouId && (
-                                  <span className="ml-1 font-mono text-primary">#{entry.mouId}</span>
+                                {entry.pksId && (
+                                  <span className="ml-1 font-mono text-primary">#{entry.pksId}</span>
                                 )}
                               </div>
                             </div>

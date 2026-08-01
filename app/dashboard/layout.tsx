@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { InvestorsProvider } from "@/lib/investors-context";
 import { BrokersProvider } from "@/lib/brokers-context";
-import { MouProvider } from "@/lib/mou-context";
+import { PksProvider } from "@/lib/pks-context";
 import { TransaksiProvider } from "@/lib/transaksi-context";
 import { PengeluaranProvider } from "@/lib/cashflow-context";
 import { SettingsProvider } from "@/lib/settings-context";
@@ -35,7 +35,7 @@ export default function DashboardLayout({
   return (
     <InvestorsProvider>
       <BrokersProvider>
-        <MouProvider>
+        <PksProvider>
           <TransaksiProvider>
           <PengeluaranProvider>
           <SettingsProvider>
@@ -53,7 +53,7 @@ export default function DashboardLayout({
           </SettingsProvider>
           </PengeluaranProvider>
           </TransaksiProvider>
-        </MouProvider>
+        </PksProvider>
       </BrokersProvider>
     </InvestorsProvider>
   );

@@ -1,4 +1,4 @@
-import type { MoU } from "./mou-context";
+import type { Pks } from "./pks-context";
 import { type Transaksi, calcTransaksi } from "./transaksi-context";
 import { angkaTerbilang, terbilang } from "./terbilang";
 
@@ -56,15 +56,15 @@ function daysBetween(startStr: string, endStr: string): number {
 // Total durasi jangka waktu kontrak (hari) — pakai endDate jika ada,
 // jika tidak fallback ke contractPeriod × siklus. Ini BERBEDA dari
 // contractPeriod yang hanya periode bagi hasil (default 30 hari).
-function totalDurationDays(mou: MoU): number {
-  const endRaw = mou.endDate || addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1));
-  return daysBetween(mou.date, endRaw);
+function totalDurationDays(pks: Pks): number {
+  const endRaw = pks.endDate || addDays(pks.date, pks.contractPeriod * (pks.siklus ?? 1));
+  return daysBetween(pks.date, endRaw);
 }
 
 // Jumlah bulan jangka waktu kontrak (1 bulan = 30 hari). Span kalender
 // dibulatkan ke bulan terdekat, mis. 18 Jun–18 Sep (92 hari) → 3 bulan.
-function durationMonths(mou: MoU): number {
-  return Math.max(1, Math.round(totalDurationDays(mou) / 30));
+function durationMonths(pks: Pks): number {
+  return Math.max(1, Math.round(totalDurationDays(pks) / 30));
 }
 
 function fmtRp(n: number) {
@@ -139,27 +139,27 @@ interface TrxData {
   estKeuntungan: string; roiPerBulan: string; roiSetelahBH: string;
 }
 
-// Placeholder simulasi ketika MoU dibuat sebelum transaksi (alur:
-// broker → investor → MoU → transaksi → bagi hasil). Nilai-nilai ini
-// mengisi tabel simulasi & distribusi bagi hasil agar template MoU
+// Placeholder simulasi ketika Pks dibuat sebelum transaksi (alur:
+// broker → investor → Pks → transaksi → bagi hasil). Nilai-nilai ini
+// mengisi tabel simulasi & distribusi bagi hasil agar template Pks
 // tidak memiliki kolom kosong saat pertama kali di-generate.
 const PLACEHOLDER_QTY        = 1500;
 const PLACEHOLDER_HPP        = 11000;
 const PLACEHOLDER_ONGKIR     = 350000;
 const PLACEHOLDER_HARGA_JUAL = 12500;
 
-function buildPlaceholderTrxData(mou: MoU): TrxData {
+function buildPlaceholderTrxData(pks: Pks): TrxData {
   const placeholderModal   = PLACEHOLDER_QTY * PLACEHOLDER_HPP;
   const placeholderIncome  = PLACEHOLDER_HARGA_JUAL * PLACEHOLDER_QTY;
   const placeholderProfit  = placeholderIncome - (placeholderModal + PLACEHOLDER_ONGKIR);
 
-  const pp1Pct = (mou.bagiHasilPP1 ?? 50) / 100;
-  const pp2Pct = (mou.bagiHasilPP2 ?? 0)  / 100;
-  const pp3Pct = (mou.bagiHasilPP3 ?? 0)  / 100;
-  const pkPct  = (mou.bagiHasilPK  ?? 35) / 100;
+  const pp1Pct = (pks.bagiHasilPP1 ?? 50) / 100;
+  const pp2Pct = (pks.bagiHasilPP2 ?? 0)  / 100;
+  const pp3Pct = (pks.bagiHasilPP3 ?? 0)  / 100;
+  const pkPct  = (pks.bagiHasilPK  ?? 35) / 100;
 
   const profit = placeholderProfit;
-  const roiRaw = mou.investmentAmount > 0 ? profit / mou.investmentAmount : 0;
+  const roiRaw = pks.investmentAmount > 0 ? profit / pks.investmentAmount : 0;
 
   return {
     trxQty:        String(PLACEHOLDER_QTY),
@@ -179,36 +179,36 @@ function buildPlaceholderTrxData(mou: MoU): TrxData {
   };
 }
 
-function calcTrxData(mou: MoU, transaksis: Transaksi[]): TrxData {
-  const [my, mm, md] = mou.date.slice(0, 10).split("-").map(Number);
-  const mouStart = Date.UTC(my, mm - 1, md);
-  const mouEnd   = mouStart + mou.contractPeriod * 86_400_000;
+function calcTrxData(pks: Pks, transaksis: Transaksi[]): TrxData {
+  const [my, mm, md] = pks.date.slice(0, 10).split("-").map(Number);
+  const pksStart = Date.UTC(my, mm - 1, md);
+  const pksEnd   = pksStart + pks.contractPeriod * 86_400_000;
 
   const trx = transaksis.find((t) => {
     const [ty, tm, td] = t.date.slice(0, 10).split("-").map(Number);
     const tDate = Date.UTC(ty, tm - 1, td);
-    return tDate >= mouStart && tDate < mouEnd &&
-      t.investorEntries.some((e) => e.investorId === mou.investorId);
+    return tDate >= pksStart && tDate < pksEnd &&
+      t.investorEntries.some((e) => e.investorId === pks.investorId);
   });
 
-  // Jika belum ada transaksi terkait MoU, gunakan placeholder default
-  // sehingga tabel simulasi tidak kosong saat template MoU di-preview
+  // Jika belum ada transaksi terkait Pks, gunakan placeholder default
+  // sehingga tabel simulasi tidak kosong saat template Pks di-preview
   // sebelum transaksi dibuat.
-  if (!trx) return buildPlaceholderTrxData(mou);
+  if (!trx) return buildPlaceholderTrxData(pks);
 
   const calc   = calcTransaksi(trx);
-  const entry  = trx.investorEntries.find((e) => e.investorId === mou.investorId);
+  const entry  = trx.investorEntries.find((e) => e.investorId === pks.investorId);
   const ratio  = entry && calc.totalInvestasi > 0
     ? entry.nilaiInvestasi / calc.totalInvestasi : 1;
   const profit = calc.profit * ratio;
-  const pp1Pct = (mou.bagiHasilPP1 ?? 50) / 100;
-  const pp2Pct = (mou.bagiHasilPP2 ?? 0)  / 100;
-  const pp3Pct = (mou.bagiHasilPP3 ?? 0)  / 100;
-  const pkPct  = (mou.bagiHasilPK  ?? 35) / 100;
+  const pp1Pct = (pks.bagiHasilPP1 ?? 50) / 100;
+  const pp2Pct = (pks.bagiHasilPP2 ?? 0)  / 100;
+  const pp3Pct = (pks.bagiHasilPP3 ?? 0)  / 100;
+  const pkPct  = (pks.bagiHasilPK  ?? 35) / 100;
 
   const trxQty       = trx.hpp > 0 ? String(Math.round(trx.kebutuhanModal / trx.hpp)) : "";
   const trxHpp       = fmtRp(trx.hpp);
-  const trxModal     = fmtRp(entry ? entry.nilaiInvestasi : mou.investmentAmount);
+  const trxModal     = fmtRp(entry ? entry.nilaiInvestasi : pks.investmentAmount);
   const trxOngkir    = fmtRp(calc.totalOngkir * ratio);
   const trxHargaJual = fmtRp(trx.hargaJual);
   const trxIncome    = fmtRp(calc.income * ratio);
@@ -218,7 +218,7 @@ function calcTrxData(mou: MoU, transaksis: Transaksi[]): TrxData {
   const bhBroker     = fmtRp(profit * pp3Pct);
   const bhInvestor   = fmtRp(profit * pkPct);
   const estKeuntungan = fmtRp(profit);
-  const roiRaw = mou.investmentAmount > 0 ? profit / mou.investmentAmount : 0;
+  const roiRaw = pks.investmentAmount > 0 ? profit / pks.investmentAmount : 0;
   const roiPerBulan  = `${(roiRaw * 100).toFixed(2)}%`;
   const roiSetelahBH = `${(roiRaw * pkPct * 100).toFixed(2)}% → Rp ${fmtRp(profit * pkPct)}`;
 
@@ -232,28 +232,28 @@ function calcTrxData(mou: MoU, transaksis: Transaksi[]): TrxData {
 // Template A — Investor Under TM (3 pihak: PP I + PP II + Investor)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAMA_II_MB): string {
-  const hasBroker = !!(mou.brokerId && mou.brokerName);
+function generatePksHtmlTm(pks: Pks, transaksis: Transaksi[], pp2 = PIHAK_PERTAMA_II_MB): string {
+  const hasBroker = !!(pks.brokerId && pks.brokerName);
   const isMb      = pp2 === PIHAK_PERTAMA_II_MB;
   // Khusus MB: jika ada broker, persentase listing PIHAK PERTAMA II = Parafitra + Broker.
   // (Tabel simulasi/distribusi tetap memakai PP2 & PP3 terpisah — tidak diubah.)
   const pp2ListPct = isMb && hasBroker
-    ? (mou.bagiHasilPP2 ?? 15) + (mou.bagiHasilPP3 ?? 0)
-    : (mou.bagiHasilPP2 ?? 15);
-  const date      = fmtDate(mou.date);
-  const amount    = fmtRp(mou.investmentAmount);
-  const words     = esc(cap(terbilang(mou.investmentAmount)));
-  const period    = periodText(durationMonths(mou) * 30);
+    ? (pks.bagiHasilPP2 ?? 15) + (pks.bagiHasilPP3 ?? 0)
+    : (pks.bagiHasilPP2 ?? 15);
+  const date      = fmtDate(pks.date);
+  const amount    = fmtRp(pks.investmentAmount);
+  const words     = esc(cap(terbilang(pks.investmentAmount)));
+  const period    = periodText(durationMonths(pks) * 30);
 
   const { trxQty, trxHpp, trxModal, trxOngkir, trxHargaJual, trxIncome, trxProfit,
           bhOwner, bhMinbun, bhBroker, bhInvestor, estKeuntungan, roiPerBulan, roiSetelahBH } =
-    calcTrxData(mou, transaksis);
+    calcTrxData(pks, transaksis);
 
   return `<!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<title>Perjanjian Kerjasama – ${esc(mou.id)}</title>
+<title>Perjanjian Kerjasama – ${esc(pks.id)}</title>
 <style>${BASE_CSS}</style>
 </head>
 <body>
@@ -263,7 +263,7 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
   <div class="center">
     <div class="bold" style="font-size:13pt;">PERJANJIAN KERJASAMA</div>
     <div class="bold" style="font-size:13pt;">INVESTASI TRADING KENTANG GRANOLA</div>
-    <div style="margin-top:.4em;font-size:10pt;">No. MoU: ${esc(mou.id)}</div>
+    <div style="margin-top:.4em;font-size:10pt;">No. Pks: ${esc(pks.id)}</div>
   </div>
 
   <!-- MUKADIMAH -->
@@ -301,11 +301,11 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
 
 
     <div style="margin:.5em 2em;">
-      ${row("Nama",       esc(mou.investorName))}
-      ${row("Alamat",     esc(mou.investorAddress))}
-      ${row("Pekerjaan",  esc(mou.investorOccupation))}
-      ${row("No. KTP",    esc(mou.investorIdNumber))}
-      ${row("No. Telepon",esc(mou.investorPhone))}
+      ${row("Nama",       esc(pks.investorName))}
+      ${row("Alamat",     esc(pks.investorAddress))}
+      ${row("Pekerjaan",  esc(pks.investorOccupation))}
+      ${row("No. KTP",    esc(pks.investorIdNumber))}
+      ${row("No. Telepon",esc(pks.investorPhone))}
     </div>
     <p>Untuk selanjutnya disebut PIHAK KEDUA sebagai Penyalur Dana Investasi.</p>
   </div>
@@ -336,9 +336,9 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
   <div class="section">
     <div class="ptitle">Pasal 4<br>BAGI HASIL</div>
     <p>Bagi hasil usaha diterima oleh para pihak dalam bentuk uang tunai dari hasil usaha tersebut di atas dan para pihak sepakat bahwa besaran bagi hasil sebagai berikut:</p>
-    <p class="indent">A.&nbsp; PIHAK PERTAMA I &nbsp;&nbsp;: ${mou.bagiHasilPP1 ?? 50} %</p>
+    <p class="indent">A.&nbsp; PIHAK PERTAMA I &nbsp;&nbsp;: ${pks.bagiHasilPP1 ?? 50} %</p>
     <p class="indent">B.&nbsp; PIHAK PERTAMA II &nbsp;: ${pp2ListPct} %</p>
-    <p class="indent">C.&nbsp; PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: ${mou.bagiHasilPK ?? 35} %</p>
+    <p class="indent">C.&nbsp; PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: ${pks.bagiHasilPK ?? 35} %</p>
     <p>Investasi ini memiliki siklus bagi hasil empat (4) minggu sesuai ketersediaan proyek dan berlaku selama periode perjanjian kerjasama. Dana investasi digunakan untuk membiayai PO <em>All Customer</em> setiap 30 (tiga puluh) hari. Bagi hasil dibayarkan paling lambat setiap 30 (tiga puluh) hari atau sesuai tanggal jatuh tempo.</p>
 
     <p>Tabel simulasi bagi hasil setiap 30 hari:</p>
@@ -386,7 +386,7 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
       <tr><td style="border:1px solid #000;padding:4px 8px;">Modal</td><td style="border:1px solid #000;padding:4px 8px;text-align:right;font-weight:bold;">${trxModal}</td></tr>
       <tr><td style="border:1px solid #000;padding:4px 8px;">Estimasi Keuntungan Per Bulan</td><td style="border:1px solid #000;padding:4px 8px;text-align:right;">${estKeuntungan}</td></tr>
       <tr><td style="border:1px solid #000;padding:4px 8px;">ROI per bulan</td><td style="border:1px solid #000;padding:4px 8px;text-align:right;">${roiPerBulan}</td></tr>
-      <tr><td style="border:1px solid #000;padding:4px 8px;">ROI setelah Bagi Hasil (${mou.bagiHasilPK ?? 35}%)</td><td style="border:1px solid #000;padding:4px 8px;text-align:right;">${roiSetelahBH}</td></tr>
+      <tr><td style="border:1px solid #000;padding:4px 8px;">ROI setelah Bagi Hasil (${pks.bagiHasilPK ?? 35}%)</td><td style="border:1px solid #000;padding:4px 8px;text-align:right;">${roiSetelahBH}</td></tr>
     </table>
 
     <!-- Distribusi Bagi Hasil -->
@@ -394,10 +394,10 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
       <thead>
         <tr style="background:#f0f0f0;">
           <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Profit (Rp)</th>
-          <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama I<br>${mou.bagiHasilPP1 ?? 50}% (Owner)</th>
-          <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama II<br>${mou.bagiHasilPP2 ?? 15}% (${esc(pp2.nama)})</th>
-          ${hasBroker ? `<th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama III<br>${mou.bagiHasilPP3 ?? 0}% (Broker)</th>` : ""}
-          <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Kedua<br>${mou.bagiHasilPK ?? 35}% (Investor)</th>
+          <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama I<br>${pks.bagiHasilPP1 ?? 50}% (Owner)</th>
+          <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama II<br>${pks.bagiHasilPP2 ?? 15}% (${esc(pp2.nama)})</th>
+          ${hasBroker ? `<th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Pertama III<br>${pks.bagiHasilPP3 ?? 0}% (Broker)</th>` : ""}
+          <th style="border:1px solid #000;padding:4px 8px;text-align:center;">Bagi Hasil Pihak Kedua<br>${pks.bagiHasilPK ?? 35}% (Investor)</th>
         </tr>
       </thead>
       <tbody>
@@ -447,9 +447,9 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
     <p>Perjanjian kerja sama ini berakhir apabila salah satu pihak memutuskan untuk tidak memperpanjang, dengan pemberitahuan tertulis paling lambat tiga puluh (30) hari sebelumnya. Dalam hal salah satu pihak meninggal dunia selama masa kerja sama, maka hak dan kewajiban yang bersangkutan beralih kepada ahli waris atau pihak yang ditunjuk.</p>
     <p>Ahli waris PIHAK KEDUA:</p>
     <div style="margin:.4em 2em;">
-      ${row("Nama Ahli Waris",          esc(mou.heirName), true)}
-      ${row("Hubungan dengan Investor", esc(mou.heirRelationship), true)}
-      ${row("No HP Ahli Waris",         esc(mou.heirPhone), true)}
+      ${row("Nama Ahli Waris",          esc(pks.heirName), true)}
+      ${row("Hubungan dengan Investor", esc(pks.heirRelationship), true)}
+      ${row("No HP Ahli Waris",         esc(pks.heirPhone), true)}
       ${row("Email Ahli Waris",         "-", true)}
     </div>
   </div>
@@ -493,24 +493,24 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
     <div class="sig">
       <div class="sb">
         <div class="bold">PIHAK PERTAMA I</div>
-        ${mou.esignPihakPertama1
-          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakPertama1)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
+        ${pks.esignPihakPertama1
+          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(pks.esignPihakPertama1)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
           : `<div class="ss"></div>`}
         <div><strong>${esc(PIHAK_PERTAMA_I.nama)}</strong></div>
       </div>
       <div class="sb">
         <div class="bold">PIHAK PERTAMA II</div>
-        ${mou.esignPihakPertama2
-          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakPertama2)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
+        ${pks.esignPihakPertama2
+          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(pks.esignPihakPertama2)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
           : `<div class="ss"></div>`}
         <div><strong>${esc(pp2.nama)}</strong></div>
       </div>
       <div class="sb">
         <div class="bold">PIHAK KEDUA</div>
-        ${mou.esignPihakKedua
-          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakKedua)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
+        ${pks.esignPihakKedua
+          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(pks.esignPihakKedua)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
           : `<div class="ss"></div>`}
-        <div><strong>${esc(mou.investorName)}</strong></div>
+        <div><strong>${esc(pks.investorName)}</strong></div>
       </div>
     </div>
   </div>
@@ -524,28 +524,28 @@ function generateMouHtmlTm(mou: MoU, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
 // Template B — Direct (2 pihak: PP I / Adie saja + Investor)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateMouHtmlDirect(mou: MoU, transaksis: Transaksi[]): string {
-  const date        = fmtDate(mou.date);
-  const endDateStr  = fmtDate(mou.endDate || addDays(mou.date, mou.contractPeriod * (mou.siklus ?? 1)));
-  const amount      = fmtRp(mou.investmentAmount);
-  const words       = esc(cap(terbilang(mou.investmentAmount)));
-  const months      = durationMonths(mou);
+function generatePksHtmlDirect(pks: Pks, transaksis: Transaksi[]): string {
+  const date        = fmtDate(pks.date);
+  const endDateStr  = fmtDate(pks.endDate || addDays(pks.date, pks.contractPeriod * (pks.siklus ?? 1)));
+  const amount      = fmtRp(pks.investmentAmount);
+  const words       = esc(cap(terbilang(pks.investmentAmount)));
+  const months      = durationMonths(pks);
   const totalDays   = months * 30;
   const periodFull  = periodTextDirect(totalDays);
   const monthsLabel = cap(angkaTerbilang(months));
 
-  const pp1Pct = mou.bagiHasilPP1 ?? 60;
-  const pkPct  = mou.bagiHasilPK  ?? 40;
+  const pp1Pct = pks.bagiHasilPP1 ?? 60;
+  const pkPct  = pks.bagiHasilPK  ?? 40;
 
   const { trxQty, trxHpp, trxModal, trxOngkir, trxHargaJual, trxIncome, trxProfit,
           bhOwner, bhInvestor, estKeuntungan, roiPerBulan } =
-    calcTrxData(mou, transaksis);
+    calcTrxData(pks, transaksis);
 
   return `<!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<title>Surat Perjanjian Investasi – ${esc(mou.id)}</title>
+<title>Surat Perjanjian Investasi – ${esc(pks.id)}</title>
 <style>${BASE_CSS}</style>
 </head>
 <body>
@@ -555,7 +555,7 @@ function generateMouHtmlDirect(mou: MoU, transaksis: Transaksi[]): string {
   <div class="center">
     <div class="bold" style="font-size:13pt;">SURAT PERJANJIAN INVESTASI</div>
     <div class="bold" style="font-size:12pt;margin-top:.4em;">&ldquo;Trading Kentang Granola&rdquo;</div>
-    <div style="margin-top:.3em;font-size:10pt;color:#555;">No. MoU: ${esc(mou.id)}</div>
+    <div style="margin-top:.3em;font-size:10pt;color:#555;">No. Pks: ${esc(pks.id)}</div>
   </div>
 
   <!-- MUKADIMAH -->
@@ -581,11 +581,11 @@ function generateMouHtmlDirect(mou: MoU, transaksis: Transaksi[]): string {
     <p>Bertindak sebagai pengelola investasi usaha trading kentang granola, yang selanjutnya disebut PIHAK PERTAMA.</p>
 
     <div style="margin:.5em 2em;">
-      ${row("Nama",      esc(mou.investorName))}
-      ${row("Alamat",    esc(mou.investorAddress))}
-      ${row("Pekerjaan", esc(mou.investorOccupation))}
-      ${row("No. KTP",   esc(mou.investorIdNumber))}
-      ${row("No. Hp",    esc(mou.investorPhone))}
+      ${row("Nama",      esc(pks.investorName))}
+      ${row("Alamat",    esc(pks.investorAddress))}
+      ${row("Pekerjaan", esc(pks.investorOccupation))}
+      ${row("No. KTP",   esc(pks.investorIdNumber))}
+      ${row("No. Hp",    esc(pks.investorPhone))}
     </div>
     <p>Untuk selanjutnya disebut PIHAK KEDUA sebagai Pemberi Modal investasi usaha/ investor.</p>
   </div>
@@ -617,7 +617,7 @@ function generateMouHtmlDirect(mou: MoU, transaksis: Transaksi[]): string {
     <div class="ptitle">Pasal 4<br>BAGI HASIL</div>
     <p>Bagi hasil usaha diterima oleh para pihak dalam bentuk uang tunai dari hasil usaha tersebut diatas dan para pihak sepakat bahwa besarnya bagi hasil adalah :</p>
     <p><strong>A. &nbsp; PIHAK PERTAMA &nbsp;&nbsp;: ${pp1Pct}% (${esc(PIHAK_PERTAMA_I.nama)}/ Pengelola)</strong></p>
-    <p><strong>B. &nbsp; PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: ${pkPct}% (${esc(mou.investorName)}/ Investor)</strong></p>
+    <p><strong>B. &nbsp; PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: ${pkPct}% (${esc(pks.investorName)}/ Investor)</strong></p>
     <p>Investasi ini memiliki jangka waktu bagi hasil dalam siklus 4 minggu (menyesuaikan proyek tersedia yang akan diinformasikan setelah proyek berjalan berakhir dan menghasilkan keuntungan laba bagi hasil) serta persentase ROI diinformasikan melalui <em>WhatsApp</em> dikarenakan menyesuaikan dengan kondisi pasar. Investasi/ proyek akan dikelola selama periode ${periodFull}. Transfer bagi hasil usaha dilakukan di setiap akhir proyek dengan skema PO <em>All Projects</em> ${months}x yang nanti akan diinfokan oleh PIHAK PERTAMA kepada PIHAK KEDUA.</p>
 
     <p>Tabel simulasi bagi hasil:</p>
@@ -726,7 +726,7 @@ function generateMouHtmlDirect(mou: MoU, transaksis: Transaksi[]): string {
     <p>a.&nbsp; Suatu kegiatan usaha mengandung risiko untung-rugi, maka kerugian modal usaha yang diakibatkan oleh <em>force majeure</em> (di luar kekuasaan para pihak), seperti kecelakaan atau tragedi bencana alam akan ditanggung bersama dengan mengedepankan musyawarah untuk mufakat.</p>
     <p>b.&nbsp; Apabila kerugian usaha disebabkan oleh kesengajaan PIHAK PERTAMA (pengelola) melakukan penyimpangan (kesalahan manajemen), seluruh kerugian usaha ditanggung 100% oleh PIHAK PERTAMA. Oleh karena itu, PIHAK PERTAMA berkewajiban melakukan pengembalian modal secara bertahap kepada PIHAK KEDUA dengan jangka waktu paling lama 6 (enam) bulan sejak tanggal ditetapkannya perhitungan kerugian secara final. Namun, apabila terjadi <em>force majeure</em> seperti terjadi kecelakaan di jalan ketika mengirim pesanan kentang ke gudang konsumen, lalu kentangnya jatuh maka secara proporsional kerugian sesuai dengan persentase bagi hasil sebagaimana tercantum pada pasal 4, yaitu :</p>
     <p class="indent">A. PIHAK PERTAMA &nbsp;: ${pp1Pct}% (${esc(PIHAK_PERTAMA_I.nama)}/ Pengelola)</p>
-    <p class="indent">B. PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;: ${pkPct}% (${esc(mou.investorName)}/ Investor)</p>
+    <p class="indent">B. PIHAK KEDUA &nbsp;&nbsp;&nbsp;&nbsp;: ${pkPct}% (${esc(pks.investorName)}/ Investor)</p>
     <p>c.&nbsp; Apabila terjadi pembatalan terhadap isi akad syarikat yang dilakukan oleh PIHAK KEDUA (Pemilik Modal), seluruh kerugian usaha ditanggung oleh PIHAK KEDUA mencakup pengembalian modal usaha yang telah dikeluarkan oleh PIHAK PERTAMA.</p>
   </div>
 
@@ -759,17 +759,17 @@ function generateMouHtmlDirect(mou: MoU, transaksis: Transaksi[]): string {
     <div class="sig">
       <div class="sb2">
         <div>Pihak Pertama,</div>
-        ${mou.esignPihakPertama1
-          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakPertama1)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
+        ${pks.esignPihakPertama1
+          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(pks.esignPihakPertama1)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
           : `<div class="ss"></div>`}
         <div>${esc(PIHAK_PERTAMA_I.nama)}</div>
       </div>
       <div class="sb2">
         <div>Pihak Kedua,</div>
-        ${mou.esignPihakKedua
-          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(mou.esignPihakKedua)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
+        ${pks.esignPihakKedua
+          ? `<div class="ss" style="display:flex;align-items:center;justify-content:center;"><img src="${esc(pks.esignPihakKedua)}" style="max-height:5em;max-width:100%;object-fit:contain;" /></div>`
           : `<div class="ss"></div>`}
-        <div>${esc(mou.investorName)}</div>
+        <div>${esc(pks.investorName)}</div>
       </div>
     </div>
   </div>
@@ -785,14 +785,14 @@ function generateMouHtmlDirect(mou: MoU, transaksis: Transaksi[]): string {
 // bagiHasilPP2 = 0 → Direct (2 pihak, Adie saja)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function generateMouHtml(mou: MoU, transaksis: Transaksi[] = []): string {
-  const id = mou.investorId ?? "";
+export function generatePksHtml(pks: Pks, transaksis: Transaksi[] = []): string {
+  const id = pks.investorId ?? "";
   // Routing eksplisit berdasarkan prefix ID investor
-  if (id.startsWith("INV-D-"))  return generateMouHtmlDirect(mou, transaksis);
-  if (id.startsWith("INV-TM-")) return generateMouHtmlTm(mou, transaksis, PIHAK_PERTAMA_II_TM);
-  if (id.startsWith("INV-MB-")) return generateMouHtmlTm(mou, transaksis, PIHAK_PERTAMA_II_MB);
+  if (id.startsWith("INV-D-"))  return generatePksHtmlDirect(pks, transaksis);
+  if (id.startsWith("INV-TM-")) return generatePksHtmlTm(pks, transaksis, PIHAK_PERTAMA_II_TM);
+  if (id.startsWith("INV-MB-")) return generatePksHtmlTm(pks, transaksis, PIHAK_PERTAMA_II_MB);
   // Fallback untuk prefix tidak dikenal: pakai bagiHasilPP2 sebagai penanda
-  return (mou.bagiHasilPP2 ?? 0) === 0
-    ? generateMouHtmlDirect(mou, transaksis)
-    : generateMouHtmlTm(mou, transaksis, PIHAK_PERTAMA_II_MB);
+  return (pks.bagiHasilPP2 ?? 0) === 0
+    ? generatePksHtmlDirect(pks, transaksis)
+    : generatePksHtmlTm(pks, transaksis, PIHAK_PERTAMA_II_MB);
 }

@@ -137,7 +137,7 @@ async function logAttempt(
 ): Promise<void> {
   try {
     await pb.collection("reminder_logs").create({
-      mouCustomId:  data.noPks,
+      pksCustomId:  data.noPks,
       cycleNumber:  0,
       sentAt:       new Date().toISOString(),
       investorName: `Broker: ${data.brokerName}`,

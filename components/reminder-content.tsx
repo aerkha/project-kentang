@@ -9,7 +9,7 @@ function revokePreview(url: string) {
     try { URL.revokeObjectURL(url); } catch { /* ignore */ }
   }
 }
-import { useMou, type MoU } from "@/lib/mou-context";
+import { usePks, type Pks } from "@/lib/pks-context";
 import { todayWibStr } from "@/lib/utils";
 import { useTransaksi, calcTransaksi, effectiveStatus, type Transaksi } from "@/lib/transaksi-context";
 import { useInvestors, type Investor } from "@/lib/investors-context";
@@ -105,18 +105,18 @@ function sisaHari(t: { date: string; description: string }): number {
   return endStr ? diffDays(todayWibStr(), endStr) : 0;
 }
 
-function endDatePks(mou: MoU) {
-  if (mou.endDate) {
-    return mou.endDate.slice(0, 10);
+function endDatePks(pks: Pks) {
+  if (pks.endDate) {
+    return pks.endDate.slice(0, 10);
   }
-  const [y, m, d] = mou.date.slice(0, 10).split("-").map(Number);
-  const totalDays = (mou.contractPeriod || 30) * (mou.siklus || 1);
+  const [y, m, d] = pks.date.slice(0, 10).split("-").map(Number);
+  const totalDays = (pks.contractPeriod || 30) * (pks.siklus || 1);
   return new Date(Date.UTC(y, m - 1, d + totalDays)).toISOString().slice(0, 10);
 }
 
-function sisaHariPks(mou: MoU): number {
-  if (!mou.date) return 0;
-  const endStr = endDatePks(mou);
+function sisaHariPks(pks: Pks): number {
+  if (!pks.date) return 0;
+  const endStr = endDatePks(pks);
   return diffDays(todayWibStr(), endStr);
 }
 
@@ -152,8 +152,8 @@ type PaymentRow = {
 
 type AccountInfo = { nama: string; bankName: string; accountNumber: string };
 
-function getInvestorPkPct(investorId: string, mous: MoU[]): number {
-  const latest = mous
+function getInvestorPkPct(investorId: string, pksList: Pks[]): number {
+  const latest = pksList
     .filter((m) => m.investorId === investorId)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
   return latest?.bagiHasilPK ?? 35;
@@ -203,7 +203,7 @@ function addBrokerAmount(
 
 function buildTransaksiRows(
   trx:        Transaksi,
-  mous:       MoU[],
+  pksList:       Pks[],
   investors:  Investor[],
   brokers:    Broker[],
   minbunAcc:  AccountInfo,
@@ -220,7 +220,7 @@ function buildTransaksiRows(
   for (const entry of trx.investorEntries) {
     if (entry.nilaiInvestasi <= 0) continue;
 
-    const pkPct   = getInvestorPkPct(entry.investorId, mous) / 100;
+    const pkPct   = getInvestorPkPct(entry.investorId, pksList) / 100;
     const ratio   = entry.nilaiInvestasi / calc.totalInvestasi;
     const profit  = calc.profit * ratio;
     const { pT, pM, pBI, pBII } = resolveDistributionPercentages(entry);
@@ -307,7 +307,7 @@ type EntitySummaryItem =
       sourceId: string;
       type: "Pengembalian Modal";
       keterangan: string;
-      mou: MoU;
+      pks: Pks;
       jumlah: number;
       checkKey: string;
       isDone: boolean;
@@ -385,7 +385,7 @@ function ChannelBadge({
 
 type ProcessInternalEntityParams = {
   entity: ProcessedEntity;
-  mous: MoU[];
+  pksList: Pks[];
   investors: Investor[];
   brokers: Broker[];
   minbun: AccountInfo;
@@ -393,18 +393,18 @@ type ProcessInternalEntityParams = {
   cashflowTagRecordedFn: (tag: string) => boolean;
   addPengeluaranFn: (p: any) => Promise<void>;
   updateTransaksiFn: (id: string, data: any) => Promise<void>;
-  updateMouFn: (id: string, data: any) => Promise<void>;
+  updatePksFn: (id: string, data: any) => Promise<void>;
   updateInvestorFn: (id: string, data: any) => Promise<void>;
   triggerAutorenewalFn: (id: string) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
   uploadFiles: File[];
   uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>;
-  uploadBuktiPengembalianFn?: (mouId: string, file: File) => Promise<string>;
+  uploadBuktiPengembalianFn?: (pksId: string, file: File) => Promise<string>;
 };
 
 async function processInternalEntity({
-  entity, mous, investors, brokers, minbun, trader, cashflowTagRecordedFn, addPengeluaranFn,
-  updateTransaksiFn, updateMouFn, updateInvestorFn, triggerAutorenewalFn, setDoneKeysFn,
+  entity, pksList, investors, brokers, minbun, trader, cashflowTagRecordedFn, addPengeluaranFn,
+  updateTransaksiFn, updatePksFn, updateInvestorFn, triggerAutorenewalFn, setDoneKeysFn,
   uploadFiles, uploadBuktiTransaksiFn, uploadBuktiPengembalianFn
 }: ProcessInternalEntityParams) {
   const today = todayWibStr();
@@ -421,8 +421,8 @@ async function processInternalEntity({
     if (fileToUpload) {
       if (item.type === "Bagi Hasil" && item.trx) {
         await uploadBuktiTransaksiFn(item.trx.id, item.keterangan, fileToUpload);
-      } else if (item.type === "Pengembalian Modal" && item.mou && uploadBuktiPengembalianFn) {
-        await uploadBuktiPengembalianFn(item.mou.id, fileToUpload);
+      } else if (item.type === "Pengembalian Modal" && item.pks && uploadBuktiPengembalianFn) {
+        await uploadBuktiPengembalianFn(item.pks.id, fileToUpload);
       }
     }
 
@@ -430,7 +430,7 @@ async function processInternalEntity({
       await processInternalProfitItem({
         item,
         entity,
-        mous,
+        pksList,
         investors,
         brokers,
         minbun,
@@ -443,14 +443,14 @@ async function processInternalEntity({
         triggeredRenewals,
         today,
       });
-    } else if (item.type === "Pengembalian Modal" && item.mou) {
+    } else if (item.type === "Pengembalian Modal" && item.pks) {
       await processPengembalianModalItem({
         item,
         entity,
         investors,
         cashflowTagRecordedFn,
         addPengeluaranFn,
-        updateMouFn,
+        updatePksFn,
         updateInvestorFn,
         setDoneKeysFn,
         today,
@@ -460,7 +460,7 @@ async function processInternalEntity({
 }
 
 // PATCH (refactor `as any`): ganti `item: any` ke `item: EntitySummaryItem`
-// agar TS bisa narrow type otomatis. `item.trx` dan `item.mou` akan
+// agar TS bisa narrow type otomatis. `item.trx` dan `item.pks` akan
 // ter-typed sesuai variant "Bagi Hasil" atau "Pengembalian Modal".
 // Kita bungkus dengan Extract<Exclude<EntitySummaryItem, { type: "Pengembalian Modal" }>>
 // agar di function ini `item.trx` selalu ada (bukan `| undefined`).
@@ -469,7 +469,7 @@ type BagiHasilItem = Extract<EntitySummaryItem, { type: "Bagi Hasil" }>;
 type ProcessInternalProfitItemParams = {
   item: BagiHasilItem;
   entity: ProcessedEntity;
-  mous: MoU[];
+  pksList: Pks[];
   investors: Investor[];
   brokers: Broker[];
   minbun: AccountInfo;
@@ -486,7 +486,7 @@ type ProcessInternalProfitItemParams = {
 async function processInternalProfitItem({
   item,
   entity,
-  mous,
+  pksList,
   investors,
   brokers,
   minbun,
@@ -519,7 +519,7 @@ async function processInternalProfitItem({
   }
 
   const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
-  const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+  const allRows = buildTransaksiRows(trx, pksList, investors, brokers, minbun, trader);
 
   const bagiHasilDone = allRows.every((r) => checks[r.checkKey]);
 
@@ -543,7 +543,7 @@ async function processInternalProfitItem({
 }
 
 // PATCH (refactor `as any`): ganti `item: any` ke `item: PengembalianModalItem`
-// agar TS narrow otomatis. `item.mou` selalu non-null di function ini.
+// agar TS narrow otomatis. `item.pks` selalu non-null di function ini.
 type PengembalianModalItem = Extract<EntitySummaryItem, { type: "Pengembalian Modal" }>;
 
 type ProcessPengembalianModalItemParams = {
@@ -552,7 +552,7 @@ type ProcessPengembalianModalItemParams = {
   investors: Investor[];
   cashflowTagRecordedFn: (tag: string) => boolean;
   addPengeluaranFn: (p: any) => Promise<void>;
-  updateMouFn: (id: string, data: any) => Promise<void>;
+  updatePksFn: (id: string, data: any) => Promise<void>;
   updateInvestorFn: (id: string, data: any) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
   today: string;
@@ -564,19 +564,19 @@ async function processPengembalianModalItem({
   investors,
   cashflowTagRecordedFn,
   addPengeluaranFn,
-  updateMouFn,
+  updatePksFn,
   updateInvestorFn,
   setDoneKeysFn,
   today,
 }: ProcessPengembalianModalItemParams) {
-  // PATCH: `item` typed → `item.mou` non-null.
-  const mou = item.mou;
-  const tag = `[Internal-Return:${entity.investorId}:${mou.id}]`;
+  // PATCH: `item` typed → `item.pks` non-null.
+  const pks = item.pks;
+  const tag = `[Internal-Return:${entity.investorId}:${pks.id}]`;
 
   if (!cashflowTagRecordedFn(tag)) {
     await addPengeluaranFn({
       date: today,
-      deskripsi: `Pengembalian Modal Internal — ${entity.nama} — PKS ${mou.id}`,
+      deskripsi: `Pengembalian Modal Internal — ${entity.nama} — PKS ${pks.id}`,
       debet: item.jumlah,
       kredit: 0,
       kategori: "Pengembalian Modal",
@@ -586,10 +586,10 @@ async function processPengembalianModalItem({
 
   // Syarat: cukup terminate PKS untuk menandai modal dikembalikan.
   // Status "nonaktif" investor diturunkan dari PKS (`isTerminated`)
-  // & data transaksi (lihat getMouStatus/activeInvestorIds). Mengubah
+  // & data transaksi (lihat getPksStatus/activeInvestorIds). Mengubah
   // `investmentAmount` jadi 0 akan merusak perhitungan total modal &
   // cascade ke banyak halaman. Tidak ada update ke investor di sini.
-  await updateMouFn(mou.id, { isTerminated: true });
+  await updatePksFn(pks.id, { isTerminated: true });
 
   setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
 }
@@ -597,22 +597,22 @@ async function processPengembalianModalItem({
 type ProcessUploadEntityParams = {
   entity: ProcessedEntity;
   uploadFiles: File[];
-  mous: MoU[];
+  pksList: Pks[];
   investors: Investor[];
   brokers: Broker[];
   minbun: AccountInfo;
   trader: AccountInfo;
   uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>;
-  uploadBuktiPengembalianFn?: (mouId: string, file: File) => Promise<string>;
+  uploadBuktiPengembalianFn?: (pksId: string, file: File) => Promise<string>;
   updateTransaksiFn: (id: string, data: any) => Promise<void>;
-  updateMouFn: (id: string, data: any) => Promise<void>;
+  updatePksFn: (id: string, data: any) => Promise<void>;
   updateInvestorFn: (id: string, data: any) => Promise<void>; 
   triggerAutorenewalFn: (id: string) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 };
 
 // PATCH (refactor `as any`): gunakan discriminated union EntitySummaryItem.
-// TS akan narrow otomatis: `item.trx` di branch "Bagi Hasil", `item.mou` di
+// TS akan narrow otomatis: `item.trx` di branch "Bagi Hasil", `item.pks` di
 // branch "Pengembalian Modal". Tidak perlu `as any` lagi.
 async function uploadProofForItem({
   item,
@@ -625,7 +625,7 @@ async function uploadProofForItem({
   validFiles: File[];
   index: number;
   uploadBuktiTransaksiFn: (trxId: string, keterangan: any, file: File) => Promise<string>;
-  uploadBuktiPengembalianFn?: (mouId: string, file: File) => Promise<string>;
+  uploadBuktiPengembalianFn?: (pksId: string, file: File) => Promise<string>;
 }) {
   if (!validFiles.length) return "";
 
@@ -633,8 +633,8 @@ async function uploadProofForItem({
   if (!fileToUpload) return "";
 
   if (item.type === "Pengembalian Modal" && uploadBuktiPengembalianFn) {
-    // PATCH: `item.type` narrowed → `item.mou` non-null.
-    return await uploadBuktiPengembalianFn(item.mou.id, fileToUpload);
+    // PATCH: `item.type` narrowed → `item.pks` non-null.
+    return await uploadBuktiPengembalianFn(item.pks.id, fileToUpload);
   }
 
   if (item.type === "Bagi Hasil") {
@@ -650,7 +650,7 @@ type UploadItem = EntitySummaryItem;
 
 async function processBagiHasilItem({
   item,
-  mous,
+  pksList,
   investors,
   brokers,
   minbun,
@@ -661,7 +661,7 @@ async function processBagiHasilItem({
   triggeredRenewals,
 }: {
   item: BagiHasilItem;
-  mous: MoU[];
+  pksList: Pks[];
   investors: Investor[];
   brokers: Broker[];
   minbun: AccountInfo;
@@ -674,7 +674,7 @@ async function processBagiHasilItem({
   // PATCH: item typed sebagai BagiHasilItem → item.trx non-null.
   const trx = item.trx;
   const checks = { ...trx.bagiHasilChecks, [item.checkKey]: true };
-  const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+  const allRows = buildTransaksiRows(trx, pksList, investors, brokers, minbun, trader);
   const bagiHasilDone = allRows.every((r) => checks[r.checkKey]);
 
   const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
@@ -703,21 +703,21 @@ type _UploadProofItem = UploadItem;
 async function processPengembalianModalUploadItem({
   item,
   investors,
-  updateMouFn,
+  updatePksFn,
   updateInvestorFn,
   setDoneKeysFn,
 }: {
   item: PengembalianModalItem;
   investors: Investor[];
-  updateMouFn: (id: string, data: any) => Promise<void>;
+  updatePksFn: (id: string, data: any) => Promise<void>;
   updateInvestorFn: (id: string, data: any) => Promise<void>;
   setDoneKeysFn: (updater: (s: Set<string>) => Set<string>) => void;
 }) {
-  // PATCH: item typed → item.mou non-null.
+  // PATCH: item typed → item.pks non-null.
   // Syarat: cukup terminate PKS — investor otomatis nonaktif via cascade
-  // getMouStatus / activeInvestorIds. Tidak ada update investmentAmount.
-  const mou = item.mou;
-  await updateMouFn(mou.id, { isTerminated: true });
+  // getPksStatus / activeInvestorIds. Tidak ada update investmentAmount.
+  const pks = item.pks;
+  await updatePksFn(pks.id, { isTerminated: true });
 
   setDoneKeysFn((prev) => new Set(prev).add(item.checkKey));
 }
@@ -725,7 +725,7 @@ async function processPengembalianModalUploadItem({
 async function processUploadEntity({
   entity,
   uploadFiles,
-  mous,
+  pksList,
   investors,
   brokers,
   minbun,
@@ -733,7 +733,7 @@ async function processUploadEntity({
   uploadBuktiTransaksiFn,
   uploadBuktiPengembalianFn,
   updateTransaksiFn,
-  updateMouFn,
+  updatePksFn,
   updateInvestorFn,
   triggerAutorenewalFn,
   setDoneKeysFn,
@@ -749,7 +749,7 @@ async function processUploadEntity({
   const isSystemRecipient = entity.recipientRole === "System";
 
 // PATCH (refactor `as any`): `item` typed EntitySummaryItem; TS akan narrow
-// otomatis `item.trx` vs `item.mou` berdasarkan discriminator `item.type`.
+// otomatis `item.trx` vs `item.pks` berdasarkan discriminator `item.type`.
   if (!isSystemRecipient) {
     for (let i = 0; i < entity.filteredItems.length; i++) {
       const item: EntitySummaryItem = entity.filteredItems[i];
@@ -782,7 +782,7 @@ async function processUploadEntity({
     previousChecks?: Record<string, boolean>;
     previousBagiHasilDone?: boolean;
     previousStatus?: string;
-    mouId?: string;
+    pksId?: string;
     previousIsTerminated?: boolean;
     investorId?: string;
     previousInvestmentAmount?: number;
@@ -790,7 +790,7 @@ async function processUploadEntity({
   const rollbackLog: RollbackRecord[] = [];
   // Snapshot awal untuk semua TRX yang akan di-update, untuk rollback jika gagal.
   const trxSnapshots = new Map<string, any>();
-  const mouSnapshots = new Map<string, any>();
+  const pksSnapshots = new Map<string, any>();
   const investorSnapshots = new Map<string, any>();
   for (const it of entity.filteredItems) {
     const anyIt = it as any;
@@ -801,8 +801,8 @@ async function processUploadEntity({
         status:           anyIt.trx.status,
       });
     }
-    if (anyIt.mou && !mouSnapshots.has(anyIt.mou.id)) {
-      mouSnapshots.set(anyIt.mou.id, { isTerminated: !!anyIt.mou.isTerminated });
+    if (anyIt.pks && !pksSnapshots.has(anyIt.pks.id)) {
+      pksSnapshots.set(anyIt.pks.id, { isTerminated: !!anyIt.pks.isTerminated });
       // PATCH: Tidak ada perubahan ke investor.investmentAmount saat pengembalian
       // modal, jadi tidak perlu snapshot/rollback investmentAmount di sini.
     }
@@ -835,7 +835,7 @@ async function processUploadEntity({
       // Set SEMUA checkKey TRX ini ke true dalam satu kali updates.
       const checks: Record<string, boolean> = { ...(trx.bagiHasilChecks ?? {}) };
       checkKeys.forEach((ck) => { checks[ck] = true; });
-      const allRows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+      const allRows = buildTransaksiRows(trx, pksList, investors, brokers, minbun, trader);
       const bagiHasilDone = allRows.every((r) => checks[r.checkKey]);
       const updates: any = { bagiHasilChecks: checks, bagiHasilDone };
       if (bagiHasilDone) {
@@ -872,19 +872,19 @@ async function processUploadEntity({
       }
     }
 
-    // Proses MoU (tidak berubah; hanya MoU, tidak terkait TRX)
+    // Proses Pks (tidak berubah; hanya Pks, tidak terkait TRX)
     for (const item of entity.filteredItems) {
-      if (item.type === "Pengembalian Modal" && item.mou) {
+      if (item.type === "Pengembalian Modal" && item.pks) {
         await processPengembalianModalUploadItem({
           item,
           investors,
-          updateMouFn,
+          updatePksFn,
           updateInvestorFn,
           setDoneKeysFn,
         });
         rollbackLog.push({
-          mouId: item.mou.id,
-          investorId: item.mou.investorId,
+          pksId: item.pks.id,
+          investorId: item.pks.investorId,
         });
       }
     }
@@ -905,18 +905,18 @@ async function processUploadEntity({
         console.error("[rollback] gagal kembalikan TRX", trxId, rollbackErr);
       }
     }
-    for (const snap of mouSnapshots.entries()) {
-      const [mouId, prev] = snap;
+    for (const snap of pksSnapshots.entries()) {
+      const [pksId, prev] = snap;
       try {
-        await updateMouFn(mouId, { isTerminated: prev.isTerminated });
+        await updatePksFn(pksId, { isTerminated: prev.isTerminated });
       } catch (rollbackErr) {
-        console.error("[rollback] gagal kembalikan MOU", mouId, rollbackErr);
+        console.error("[rollback] gagal kembalikan PKS", pksId, rollbackErr);
       }
     }
     // PATCH: investor.investmentAmount tidak lagi disentuh saat pengembalian
     // modal, jadi tidak ada rollback investor yang diperlukan di sini.
     // Hapus semua doneKeys yang baru ditambahkan agar UI kembali ke Pending.
-    // doneKeys mengikuti pola `${trxId}__${checkKey}` dan `MOU__${mouId}`.
+    // doneKeys mengikuti pola `${trxId}__${checkKey}` dan `PKS__${pksId}`.
     setDoneKeysFn((prev) => {
       const next = new Set(prev);
       for (const r of rollbackLog) {
@@ -926,8 +926,8 @@ async function processUploadEntity({
             if (k.startsWith(`${r.trxId}__`)) next.delete(k);
           }
         }
-        if (r.mouId) {
-          next.delete(`MOU__${r.mouId}`);
+        if (r.pksId) {
+          next.delete(`PKS__${r.pksId}`);
         }
       }
       return next;
@@ -1024,7 +1024,7 @@ async function sendBulkNotifications(
 
     const pksList = entity.filteredItems.map((i: any) => {
       if (i.type === "Bagi Hasil" && i.trx) return i.trx.customId || i.trx.id;
-      if (i.type === "Pengembalian Modal" && i.mou) return i.mou.customId || i.mou.id;
+      if (i.type === "Pengembalian Modal" && i.pks) return i.pks.customId || i.pks.id;
       return i.sourceId;
     });
     const finalNoPks = Array.from(new Set(pksList)).join(", ");
@@ -1313,9 +1313,9 @@ function EntityRow({
 // ── Komponen Utama ────────────────────────────────────────────────────────────
 
 export function ReminderContent() {
-  const mouContext = useMou();
-  const { mous, updateMou } = mouContext;
-  const uploadBuktiPengembalian = (mouContext as any).uploadBuktiPengembalian;
+  const pksContext = usePks();
+  const { pksList, updatePks } = pksContext;
+  const uploadBuktiPengembalian = (pksContext as any).uploadBuktiPengembalian;
 
   const transaksiContext = useTransaksi();
   const { transaksis, updateTransaksi, uploadBuktiTransaksi } = transaksiContext;
@@ -1399,7 +1399,7 @@ export function ReminderContent() {
     };
 
     transaksis.forEach((trx) => {
-      const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+      const rows = buildTransaksiRows(trx, pksList, investors, brokers, minbun, trader);
       const sisa = sisaHari(trx);
       const statusTampil = getDisplayStatus(trx);
 
@@ -1414,18 +1414,18 @@ export function ReminderContent() {
       });
     });
 
-    mous.forEach((mou) => {
-      const sisa = sisaHariPks(mou);
-      const isDone = mou.isTerminated || doneKeys.has(`MOU__${mou.id}`);
+    pksList.forEach((pks) => {
+      const sisa = sisaHariPks(pks);
+      const isDone = pks.isTerminated || doneKeys.has(`PKS__${pks.id}`);
 
       if (!isDone && sisa > 30) return; 
 
-      const inv = investors.find(i => i.id === mou.investorId);
-      const key = `${mou.investorId || mou.investorName}_${sisa}`;
+      const inv = investors.find(i => i.id === pks.investorId);
+      const key = `${pks.investorId || pks.investorName}_${sisa}`;
       
-      addToMap(key, mou.investorName, inv?.bankName || "—", inv?.accountNumber || "—", mou.investorId, {
-        sourceId: mou.id, type: "Pengembalian Modal", keterangan: "Pengembalian Modal", mou: mou,
-        jumlah: mou.investmentAmount, checkKey: `MOU__${mou.id}`, isDone, sisa, 
+      addToMap(key, pks.investorName, inv?.bankName || "—", inv?.accountNumber || "—", pks.investorId, {
+        sourceId: pks.id, type: "Pengembalian Modal", keterangan: "Pengembalian Modal", pks: pks,
+        jumlah: pks.investmentAmount, checkKey: `PKS__${pks.id}`, isDone, sisa, 
         statusTampil: isDone ? "selesai" : "jatuh tempo",
       }, sisa);
     });
@@ -1437,7 +1437,7 @@ export function ReminderContent() {
         if (!selectedDueDate) return true;
         const dueDate = item.type === "Bagi Hasil"
           ? dueDateTransaksi(item.trx)
-          : endDatePks(item.mou);
+          : endDatePks(item.pks);
         return dueDate === selectedDueDate;
       });
       if (filteredItems.length > 0) {
@@ -1480,7 +1480,7 @@ export function ReminderContent() {
     });
     
     return result;
-  }, [transaksis, mous, investors, brokers, minbun, trader, doneKeys, showDone, selectedDueDate, internalInvestorIds]);
+  }, [transaksis, pksList, investors, brokers, minbun, trader, doneKeys, showDone, selectedDueDate, internalInvestorIds]);
 
   // 1. Ringkasan (Summary Metrics) - Berdasarkan data yang TAMPIL SAJA di displayEntities
   const summary = useMemo(() => {
@@ -1508,7 +1508,7 @@ export function ReminderContent() {
           processedTrxIds.add(item.trx.id);
           const calc = calcTransaksi(item.trx);
           if (calc.profit > 0) {
-            const allRows = buildTransaksiRows(item.trx, mous, investors, brokers, minbun, trader);
+            const allRows = buildTransaksiRows(item.trx, pksList, investors, brokers, minbun, trader);
             const totalDistributed = allRows.reduce((sum, r) => sum + r.jumlah, 0);
             ownerAmt += (calc.profit - totalDistributed);
           }
@@ -1520,15 +1520,15 @@ export function ReminderContent() {
 
     let totalTasks = 0, doneTasks = 0;
     transaksis.forEach((trx) => {
-      const rows = buildTransaksiRows(trx, mous, investors, brokers, minbun, trader);
+      const rows = buildTransaksiRows(trx, pksList, investors, brokers, minbun, trader);
       rows.forEach((r) => {
         totalTasks++;
         if (!!trx.bagiHasilChecks?.[r.checkKey] || doneKeys.has(`${trx.id}__${r.checkKey}`)) doneTasks++;
       });
     });
-    mous.forEach((mou) => {
-      const isDone = mou.isTerminated || doneKeys.has(`MOU__${mou.id}`);
-      const sisa = sisaHariPks(mou);
+    pksList.forEach((pks) => {
+      const isDone = pks.isTerminated || doneKeys.has(`PKS__${pks.id}`);
+      const sisa = sisaHariPks(pks);
       if (isDone || sisa <= 30) {
         totalTasks++;
         if (isDone) doneTasks++;
@@ -1539,7 +1539,7 @@ export function ReminderContent() {
       investor, trader: traderAmt, minbun: minbunAmt, broker, owner: ownerAmt, 
       modalToReturn, totalTasks, doneTasks, totalProfitBagiHasil
     };
-  }, [displayEntities, transaksis, mous, investors, brokers, minbun, trader, doneKeys]);
+  }, [displayEntities, transaksis, pksList, investors, brokers, minbun, trader, doneKeys]);
 
   const toPct = (val: number) => summary.totalProfitBagiHasil > 0 
     ? `${Number(((val / summary.totalProfitBagiHasil) * 100).toFixed(1))}%` 
@@ -1558,8 +1558,8 @@ export function ReminderContent() {
     }
   };
 
-// TS union discriminator tidak otomatis narrow `item.mou` di dalam blok ini,
-// jadi pakai variabel lokal `mou` yang sudah pasti bertipe MoU.
+// TS union discriminator tidak otomatis narrow `item.pks` di dalam blok ini,
+// jadi pakai variabel lokal `pks` yang sudah pasti bertipe Pks.
   // PATCH: Undo pelunasan modal cukup membalik `isTerminated` PKS jadi
   // `false`. Tidak ada perubahan `investmentAmount` di sisi forward (lihat
   // processPengembalianModalItem/Upload), jadi undo juga tidak menyentuh
@@ -1585,12 +1585,12 @@ export function ReminderContent() {
           // murni dengan dedupe checkKey hanya menyimpan 1), kita hanya
           // butuh satu update per TRX. Gunakan checkKey pertama yang
           // ditemukan.
-        } else if (item.type === "Pengembalian Modal" && item.mou) {
-          const mou = item.mou;
+        } else if (item.type === "Pengembalian Modal" && item.pks) {
+          const pks = item.pks;
           try {
-            await updateMou(mou.id, { isTerminated: false });
+            await updatePks(pks.id, { isTerminated: false });
           } catch (err) {
-            console.warn("[handleUndoBulk] gagal updateMou:", err);
+            console.warn("[handleUndoBulk] gagal updatePks:", err);
             continue;
           }
         }
@@ -1613,12 +1613,12 @@ export function ReminderContent() {
         }
         setDoneKeys((prev) => { const s = new Set(prev); s.delete(`${trx.id}__${checkKey}`); return s; });
       }
-      // Hapus doneKeys untuk semua Mou yang di-undo.
+      // Hapus doneKeys untuk semua Pks yang di-undo.
       setDoneKeys((prev) => {
         const s = new Set(prev);
         for (const item of entity.filteredItems) {
-          if (item.type === "Pengembalian Modal" && item.mou) {
-            s.delete(`MOU__${item.mou.id}`);
+          if (item.type === "Pengembalian Modal" && item.pks) {
+            s.delete(`PKS__${item.pks.id}`);
           }
         }
         return s;
@@ -1671,7 +1671,7 @@ export function ReminderContent() {
     try {
       await processInternalEntity({
         entity: internalTarget,
-        mous,
+        pksList,
         investors,
         brokers,
         minbun,
@@ -1679,7 +1679,7 @@ export function ReminderContent() {
         cashflowTagRecordedFn: cashflowTagRecorded,
         addPengeluaranFn: addPengeluaran,
         updateTransaksiFn: updateTransaksi,
-        updateMouFn: updateMou,
+        updatePksFn: updatePks,
         updateInvestorFn: updateInvestor,
         triggerAutorenewalFn: triggerAutorenewal,
         setDoneKeysFn: setDoneKeys,
@@ -1774,7 +1774,7 @@ export function ReminderContent() {
       await processUploadEntity({
         entity: uploadTarget,
         uploadFiles,
-        mous,
+        pksList,
         investors,
         brokers,
         minbun,
@@ -1782,7 +1782,7 @@ export function ReminderContent() {
         uploadBuktiTransaksiFn: uploadBuktiTransaksi,
         uploadBuktiPengembalianFn: uploadBuktiPengembalian,
         updateTransaksiFn: updateTransaksi,
-        updateMouFn: updateMou,
+        updatePksFn: updatePks,
         updateInvestorFn: updateInvestor,
         triggerAutorenewalFn: triggerAutorenewal,
         setDoneKeysFn: setDoneKeys,
@@ -2323,14 +2323,14 @@ export function ReminderContent() {
                     const typeClassName = isManual ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400" : "bg-muted text-muted-foreground";
                     const formattedAmount = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(log.jumlah);
                     const keteranganText = log.jumlah > 0 ? `${log.keterangan} · ${formattedAmount}` : log.keterangan;
-                    const descriptionContent = isNotif ? keteranganText : log.mouCustomId;
+                    const descriptionContent = isNotif ? keteranganText : log.pksCustomId;
                     return (
                       <tr key={log.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
                         <td className="py-2.5 px-4 whitespace-nowrap text-muted-foreground text-xs">
                           {new Date(log.sentAt).toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                         </td>
                         <td className="py-2.5 px-4 font-medium whitespace-nowrap">{log.investorName}</td>
-                        <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground whitespace-nowrap">{log.mouCustomId}</td>
+                        <td className="py-2.5 px-4 font-mono text-xs text-muted-foreground whitespace-nowrap">{log.pksCustomId}</td>
                         <td className="py-2.5 px-4 text-center">
                           {isNotif ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">Bagi Hasil</span>

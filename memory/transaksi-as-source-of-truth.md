@@ -7,7 +7,7 @@ metadata:
 
 Halaman reminder sekarang menggunakan **transaksi** sebagai entitas utama (bukan PKS):
 - Tugas bagi hasil muncul per transaksi berstatus `selesai` atau `bermasalah`
-- `bagiHasilChecks` & `bagiHasilDone` disimpan di koleksi `transaksis` (bukan `mous`)
+- `bagiHasilChecks` & `bagiHasilDone` disimpan di koleksi `transaksis` (bukan `pksList`)
 - Bukti transfer per transaksi (`buktiInvestor`, `buktiBroker`, `buktiTrader`, `buktiMinBun`)
 
 **Why:** PKS hanya formalitas; semua activity nyata ada di transaksi.

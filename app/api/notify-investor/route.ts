@@ -487,7 +487,7 @@ export async function POST(req: NextRequest) {
   ]);
 
   pb.collection("reminder_logs").create({
-    mouCustomId:  transaksiId,
+    pksCustomId:  transaksiId,
     cycleNumber:  0,
     sentAt:       new Date().toISOString(),
     investorName: investorName,
