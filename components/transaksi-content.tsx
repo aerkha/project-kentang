@@ -2,6 +2,8 @@
 
 // PATCH (sedang #19): tambah useEffect untuk sync openJalurs. Sebelumnya
 // useState di-init dengan Set kosong dan tidak pernah di-update.
+// TASK (mapping modal): tambahkan filter PKS yang sudah dipakai transaksi
+// aktif lain, dan tombol "Hapus semua ceklis" per jalur investor.
 import { useEffect, useState, useMemo, useRef, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import { ErrorDialog } from "@/components/ui/error-dialog";
@@ -50,6 +52,7 @@ import {
   AlertTriangle,
   Calendar,
   X,
+  Eraser,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -232,14 +235,22 @@ interface TrxFormProps {
   readonly submitLabel: string;
   readonly previewId: string;
   readonly investors: Investor[];
+  /** PKS yang boleh dipilih (sudah difilter: tidak termasuk yang dipakai transaksi aktif lain) */
   readonly activePkss: Pks[];
   readonly committedModal: Map<string, number>;
+  /**
+   * ID PKS yang dipakai oleh transaksi yang sedang diedit.
+   * PKS ini tetap harus muncul di daftar agar user bisa melihat/mengeditnya,
+   * meskipun PKS lain sudah masuk ke transaksi berjalan lain.
+   */
+  readonly editingPksIds?: ReadonlySet<string>;
   readonly isSaving?: boolean;
 }
 
 function TrxFormFields({
   formData, setFormData, onSubmit, submitLabel, previewId,
   investors, activePkss, committedModal,
+  editingPksIds,
   isSaving = false,
 }: TrxFormProps) {
   // PATCH (sedang #19): sebelumnya `openJalurs` hanya di-init pada mount
@@ -280,11 +291,15 @@ function TrxFormFields({
   const getEntryForPks = (pks: Pks): InvestorEntryForm | undefined =>
     formData.investorEntries.find((e) => e.pksId === pks.id);
 
+  // Daftar PKS di jalur tertentu yang BOLEH ditampilkan di form.
+  // PKS milik transaksi yang sedang diedit selalu dimasukkan supaya
+  // user bisa tetap melihat/mengedit nilainya.
   const pksByJalur = (jalur: InvestorJalur): Pks[] =>
     activePkss.filter((m) => {
       const inv = investors.find((x) => x.id === m.investorId);
       if (!inv || getJalur(inv) !== jalur) return false;
-      return displaySisaForPks(m) > 0 || isPksChecked(m);
+      // Tampilkan jika: PKS punya sisa modal / sedang dicentang / dipakai transaksi yang diedit
+      return displaySisaForPks(m) > 0 || isPksChecked(m) || (editingPksIds?.has(m.id) ?? false);
     });
 
   const toggleJalur = (jalur: InvestorJalur) => {
@@ -327,10 +342,38 @@ function TrxFormFields({
     }
   };
 
+  /**
+   * TASK: tombol "Hapus semua ceklis" per jalur.
+   * Menghapus semua investorEntries yang pksId-nya ada di jalur tertentu.
+   * PKS milik transaksi yang sedang diedit tetap dipertahankan agar
+   * relasi ke transaksi tidak hilang secara tidak sengaja.
+   */
+  const clearJalurChecks = (jalur: InvestorJalur) => {
+    setFormData((prev) => {
+      const jalurPksIds = new Set(
+        activePkss
+          .filter((m) => {
+            const inv = investors.find((x) => x.id === m.investorId);
+            return inv && getJalur(inv) === jalur;
+          })
+          .map((m) => m.id),
+      );
+      const keptEditing = editingPksIds ?? new Set<string>();
+      return {
+        ...prev,
+        investorEntries: prev.investorEntries.filter(
+          (e) => !jalurPksIds.has(e.pksId) || keptEditing.has(e.pksId),
+        ),
+      };
+    });
+  };
+
   const togglePks = (pks: Pks) => {
     setFormData((prev) => {
       const alreadyIn = prev.investorEntries.some((e) => e.pksId === pks.id);
       if (alreadyIn) {
+        // Lindungi PKS milik transaksi yang sedang diedit agar tidak hilang
+        if (editingPksIds?.has(pks.id)) return prev;
         return { ...prev, investorEntries: prev.investorEntries.filter((e) => e.pksId !== pks.id) };
       }
       const inv = investors.find((x) => x.id === pks.investorId);
@@ -552,9 +595,27 @@ function TrxFormFields({
           {(["MB", "TM", "D"] as InvestorJalur[]).map((jalur) => {
             if (!openJalurs.has(jalur)) return null;
             const jalurPks = pksByJalur(jalur);
+            // Hitung jumlah PKS di jalur ini yang sedang dicentang
+            const checkedCount = jalurPks.filter((p) => isPksChecked(p)).length;
             return (
               <div key={jalur} className="rounded-md border border-border p-3 space-y-2 bg-muted/20">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{JALUR_LABEL[jalur]}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{JALUR_LABEL[jalur]}</p>
+                  {/* TASK: tombol "Hapus semua ceklis" per jalur */}
+                  {checkedCount > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => clearJalurChecks(jalur)}
+                      className="h-6 px-2 text-[10px] gap-1 text-muted-foreground hover:text-destructive"
+                      title={`Hapus semua ceklis di jalur ${JALUR_LABEL[jalur]}`}
+                    >
+                      <Eraser className="h-3 w-3" />
+                      Hapus ceklis ({checkedCount})
+                    </Button>
+                  )}
+                </div>
                 {jalurPks.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic">Mohon buat PKS terlebih dahulu</p>
                 ) : (
@@ -566,6 +627,7 @@ function TrxFormFields({
                       const sisa      = displaySisaForPks(pks);
                       const inv       = investors.find((x) => x.id === pks.investorId);
                       const pksSisa   = sisaHariPks(pks);
+                      const usedByEditing = editingPksIds?.has(pks.id) ?? false;
                       let pksSisaClass = 'text-muted-foreground';
                       if (pksSisa <= 0) {
                         pksSisaClass = 'text-red-500 font-bold';
@@ -575,9 +637,13 @@ function TrxFormFields({
                       
                       return (
                         <div key={pks.id} className="flex items-center gap-3">
-                          <Checkbox checked={checked} onCheckedChange={() => togglePks(pks)} />
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={() => togglePks(pks)}
+                            disabled={usedByEditing}
+                          />
                           <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-mono text-sm font-semibold text-foreground shrink-0">{pks.id}</span>
                               {inv?.brokerName && (
                                 <span className="text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-1.5 py-0.5 rounded shrink-0">
@@ -587,6 +653,11 @@ function TrxFormFields({
                               <span className={`text-[10px] font-medium shrink-0 ${pksSisaClass}`}>
                                 (Sisa PKS: {pksSisa <= 0 ? 'Jatuh Tempo' : `${pksSisa} hari`})
                               </span>
+                              {usedByEditing && (
+                                <span className="text-[10px] bg-blue-50 border border-blue-200 text-blue-700 px-1.5 py-0.5 rounded shrink-0">
+                                  Dipakai transaksi ini
+                                </span>
+                              )}
                             </div>
                             <span className="text-xs text-muted-foreground truncate">{pks.investorName}</span>
                           </div>
@@ -1278,7 +1349,41 @@ export default function TransaksiContent() {
     return map;
   }, [transaksis, editingTransaksi]);
 
-  const activePkss = useMemo(() => pksList.filter((m) => !m.isTerminated), [pksList]);
+  const activePkss = useMemo(() => {
+    // 1) Hanya PKS yang BELUM terminated (flag isTerminated = false)
+    const baseActive = pksList.filter((m) => !m.isTerminated);
+    if (visibleTransaksis.length === 0) return baseActive;
+    // 2) Kumpulkan ID PKS yang dipakai oleh transaksi aktif LAIN.
+    //    (Transaksi yang sedang diedit dikecualikan agar PKS-nya tetap muncul.)
+    const excludeTrxId = editingTransaksi?.id;
+    const usedPksIdsByOthers = new Set<string>();
+    for (const t of visibleTransaksis) {
+      if (excludeTrxId && t.id === excludeTrxId) continue;
+      const eff = effectiveStatus(t);
+      // Hanya transaksi "berjalan" / "bermasalah" yang menggunakan PKS secara aktif
+      if (eff !== "berjalan" && eff !== "bermasalah") continue;
+      for (const e of t.investorEntries) {
+        if (e.pksId) usedPksIdsByOthers.add(e.pksId);
+      }
+    }
+    // 3) PKS yang sudah dipakai oleh transaksi lain TIDAK dimasukkan ke
+    //    daftar pilihan (sesuai requirement: "hilangkan pks yang sudah dipakai").
+    return baseActive.filter((m) => !usedPksIdsByOthers.has(m.id));
+  }, [pksList, visibleTransaksis, editingTransaksi]);
+
+  /**
+   * ID PKS yang dipakai oleh transaksi yang sedang diedit — dikirim ke form
+   * supaya PKS tersebut tetap ditampilkan di daftar (meski sudah dipakai
+   * transaksi lain, saat diedit hanya untuk transaksi ini).
+   */
+  const editingPksIds = useMemo<ReadonlySet<string>>(() => {
+    if (!editingTransaksi) return new Set<string>();
+    const ids = new Set<string>();
+    for (const e of editingTransaksi.investorEntries) {
+      if (e.pksId) ids.add(e.pksId);
+    }
+    return ids;
+  }, [editingTransaksi]);
 
   const pksToBulkDelete = useMemo(() => {
     if (!selected) return [];
@@ -1295,7 +1400,7 @@ export default function TransaksiContent() {
     });
   }, [selected, transaksis, pksList]);
 
-  const sharedFormProps = { investors, activePkss, committedModal, isSaving };
+  const sharedFormProps = { investors, activePkss, committedModal, editingPksIds, isSaving };
 
   return (
     <div className="space-y-6">
@@ -1614,5 +1719,3 @@ export default function TransaksiContent() {
     </div>
   );
 }
-
-
