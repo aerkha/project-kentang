@@ -9,6 +9,7 @@ import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -473,6 +474,35 @@ export function DashboardContent() {
       return true;
     });
   }, [rekapData, filterNama, filterPks]);
+
+  // ── Pagination: Detail Investor ──
+  // 20 baris per halaman, konsisten dengan halaman PKS.
+  const ITEMS_PER_PAGE = 20;
+  const [pageInvestor, setPageInvestor] = useState(1);
+  const [pageRekap,    setPageRekap]    = useState(1);
+
+  // Reset ke halaman 1 setiap kali filter / data berubah agar tidak
+  // terjebak di halaman kosong.
+  useMemo(() => {
+    setPageInvestor(1);
+    setPageRekap(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterBroker, filterInvestor, filterNama, filterPks, dateRange?.from?.toString(), dateRange?.to?.toString()]);
+
+  const totalPagesInvestor = Math.max(1, Math.ceil(filteredInvestors.length / ITEMS_PER_PAGE));
+  const totalPagesRekap    = Math.max(1, Math.ceil(filteredRekap.length       / ITEMS_PER_PAGE));
+
+  const safePageInvestor = Math.min(pageInvestor, totalPagesInvestor);
+  const safePageRekap    = Math.min(pageRekap,    totalPagesRekap);
+
+  const paginatedInvestor = filteredInvestors.slice(
+    (safePageInvestor - 1) * ITEMS_PER_PAGE,
+    safePageInvestor       * ITEMS_PER_PAGE,
+  );
+  const paginatedRekap = filteredRekap.slice(
+    (safePageRekap - 1) * ITEMS_PER_PAGE,
+    safePageRekap       * ITEMS_PER_PAGE,
+  );
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("id-ID", {
@@ -1103,7 +1133,13 @@ export function DashboardContent() {
           <CardTitle>Detail Investor</CardTitle>
           <CardDescription>Daftar lengkap investor dan nilai investasi</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
+          {filteredInvestors.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
+              <Users className="h-10 w-10" />
+              <p className="text-sm">Belum ada investor</p>
+            </div>
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -1119,7 +1155,7 @@ export function DashboardContent() {
                 </tr>
               </thead>
               <tbody>
-                {filteredInvestors.map((investor) => {
+                {paginatedInvestor.map((investor) => {
                   // PKS aktif = berstatus draft atau completed (yakni belum
                   // terminated). Masa aktif/expiry PKS tidak lagi relevan — PKS
                   // berlaku selama transaksinya jalan.
@@ -1158,6 +1194,54 @@ export function DashboardContent() {
               </tbody>
             </table>
           </div>
+          )}
+          {totalPagesInvestor > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+              <p className="text-xs text-muted-foreground">
+                {(safePageInvestor - 1) * ITEMS_PER_PAGE + 1}–{Math.min(safePageInvestor * ITEMS_PER_PAGE, filteredInvestors.length)} dari {filteredInvestors.length} investor
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPageInvestor((p) => Math.max(1, p - 1))}
+                  disabled={safePageInvestor === 1}
+                >
+                  ←
+                </Button>
+                {Array.from({ length: totalPagesInvestor }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalPagesInvestor || Math.abs(p - safePageInvestor) <= 1)
+                  .reduce<(number | "…")[]>((acc, p, i, arr) => {
+                    if (i > 0 && p - arr[i - 1] > 1) acc.push("…");
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p) =>
+                    p === "…" ? (
+                      <span key="ellipsis" className="px-1 text-muted-foreground text-xs">…</span>
+                    ) : (
+                      <Button
+                        key={p}
+                        variant={safePageInvestor === p ? "default" : "outline"}
+                        size="sm"
+                        className="w-8 h-8 p-0 text-xs"
+                        onClick={() => setPageInvestor(p)}
+                      >
+                        {p}
+                      </Button>
+                    )
+                  )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPageInvestor((p) => Math.min(totalPagesInvestor, p + 1))}
+                  disabled={safePageInvestor === totalPagesInvestor}
+                >
+                  →
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -1255,7 +1339,7 @@ export function DashboardContent() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRekap.map((row) => (
+                  {paginatedRekap.map((row) => (
                     <tr key={row.pks.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
                       <td className="py-2.5 px-2.5 text-center text-muted-foreground">{row.no}</td>
                       <td className="py-2.5 px-2.5 font-medium whitespace-nowrap">{row.pks.investorName}</td>
@@ -1298,6 +1382,53 @@ export function DashboardContent() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          {totalPagesRekap > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+              <p className="text-xs text-muted-foreground">
+                {(safePageRekap - 1) * ITEMS_PER_PAGE + 1}–{Math.min(safePageRekap * ITEMS_PER_PAGE, filteredRekap.length)} dari {filteredRekap.length} PKS
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPageRekap((p) => Math.max(1, p - 1))}
+                  disabled={safePageRekap === 1}
+                >
+                  ←
+                </Button>
+                {Array.from({ length: totalPagesRekap }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalPagesRekap || Math.abs(p - safePageRekap) <= 1)
+                  .reduce<(number | "…")[]>((acc, p, i, arr) => {
+                    if (i > 0 && p - arr[i - 1] > 1) acc.push("…");
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p) =>
+                    p === "…" ? (
+                      <span key="ellipsis" className="px-1 text-muted-foreground text-xs">…</span>
+                    ) : (
+                      <Button
+                        key={p}
+                        variant={safePageRekap === p ? "default" : "outline"}
+                        size="sm"
+                        className="w-8 h-8 p-0 text-xs"
+                        onClick={() => setPageRekap(p)}
+                      >
+                        {p}
+                      </Button>
+                    )
+                  )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPageRekap((p) => Math.min(totalPagesRekap, p + 1))}
+                  disabled={safePageRekap === totalPagesRekap}
+                >
+                  →
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
