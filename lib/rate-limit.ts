@@ -1,5 +1,5 @@
 /**
- * In-memory sliding-window rate limiter for Next.js middleware.
+ * In-memory sliding-window rate limiter for Next.js Proxy.
  *
  * Implementation notes:
  *   - Single-instance VPS deployment: the Map below is shared across all
@@ -199,7 +199,7 @@ export function classify(pathname: string): PolicyName {
  *
  * NOTE: parsing the PB token here is intentionally NOT done; it would
  * require JWT/JOSE which isn't in deps. The token-based bucketing is left
- * to the route handlers' own auth check; the middleware layers a
+ * to the route handlers' own auth check; the proxy layers a
  * per-IP/per-header cap on top of that.
  */
 export function clientKey(req: Request): string {
@@ -231,5 +231,5 @@ export function clientKey(req: Request): string {
 //     },
 //   };
 //
-// Then in middleware.ts, pick the store based on env:
+// Then in proxy.ts, pick the store based on env:
 //   const store = process.env.UPSTASH_REDIS_REST_URL ? upstashStore : memoryStore;

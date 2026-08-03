@@ -23,7 +23,9 @@ const csp = [
   `font-src 'self' data: https://fonts.gstatic.com`,
   // Menambahkan *.sentry.io jika tunnel monitoring gagal
   `connect-src 'self' ${PB_ORIGIN} ${PB_WS} ws: wss: https://*.sentry.io`,
-  `frame-src 'self'`,
+  // Preview PDF PKS memakai URL.createObjectURL(file), sehingga iframe perlu
+  // diizinkan memuat URL blob yang dibuat lokal oleh browser.
+  `frame-src 'self' blob:`,
   `frame-ancestors 'none'`,
   `form-action 'self'`,
   `object-src 'none'`,

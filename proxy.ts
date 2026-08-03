@@ -8,8 +8,8 @@ import {
 } from "@/lib/rate-limit";
 
 /**
- * Next.js Middleware. 
- * Berjalan di runtime Edge/Node.js untuk menerapkan sliding-window rate limit 
+ * Next.js Proxy.
+ * Berjalan di runtime Node.js untuk menerapkan sliding-window rate limit
  * ke setiap request /api/* berdasarkan IP pengguna.
  *
  * Header yang ditambahkan ke setiap response:
@@ -20,7 +20,7 @@ import {
  */
 
 export const config = {
-  // Hanya jalankan middleware ini untuk rute API. 
+  // Hanya jalankan proxy ini untuk rute API.
   // Aset statis dan halaman UI akan dilewati untuk menghemat resource server.
   matcher: ["/api/:path*"],
 };
@@ -38,8 +38,7 @@ function withRateLimitHeaders(res: NextResponse, opts: {
   return res;
 }
 
-// PERBAIKAN: Nama fungsi WAJIB "middleware"
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
 
   // Lapis pertahanan ekstra: pastikan hanya memproses /api/
