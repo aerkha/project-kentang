@@ -140,7 +140,7 @@ function formatShort(n: number) {
 }
 
 function formatQty(n: number) {
-  return n % 1 === 0 ? `${n.toFixed(0)} kg` : `${n.toFixed(2)} kg`;
+  return `${Math.round(n)} kg`;
 }
 
 function formatDate(s: string) {
