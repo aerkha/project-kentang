@@ -106,7 +106,6 @@ function calcPksDistribution(
     // Batas akhir eksklusif [start, end) — konsisten dengan halaman lain agar
     // transaksi di tanggal akhir tidak terhitung dobel saat PKS diperpanjang
     if (tDate < pksStart || tDate >= pksEnd) return;
-    if (t.status !== "selesai" && t.status !== "bermasalah") return;
 
     const calc = calcTransaksi(t);
     if (calc.totalInvestasi === 0 || calc.profit <= 0) return;
@@ -379,7 +378,6 @@ export function DashboardContent() {
     const countedTrxIds = new Set<string>();
 
     filteredTransaksis.forEach((trx) => {
-      if (trx.status !== "selesai" && trx.status !== "bermasalah") return;
       const calc = calcTransaksi(trx);
       if (calc.totalInvestasi === 0 || calc.profit <= 0) return;
       if (countedTrxIds.has(trx.id)) return;
