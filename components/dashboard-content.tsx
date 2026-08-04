@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
-import { usePks, investorPkPct, investorPp1Pct } from "@/lib/pks-context";
+import { usePks, investorPkPct } from "@/lib/pks-context";
 import { useTransaksi, calcTransaksi, activeInvestorIds, type Transaksi } from "@/lib/transaksi-context";
 import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,6 +71,16 @@ function formatDate(s: string) {
 
 import type { Pks } from "@/lib/pks-context";
 
+// Hitung distribusi per-TRX untuk satu PKS, konsisten dengan halaman Reminder.
+// Aturan:
+//   - Hanya TRX dengan profit > 0 dan investasi > 0 yang dihitung
+//   - Per TRX, hitung rasio (entry.nilaiInvestasi / totalInvestasi), lalu
+//     kalikan profit TRX dengan rasio → bagian investor di TRX ini
+//   - Investor (PK)  = bagian_investor × PK% PKS (fallback 35)
+//   - Trader / MinBun / Broker = bagian_investor × % entry (fallback konsisten)
+//   - Owner          = bagian_investor − (Investor + Trader + MinBun + Broker)
+//     jadi total per-baris (Owner+Investor+Trader+MinBun+Broker) = bagian_investor.
+//   - Akumulasi totalProfit per-TRX untuk sanity check.
 function calcPksDistribution(
   pks: Pks,
   transaksis: Transaksi[],
@@ -81,8 +91,7 @@ function calcPksDistribution(
   const [ey, em, ed] = pksEndDate.slice(0, 10).split("-").map(Number);
   const pksEnd   = Date.UTC(ey, em - 1, ed);
 
-  const pp1Pct = (pks.bagiHasilPP1 ?? 50) / 100;
-  const pkPct  = (pks.bagiHasilPK  ?? 35) / 100;
+  const pkPct = (pks.bagiHasilPK ?? 35) / 100;
 
   let totalProfit = 0;
   let owner = 0, hasanah = 0, investor = 0, trader = 0, minbun = 0, brokerI = 0, brokerII = 0;
@@ -99,17 +108,17 @@ function calcPksDistribution(
     if (tDate < pksStart || tDate >= pksEnd) return;
     if (t.status !== "selesai" && t.status !== "bermasalah") return;
 
-    const entry = t.investorEntries.find((e) => e.investorId === pks.investorId);
-    if (!entry) return;
-
     const calc = calcTransaksi(t);
-    if (calc.totalInvestasi === 0) return;
+    if (calc.totalInvestasi === 0 || calc.profit <= 0) return;
 
+    // Bagian investor ini dari TRX: rasio entry × profit TRX
+    const entry = t.investorEntries.find((e) => e.investorId === pks.investorId);
+    if (!entry || entry.nilaiInvestasi <= 0) return;
     const ratio  = entry.nilaiInvestasi / calc.totalInvestasi;
     const profit = calc.profit * ratio;
     totalProfit += profit;
 
-    // Jika data lama semua pct=0, fallback ke default berdasarkan ada/tidaknya broker
+    // Fallback % trader/minbun/broker jika semua 0, konsisten dengan reminder.
     const allZero  = entry.pctTrader === 0 && entry.pctMinBun === 0 && entry.pctBrokerI === 0 && entry.pctBrokerII === 0;
     const hasBroker = !!entry.investorBrokerName;
     const ePctTrader  = allZero ? 10                    : entry.pctTrader;
@@ -122,12 +131,18 @@ function calcPksDistribution(
       pctSet = true;
     }
 
-    owner    += profit * pp1Pct;
-    investor += profit * pkPct;
-    trader   += profit * ePctTrader   / 100;
-    minbun   += profit * ePctMinBun   / 100;
-    brokerI  += profit * ePctBrokerI  / 100;
-    brokerII += profit * ePctBrokerII / 100;
+    const trxInvestor = profit * pkPct;
+    const trxTrader   = profit * ePctTrader   / 100;
+    const trxMinbun   = profit * ePctMinBun   / 100;
+    const trxBroker   = profit * (ePctBrokerI + ePctBrokerII) / 100;
+    const trxOwner    = profit - (trxInvestor + trxTrader + trxMinbun + trxBroker);
+
+    investor += trxInvestor;
+    trader   += trxTrader;
+    minbun   += trxMinbun;
+    brokerI  += trxBroker * (ePctBrokerI / Math.max(1, ePctBrokerI + ePctBrokerII));
+    brokerII += trxBroker * (ePctBrokerII / Math.max(1, ePctBrokerI + ePctBrokerII));
+    owner    += trxOwner;
   });
 
   hasanah = investor + trader + minbun + brokerI + brokerII;
@@ -345,6 +360,12 @@ export function DashboardContent() {
   }, [filteredPkssByPeriod, filteredTransaksis]);
 
   // ── Period summary metrics ──
+  // Formula disamakan dengan halaman Reminder (buildTransaksiRows):
+  //   - Hanya TRX dengan profit > 0 dan investasi > 0 yang dihitung
+  //   - Bagi hasil dihitung per-TRX dari profit PENUH, bukan per-investor-entry
+  //     (entry hanya jadi faktor bobot PK% jika ada beberapa investor di TRX yang sama;
+  //      default persentase trader/minbun/broker ditentukan per-entry)
+  //   - Owner = residu: profit - totalDistributed (Investor+Trader+MinBun+Broker)
   const periodMetrics = useMemo(() => {
     let income = 0, profit = 0;
     filteredTransaksis.forEach((t) => {
@@ -352,35 +373,52 @@ export function DashboardContent() {
       income += c.income;
       profit += c.profit;
     });
-    // Bagi hasil per pihak, dihitung langsung dari transaksi:
-    //   - Owner (PP I): profit × PP1% dari PKS investor
-    //   - Investor (PK): profit × PK% dari PKS investor
-    //   - Trader / MinBun / Broker: profit × % dari transaction entry investor
-    // Split investor & owner hanya tersimpan di PKS, jadi sumbernya PKS.
+
     let bagHasilInvestor = 0, bagHasilTrader = 0, bagHasilMinbun = 0, bagHasilBroker = 0;
     let profitOwner = 0;
-    filteredTransaksis.forEach((t) => {
-      if (t.status !== "selesai" && t.status !== "bermasalah") return;
-      const calc = calcTransaksi(t);
-      if (calc.totalInvestasi === 0) return;
-      t.investorEntries.forEach((e) => {
-        const ratio     = e.nilaiInvestasi / calc.totalInvestasi;
-        const profit    = calc.profit * ratio;
-        const allZero   = e.pctTrader === 0 && e.pctMinBun === 0 && e.pctBrokerI === 0 && e.pctBrokerII === 0;
-        const hasBroker = !!e.investorBrokerName;
-        const pT  = allZero ? 10                   : e.pctTrader;
-        const pM  = allZero ? (hasBroker ? 0 : 5)  : e.pctMinBun;
-        const pBI = allZero ? (hasBroker ? 5 : 0)  : e.pctBrokerI;
-        const pBII= allZero ? 0                    : e.pctBrokerII;
-        const pp1 = investorPp1Pct(e.investorId, pksList);
-        const pk  = investorPkPct (e.investorId, pksList);
-        profitOwner        += profit * pp1 / 100;
-        bagHasilInvestor   += profit * pk  / 100;
-        bagHasilTrader     += profit * pT  / 100;
-        bagHasilMinbun     += profit * pM  / 100;
-        bagHasilBroker     += profit * (pBI + pBII) / 100;
-      });
+    const countedTrxIds = new Set<string>();
+
+    filteredTransaksis.forEach((trx) => {
+      if (trx.status !== "selesai" && trx.status !== "bermasalah") return;
+      const calc = calcTransaksi(trx);
+      if (calc.totalInvestasi === 0 || calc.profit <= 0) return;
+      if (countedTrxIds.has(trx.id)) return;
+      countedTrxIds.add(trx.id);
+
+      let trxInvestor = 0, trxTrader = 0, trxMinbun = 0, trxBroker = 0;
+
+      for (const entry of trx.investorEntries) {
+        if (entry.nilaiInvestasi <= 0) continue;
+
+        // PK% (bagi hasil investor) — sumber: PKS investor, fallback 35.
+        const pkPct = investorPkPct(entry.investorId, pksList) / 100;
+        const ratio = entry.nilaiInvestasi / calc.totalInvestasi;
+        const profit = calc.profit * ratio;
+
+        // Fallback % trader/minbun/broker jika semua 0, konsisten dengan reminder.
+        const allZero   = entry.pctTrader === 0 && entry.pctMinBun === 0 && entry.pctBrokerI === 0 && entry.pctBrokerII === 0;
+        const hasBroker = !!entry.investorBrokerName;
+        const pT  = allZero ? 10                   : entry.pctTrader;
+        const pM  = allZero ? (hasBroker ? 0 : 5)  : entry.pctMinBun;
+        const pBI = allZero ? (hasBroker ? 5 : 0)  : entry.pctBrokerI;
+        const pBII= allZero ? 0                    : entry.pctBrokerII;
+
+        trxInvestor += profit * pkPct;
+        trxTrader   += profit * pT  / 100;
+        trxMinbun   += profit * pM  / 100;
+        trxBroker   += profit * (pBI + pBII) / 100;
+      }
+
+      const totalDistributed = trxInvestor + trxTrader + trxMinbun + trxBroker;
+      const trxOwner = calc.profit - totalDistributed;
+
+      bagHasilInvestor += trxInvestor;
+      bagHasilTrader   += trxTrader;
+      bagHasilMinbun   += trxMinbun;
+      bagHasilBroker   += trxBroker;
+      profitOwner      += trxOwner;
     });
+
     // Total semua pihak = total profit yang dibagikan
     const totalBagiHasil = profitOwner + bagHasilInvestor + bagHasilTrader + bagHasilMinbun + bagHasilBroker;
     let periodLabel = "Semua Periode";
@@ -741,62 +779,8 @@ export function DashboardContent() {
             </CardContent>
           </Card>
 
-          {/* Profit Owner (PP I) — bagian profit untuk Owner */}
-          <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Profit Owner</CardTitle>
-              <Wallet className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-purple-600">
-                {formatShort(periodMetrics.profitOwner)}
-              </div>
-              <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.profitOwner)}</p>
-            </CardContent>
-          </Card>
-
-          {/* Bagi Hasil Investor (PK) — bagian profit untuk Investor */}
-          <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Bagi Hasil Investor</CardTitle>
-              <Wallet className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-orange-500">
-                {formatShort(periodMetrics.bagHasilInvestor)}
-              </div>
-              <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasilInvestor)}</p>
-            </CardContent>
-          </Card>
-
-          {/* Bagi Hasil MinBun (Trader / MinBun / Broker) — bagian profit untuk ketiga pihak */}
-          <Card className={`md:col-span-2 ${periodMetrics.isFiltered ? "border-primary/30" : ""}`}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Bagi Hasil MinBun</CardTitle>
-              <Wallet className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center divide-x divide-border">
-                <div className="flex-1 pr-4">
-                  <p className="text-xs text-muted-foreground mb-1">Trader</p>
-                  <p className="text-xl font-bold">{formatShort(periodMetrics.bagHasilTrader)}</p>
-                  <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasilTrader)}</p>
-                </div>
-                <div className="flex-1 px-4">
-                  <p className="text-xs text-muted-foreground mb-1">MinBun</p>
-                  <p className="text-xl font-bold text-green-600">{formatShort(periodMetrics.bagHasilMinbun)}</p>
-                  <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasilMinbun)}</p>
-                </div>
-                <div className="flex-1 pl-4">
-                  <p className="text-xs text-muted-foreground mb-1">Broker</p>
-                  <p className="text-xl font-bold">{formatShort(periodMetrics.bagHasilBroker)}</p>
-                  <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasilBroker)}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Total semua bagi hasil — sanity check: harus ≈ Total Profit */}
+          {/* Ringkasan Bagi Hasil per pihak (Owner / Investor / Trader / MinBun / Broker) +
+              Total sebagai sanity check (harus ≈ Total Profit). */}
           <Card className={`md:col-span-4 ${periodMetrics.isFiltered ? "border-primary/30" : ""}`}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Semua Bagi Hasil</CardTitle>
