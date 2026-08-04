@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
-import { usePks, investorPkPct } from "@/lib/pks-context";
+import { usePks, investorPkPct, investorPp1Pct } from "@/lib/pks-context";
 import { useTransaksi, calcTransaksi, activeInvestorIds, type Transaksi } from "@/lib/transaksi-context";
 import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -352,9 +352,13 @@ export function DashboardContent() {
       income += c.income;
       profit += c.profit;
     });
-    // Bagi hasil Investor, Trader, MinBun, Broker — semua langsung dari transaksi.
-    // Investor: profit × PK% dari PKS investor (split investor hanya ada di PKS).
-    let bagHasil = 0, bagHasilTrader = 0, bagHasilMinbun = 0, bagHasilBroker = 0, grossProfitMinbun = 0;
+    // Bagi hasil per pihak, dihitung langsung dari transaksi:
+    //   - Owner (PP I): profit × PP1% dari PKS investor
+    //   - Investor (PK): profit × PK% dari PKS investor
+    //   - Trader / MinBun / Broker: profit × % dari transaction entry investor
+    // Split investor & owner hanya tersimpan di PKS, jadi sumbernya PKS.
+    let bagHasilInvestor = 0, bagHasilTrader = 0, bagHasilMinbun = 0, bagHasilBroker = 0;
+    let profitOwner = 0;
     filteredTransaksis.forEach((t) => {
       if (t.status !== "selesai" && t.status !== "bermasalah") return;
       const calc = calcTransaksi(t);
@@ -368,13 +372,17 @@ export function DashboardContent() {
         const pM  = allZero ? (hasBroker ? 0 : 5)  : e.pctMinBun;
         const pBI = allZero ? (hasBroker ? 5 : 0)  : e.pctBrokerI;
         const pBII= allZero ? 0                    : e.pctBrokerII;
-        bagHasil       += profit * investorPkPct(e.investorId, pksList) / 100;
-        bagHasilTrader += profit * pT   / 100;
-        bagHasilMinbun += profit * pM   / 100;
-        bagHasilBroker += profit * (pBI + pBII) / 100;
-        grossProfitMinbun += profit * (pT + pM + pBI + pBII) / 100;
+        const pp1 = investorPp1Pct(e.investorId, pksList);
+        const pk  = investorPkPct (e.investorId, pksList);
+        profitOwner        += profit * pp1 / 100;
+        bagHasilInvestor   += profit * pk  / 100;
+        bagHasilTrader     += profit * pT  / 100;
+        bagHasilMinbun     += profit * pM  / 100;
+        bagHasilBroker     += profit * (pBI + pBII) / 100;
       });
     });
+    // Total semua pihak = total profit yang dibagikan
+    const totalBagiHasil = profitOwner + bagHasilInvestor + bagHasilTrader + bagHasilMinbun + bagHasilBroker;
     let periodLabel = "Semua Periode";
     if (dateRange?.from && dateRange?.to) {
       periodLabel = `${format(dateRange.from, "d MMM yyyy", { locale: localeId })} – ${format(dateRange.to, "d MMM yyyy", { locale: localeId })}`;
@@ -384,7 +392,14 @@ export function DashboardContent() {
       periodLabel = `Sampai ${format(dateRange.to, "d MMM yyyy", { locale: localeId })}`;
     }
     return {
-      income, profit, bagHasil, grossProfitMinbun, bagHasilTrader, bagHasilMinbun, bagHasilBroker,
+      income,
+      profit,
+      profitOwner,
+      bagHasilInvestor,
+      bagHasilTrader,
+      bagHasilMinbun,
+      bagHasilBroker,
+      totalBagiHasil,
       trxCount:   filteredTransaksis.length,
       pksCount:   filteredPkssByPeriod.length,
       periodLabel,
@@ -726,6 +741,21 @@ export function DashboardContent() {
             </CardContent>
           </Card>
 
+          {/* Profit Owner (PP I) — bagian profit untuk Owner */}
+          <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Profit Owner</CardTitle>
+              <Wallet className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-purple-600">
+                {formatShort(periodMetrics.profitOwner)}
+              </div>
+              <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.profitOwner)}</p>
+            </CardContent>
+          </Card>
+
+          {/* Bagi Hasil Investor (PK) — bagian profit untuk Investor */}
           <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Bagi Hasil Investor</CardTitle>
@@ -733,25 +763,13 @@ export function DashboardContent() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-orange-500">
-                {formatShort(periodMetrics.bagHasil)}
+                {formatShort(periodMetrics.bagHasilInvestor)}
               </div>
-              <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasil)}</p>
+              <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasilInvestor)}</p>
             </CardContent>
           </Card>
 
-          <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Gross Profit MinBun</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${periodMetrics.grossProfitMinbun >= 0 ? "text-green-600" : "text-red-600"}`}>
-                {formatShort(periodMetrics.grossProfitMinbun)}
-              </div>
-              <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.grossProfitMinbun)}</p>
-            </CardContent>
-          </Card>
-
+          {/* Bagi Hasil MinBun (Trader / MinBun / Broker) — bagian profit untuk ketiga pihak */}
           <Card className={`md:col-span-2 ${periodMetrics.isFiltered ? "border-primary/30" : ""}`}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Bagi Hasil MinBun</CardTitle>
@@ -773,6 +791,50 @@ export function DashboardContent() {
                   <p className="text-xs text-muted-foreground mb-1">Broker</p>
                   <p className="text-xl font-bold">{formatShort(periodMetrics.bagHasilBroker)}</p>
                   <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasilBroker)}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Total semua bagi hasil — sanity check: harus ≈ Total Profit */}
+          <Card className={`md:col-span-4 ${periodMetrics.isFiltered ? "border-primary/30" : ""}`}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Semua Bagi Hasil</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center divide-x divide-border">
+                <div className="flex-1 pr-4">
+                  <p className="text-xs text-muted-foreground mb-1">Owner (PP I)</p>
+                  <p className="text-xl font-bold text-purple-600">{formatShort(periodMetrics.profitOwner)}</p>
+                  <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.profitOwner)}</p>
+                </div>
+                <div className="flex-1 px-4">
+                  <p className="text-xs text-muted-foreground mb-1">Investor (PK)</p>
+                  <p className="text-xl font-bold text-orange-500">{formatShort(periodMetrics.bagHasilInvestor)}</p>
+                  <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasilInvestor)}</p>
+                </div>
+                <div className="flex-1 px-4">
+                  <p className="text-xs text-muted-foreground mb-1">Trader</p>
+                  <p className="text-xl font-bold">{formatShort(periodMetrics.bagHasilTrader)}</p>
+                  <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasilTrader)}</p>
+                </div>
+                <div className="flex-1 px-4">
+                  <p className="text-xs text-muted-foreground mb-1">MinBun</p>
+                  <p className="text-xl font-bold text-green-600">{formatShort(periodMetrics.bagHasilMinbun)}</p>
+                  <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasilMinbun)}</p>
+                </div>
+                <div className="flex-1 pl-4">
+                  <p className="text-xs text-muted-foreground mb-1">Broker</p>
+                  <p className="text-xl font-bold">{formatShort(periodMetrics.bagHasilBroker)}</p>
+                  <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.bagHasilBroker)}</p>
+                </div>
+                <div className="flex-1 pl-4 border-l-2 border-primary/40 bg-primary/5 -my-2 py-2 pr-2 rounded-r">
+                  <p className="text-xs text-muted-foreground mb-1 font-semibold">Total</p>
+                  <p className={`text-xl font-bold ${periodMetrics.totalBagiHasil >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    {formatShort(periodMetrics.totalBagiHasil)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{formatCurrency(periodMetrics.totalBagiHasil)}</p>
                 </div>
               </div>
             </CardContent>

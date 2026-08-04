@@ -193,6 +193,17 @@ export function investorPkPct(investorId: string, pksList: Pks[]): number {
   return latest?.bagiHasilPK ?? 35;
 }
 
+/**
+ * PP1% (bagi hasil Owner / Pihak Pertama I) untuk seorang investor. Sama dengan
+ * investorPkPct: bersumber dari PKS investor, ambil PKS terbaru, default 50.
+ */
+export function investorPp1Pct(investorId: string, pksList: Pks[]): number {
+  const latest = pksList
+    .filter((m) => m.investorId === investorId)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  return latest?.bagiHasilPP1 ?? 50;
+}
+
 function isCustomIdConflict(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const data = (err as { data?: { data?: { customId?: { code?: string } } } }).data;
