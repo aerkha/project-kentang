@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, type SyntheticEvent } from "react";
 import { toast } from "sonner";
@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/permissions";
 import { generatePksHtml } from "@/lib/pks-html";
 import { useTransaksi } from "@/lib/transaksi-context";
-import { usePks, getPksStatus, type Pks } from "@/lib/pks-context";
+import { PAYMENT_ACCOUNTS, usePks, getPksStatus, type Pks } from "@/lib/pks-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -99,8 +99,10 @@ interface PksFormData {
   investorPhone: string;
   contractPeriod: string;
   investmentAmount: string;
+  paymentAccount: string;
   heirName: string;
   heirRelationship: string;
+  heirEmail: string;
   heirPhone: string;
   bagiHasilPP1: string;
   bagiHasilPP2: string;
@@ -128,8 +130,10 @@ const initialForm: PksFormData = {
   investorPhone: "",
   contractPeriod: "30",
   investmentAmount: "",
+  paymentAccount: "BCA 6768043702",
   heirName: "",
   heirRelationship: "",
+  heirEmail: "",
   heirPhone: "",
   bagiHasilPP1: "50",
   bagiHasilPP2: "15",
@@ -210,7 +214,7 @@ function PksFormFields({
     <form onSubmit={onSubmit}>
       <div className="overflow-y-auto max-h-[65vh] pr-2 space-y-5">
 
-        {/* ── Informasi Pks ── */}
+        {/* â”€â”€ Informasi Pks â”€â”€ */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Informasi Pks
@@ -259,7 +263,7 @@ function PksFormFields({
                 if (days < 0) {
                   return (
                     <p className="text-[11px] text-destructive">
-                      ⚠ Tanggal berakhir lebih awal dari tanggal mulai ({Math.abs(days)} hari sebelum mulai).
+                      âš  Tanggal berakhir lebih awal dari tanggal mulai ({Math.abs(days)} hari sebelum mulai).
                     </p>
                   );
                 }
@@ -267,7 +271,7 @@ function PksFormFields({
                   <p className="text-[11px] text-muted-foreground">
                     {days === 0
                       ? "Durasi: hari yang sama (0 hari)."
-                      : `Durasi: ${days} hari (≈ ${(days / 30).toFixed(1)} bulan).`}
+                      : `Durasi: ${days} hari (â‰ˆ ${(days / 30).toFixed(1)} bulan).`}
                   </p>
                 );
               })()}
@@ -284,7 +288,7 @@ function PksFormFields({
           </div>
         </div>
 
-        {/* ── Data Pihak Kedua ── */}
+        {/* â”€â”€ Data Pihak Kedua â”€â”€ */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Data Pihak Kedua (Investor)
@@ -307,7 +311,7 @@ function PksFormFields({
                   ) : (
                     investors.map((inv) => (
                       <SelectItem key={inv.id} value={inv.id}>
-                        {inv.name} — {inv.id}
+                        {inv.name} â€” {inv.id}
                       </SelectItem>
                     ))
                   )}
@@ -315,7 +319,7 @@ function PksFormFields({
               </Select>
               {formData.investorId && (
                 <p className="text-xs text-muted-foreground">
-                  Data di bawah terisi otomatis — bisa diubah jika perlu.
+                  Data di bawah terisi otomatis â€” bisa diubah jika perlu.
                 </p>
               )}
             </div>
@@ -386,7 +390,7 @@ function PksFormFields({
           </div>
         </div>
 
-        {/* ── Data Kontrak ── */}
+        {/* â”€â”€ Data Kontrak â”€â”€ */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Data Kontrak
@@ -422,9 +426,31 @@ function PksFormFields({
               />
             </div>
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="pks-payment-account" className="text-xs">
+              Rekening Tujuan Transfer <span className="text-destructive">*</span>
+            </Label>
+            <Select
+              value={formData.paymentAccount}
+              onValueChange={(value) => set("paymentAccount", value)}
+              required
+            >
+              <SelectTrigger id="pks-payment-account">
+                <SelectValue placeholder="Pilih rekening tujuan..." />
+              </SelectTrigger>
+              <SelectContent>
+                {PAYMENT_ACCOUNTS.map((account) => (
+                  <SelectItem key={account} value={account}>{account}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Rekening ini akan dicantumkan sebagai tujuan transfer modal di dokumen PKS.
+            </p>
+          </div>
         </div>
 
-        {/* ── Data Ahli Waris ── */}
+        {/* â”€â”€ Data Ahli Waris â”€â”€ */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Data Ahli Waris
@@ -467,9 +493,21 @@ function PksFormFields({
               />
             </div>
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="pks-heir-email" className="text-xs">
+              Email Ahli Waris <span className="text-muted-foreground font-normal">(disinkronkan dari data investor)</span>
+            </Label>
+            <Input
+              id="pks-heir-email"
+              type="email"
+              value={formData.heirEmail}
+              onChange={(e) => set("heirEmail", e.target.value)}
+              placeholder="ahliwaris@email.com"
+            />
+          </div>
         </div>
 
-        {/* ── Skema Bagi Hasil ── */}
+        {/* â”€â”€ Skema Bagi Hasil â”€â”€ */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Skema Bagi Hasil
@@ -526,9 +564,9 @@ function PksFormFields({
                         statusText = `lebih ${total - 100}`;
                       }
                       if (valid) {
-                        return `${total}% ✓`;
+                        return `${total}% âœ“`;
                       }
-                      return `${total}% — kurang ${statusText}%`;
+                      return `${total}% â€” kurang ${statusText}%`;
                     })()}
                   </span>
                 </div>
@@ -537,7 +575,7 @@ function PksFormFields({
           })()}
         </div>
 
-        {/* ── Broker (Pihak Pertama III) Opsional ── */}
+        {/* â”€â”€ Broker (Pihak Pertama III) Opsional â”€â”€ */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Broker / Pihak Pertama III (Opsional)
@@ -562,15 +600,15 @@ function PksFormFields({
                 <SelectValue placeholder="Tanpa broker (langsung)" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__none__">— Tanpa broker (langsung)</SelectItem>
+                <SelectItem value="__none__">â€” Tanpa broker (langsung)</SelectItem>
                 {brokerOptions.map((b) => (
-                  <SelectItem key={b.id} value={b.id}>{b.name} — {b.id}</SelectItem>
+                  <SelectItem key={b.id} value={b.id}>{b.name} â€” {b.id}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <p className="text-[11px] text-muted-foreground">Pilih dari master data broker untuk referensi di PKS.</p>
           </div>
-          
+
           {/* Kolom Persentase Broker Dikembalikan */}
           {formData.brokerId && (
             <div className="space-y-1.5">
@@ -595,7 +633,7 @@ function PksFormFields({
           )}
         </div>
 
-        {/* ── E-Sign Tanda Tangan ── */}
+        {/* â”€â”€ E-Sign Tanda Tangan â”€â”€ */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             E-Sign Tanda Tangan (Opsional)
@@ -611,7 +649,7 @@ function PksFormFields({
             <div key={field} className="space-y-1.5">
               <Label className="text-xs">
                 {label}
-                <span className="ml-1 text-muted-foreground font-normal">— {hint}</span>
+                <span className="ml-1 text-muted-foreground font-normal">â€” {hint}</span>
               </Label>
               {formData[field] ? (
                 <div className="flex items-center gap-3 p-2 border rounded-md bg-muted/30">
@@ -622,7 +660,7 @@ function PksFormFields({
                   />
                   <div className="flex flex-col gap-1">
                     {savedEsignFields?.has(field) && (
-                      <span className="text-[10px] text-green-600 font-medium">♻ Dari penyimpanan</span>
+                      <span className="text-[10px] text-green-600 font-medium">â™» Dari penyimpanan</span>
                     )}
                     <Button
                       type="button"
@@ -656,7 +694,7 @@ function PksFormFields({
               )}
               {!formData[field] && (
                 <p className="text-[11px] text-muted-foreground">
-                  JPEG / PNG / WebP · Maks. 200 KB
+                  JPEG / PNG / WebP Â· Maks. 200 KB
                 </p>
               )}
             </div>
@@ -666,16 +704,16 @@ function PksFormFields({
 
       <DialogFooter className="mt-4 pt-4 border-t">
         <Button type="submit" disabled={isSaving}>
-          {isSaving ? "Menyimpan…" : submitLabel}
+          {isSaving ? "Menyimpanâ€¦" : submitLabel}
         </Button>
       </DialogFooter>
     </form>
   );
 }
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Main component
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type Filter = "semua" | "draft" | "complete" | "terminated";
 
@@ -708,7 +746,7 @@ export function PksContent() {
   const [isUploading, setIsUploading] = useState(false);
   const [overwriteConfirmed, setOverwriteConfirmed] = useState(false);
 
-  // ── Dialog TTD investor ──
+  // â”€â”€ Dialog TTD investor â”€â”€
   const [isTtdOpen,    setIsTtdOpen]    = useState(false);
   const [ttdTarget,    setTtdTarget]    = useState<Pks | null>(null);
   const [ttdPreview,   setTtdPreview]   = useState<string>("");
@@ -768,7 +806,7 @@ export function PksContent() {
     : isBroker && currentBroker
     ? pksList.filter((m) => m.brokerId === currentBroker.id)
     : pksList;
-  // ── Filter ──
+  // â”€â”€ Filter â”€â”€
   const filtered = visiblePkss.filter((m) => {
     if (filter === "semua") return true;
     return getPksStatus(m) === filter;
@@ -777,7 +815,7 @@ export function PksContent() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const paginated  = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
-  // ── Toggle Complete ──
+  // â”€â”€ Toggle Complete â”€â”€
   const handleToggleComplete = async (pks: Pks) => {
     setIsConfirming(true);
     try {
@@ -790,10 +828,10 @@ export function PksContent() {
     }
   };
 
-  // ── Preview ID (PKS-YYYYMM-NNN) ──
+  // â”€â”€ Preview ID (PKS-YYYYMM-NNN) â”€â”€
   const nextId = (date: string) => {
     if (!date) return "PKS-??????-???";
-    const ym     = date.slice(0, 7).replace("-", ""); 
+    const ym     = date.slice(0, 7).replace("-", "");
     const prefix = `PKS-${ym}-`;
     const max = pksList.reduce((m, x) => {
       if (!x.id.startsWith(prefix)) return m;
@@ -803,7 +841,7 @@ export function PksContent() {
     return `${prefix}${String(max + 1).padStart(3, "0")}`;
   };
 
-  // ── Broker auto-fill ──
+  // â”€â”€ Broker auto-fill â”€â”€
   const handleBrokerSelect = (brokerId: string) => {
     const broker = brokers.find((b) => b.id === brokerId);
     if (!broker) return;
@@ -817,7 +855,7 @@ export function PksContent() {
     }));
   };
 
-  // ── Investor auto-fill ──
+  // â”€â”€ Investor auto-fill â”€â”€
   const handleInvestorSelect = (investorId: string) => {
     const inv = investors.find((i) => i.id === investorId);
     if (!inv) return;
@@ -835,6 +873,8 @@ export function PksContent() {
       investorPhone: inv.phone,
       investmentAmount: inv.investmentAmount.toString(),
       heirName: inv.heirName,
+      heirRelationship: inv.heirRelationship,
+      heirEmail: inv.heirEmail,
       esignPihakKedua: savedTtd,
       brokerId:           broker ? broker.id      : "",
       brokerName:         broker ? broker.name    : "",
@@ -876,11 +916,11 @@ export function PksContent() {
     handleEsignChange("esignPihakPertama1", newForm.esignPihakPertama1, form.esignPihakPertama1, ESIGN_KEYS.esignPihakPertama1);
     handleEsignChange("esignPihakPertama2", newForm.esignPihakPertama2, form.esignPihakPertama2, ESIGN_KEYS.esignPihakPertama2);
     handleEsignChange("esignPihakKedua", newForm.esignPihakKedua, form.esignPihakKedua, esignInvKey(newForm.investorId), Boolean(newForm.investorId));
-    
+
     setForm(newForm);
   };
 
-  // ── Validasi bagi hasil ──
+  // â”€â”€ Validasi bagi hasil â”€â”€
   const validateBagiHasil = () => {
     const total =
       (Number.parseFloat(form.bagiHasilPP1)  || 0) +
@@ -898,7 +938,7 @@ export function PksContent() {
     return true;
   };
 
-  // ── Handlers ──
+  // â”€â”€ Handlers â”€â”€
   const handleAdd = async (e: SyntheticEvent<HTMLFormElement, Event>) => {
     e.preventDefault();
     if (!validateBagiHasil()) return;
@@ -934,8 +974,10 @@ export function PksContent() {
         investorPhone: form.investorPhone,
         contractPeriod: Number.parseInt(form.contractPeriod),
         investmentAmount: Number.parseFloat(form.investmentAmount),
+        paymentAccount: form.paymentAccount,
         heirName: form.heirName,
         heirRelationship: form.heirRelationship,
+        heirEmail: form.heirEmail,
         heirPhone: form.heirPhone,
         keterangan: form.keterangan,
         bagiHasilPP1: Number.parseFloat(form.bagiHasilPP1) || 50,
@@ -996,8 +1038,10 @@ export function PksContent() {
         investorPhone: form.investorPhone,
         contractPeriod: Number.parseInt(form.contractPeriod),
         investmentAmount: Number.parseFloat(form.investmentAmount),
+        paymentAccount: form.paymentAccount,
         heirName: form.heirName,
         heirRelationship: form.heirRelationship,
+        heirEmail: form.heirEmail,
         heirPhone: form.heirPhone,
         keterangan: form.keterangan,
         bagiHasilPP1: Number.parseFloat(form.bagiHasilPP1) || 50,
@@ -1043,8 +1087,10 @@ export function PksContent() {
       investorPhone: pks.investorPhone,
       contractPeriod: pks.contractPeriod.toString(),
       investmentAmount: pks.investmentAmount.toString(),
+      paymentAccount: pks.paymentAccount ?? "BCA 6768043702",
       heirName: pks.heirName,
       heirRelationship: pks.heirRelationship,
+      heirEmail: pks.heirEmail,
       heirPhone: pks.heirPhone,
       bagiHasilPP1: String(pks.bagiHasilPP1 ?? 50),
       bagiHasilPP2: String(pks.bagiHasilPP2 ?? 15),
@@ -1091,7 +1137,7 @@ export function PksContent() {
     setIsUploading(true);
     try {
       await uploadSignedDoc(uploadDocTarget.id, uploadDocFile);
-      toast.success("Dokumen berhasil diupload — PKS sekarang aktif");
+      toast.success("Dokumen berhasil diupload â€” PKS sekarang aktif");
       setIsUploadDocOpen(false);
       setUploadDocTarget(null);
       setUploadDocFile(null);
@@ -1135,7 +1181,7 @@ export function PksContent() {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
-  // ── Count per status ──
+  // â”€â”€ Count per status â”€â”€
   const counts = {
     semua:      visiblePkss.length,
     draft:      visiblePkss.filter((m) => getPksStatus(m) === "draft").length,
@@ -1146,7 +1192,7 @@ export function PksContent() {
   return (
     <div className="space-y-6">
 
-      {/* ── Header ── */}
+      {/* â”€â”€ Header â”€â”€ */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Perjanjian Kerjasama</h1>
@@ -1197,7 +1243,7 @@ export function PksContent() {
         </Dialog>
       </div>
 
-      {/* ── Filter tabs ── */}
+      {/* â”€â”€ Filter tabs â”€â”€ */}
       <div className="flex flex-wrap gap-2">
         {(["semua", "draft", "complete", "terminated"] as Filter[]).map((f) => (
           <Button
@@ -1213,7 +1259,7 @@ export function PksContent() {
         ))}
       </div>
 
-      {/* ── Empty state ── */}
+      {/* â”€â”€ Empty state â”€â”€ */}
       {filtered.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-14">
@@ -1236,7 +1282,7 @@ export function PksContent() {
           </CardContent>
         </Card>
       ) : (
-        /* ── Table ── */
+        /* â”€â”€ Table â”€â”€ */
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Daftar PKS</CardTitle>
@@ -1275,10 +1321,10 @@ export function PksContent() {
                         <td className="py-3 px-4">
                           {pks.brokerName
                             ? <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">{pks.brokerName}</span>
-                            : <span className="text-xs text-muted-foreground italic">—</span>}
+                            : <span className="text-xs text-muted-foreground italic">â€”</span>}
                         </td>
                         <td className="py-3 px-4 text-muted-foreground text-xs max-w-[160px]">
-                          {pks.keterangan || <span className="italic opacity-50">—</span>}
+                          {pks.keterangan || <span className="italic opacity-50">â€”</span>}
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1 text-muted-foreground">
@@ -1404,7 +1450,7 @@ export function PksContent() {
           {totalPages > 1 && (
             <div className="flex items-center justify-between px-4 py-3 border-t border-border">
               <p className="text-xs text-muted-foreground">
-                {(page - 1) * ITEMS_PER_PAGE + 1}–{Math.min(page * ITEMS_PER_PAGE, filtered.length)} dari {filtered.length} PKS
+                {(page - 1) * ITEMS_PER_PAGE + 1}â€“{Math.min(page * ITEMS_PER_PAGE, filtered.length)} dari {filtered.length} PKS
               </p>
               <div className="flex items-center gap-1">
                 <Button
@@ -1413,18 +1459,18 @@ export function PksContent() {
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
                 >
-                  ←
+                  â†
                 </Button>
                 {Array.from({ length: totalPages }, (_, i) => i + 1)
                   .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
-                  .reduce<(number | "…")[]>((acc, p, i, arr) => {
-                    if (i > 0 && p - arr[i - 1] > 1) acc.push("…");
+                  .reduce<(number | "â€¦")[]>((acc, p, i, arr) => {
+                    if (i > 0 && p - arr[i - 1] > 1) acc.push("â€¦");
                     acc.push(p);
                     return acc;
                   }, [])
                   .map((p) =>
-                    p === "…" ? (
-                      <span key="ellipsis" className="px-1 text-muted-foreground text-xs">…</span>
+                    p === "â€¦" ? (
+                      <span key="ellipsis" className="px-1 text-muted-foreground text-xs">â€¦</span>
                     ) : (
                       <Button
                         key={p}
@@ -1443,7 +1489,7 @@ export function PksContent() {
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
                 >
-                  →
+                  â†’
                 </Button>
               </div>
             </div>
@@ -1451,13 +1497,13 @@ export function PksContent() {
         </Card>
       )}
 
-      {/* ── Edit dialog ── */}
+      {/* â”€â”€ Edit dialog â”€â”€ */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>Edit PKS</DialogTitle>
             <DialogDescription>
-              Perbarui data PKS — No. PKS tidak dapat diubah
+              Perbarui data PKS â€” No. PKS tidak dapat diubah
             </DialogDescription>
             {(() => {
               if (!selected) return null;
@@ -1472,7 +1518,7 @@ export function PksContent() {
               if (!drifted) return null;
               return (
                 <Badge variant="outline" className="mt-1 w-fit text-amber-600 border-amber-400 bg-amber-50 dark:bg-amber-950 dark:border-amber-700 dark:text-amber-400 text-xs">
-                  ⚠ Data investor lebih baru dari snapshot di PKS ini
+                  âš  Data investor lebih baru dari snapshot di PKS ini
                 </Badge>
               );
             })()}
@@ -1493,7 +1539,7 @@ export function PksContent() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Delete dialog ── */}
+      {/* â”€â”€ Delete dialog â”€â”€ */}
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
@@ -1509,13 +1555,13 @@ export function PksContent() {
               Batal
             </Button>
             <Button variant="destructive" onClick={confirmDelete} disabled={isConfirming}>
-              {isConfirming ? "Menghapus…" : "Hapus"}
+              {isConfirming ? "Menghapusâ€¦" : "Hapus"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── Upload Signed Doc dialog ── */}
+      {/* â”€â”€ Upload Signed Doc dialog â”€â”€ */}
       <Dialog open={isUploadDocOpen} onOpenChange={(open) => {
         if (!open) { resetUploadDialog(); }
         setIsUploadDocOpen(open);
@@ -1526,7 +1572,7 @@ export function PksContent() {
               {uploadDocTarget?.hasSignedDoc ? "Upload Ulang PKS Bertanda Tangan" : "Upload PKS Bertanda Tangan"}
             </DialogTitle>
             <DialogDescription>
-              PKS <strong>{uploadDocTarget?.id}</strong> —{" "}
+              PKS <strong>{uploadDocTarget?.id}</strong> â€”{" "}
               {uploadDocTarget?.hasSignedDoc
                 ? "dokumen bertanda tangan sudah tersimpan."
                 : "upload dokumen yang telah ditandatangani dan dibubuhi materai."}
@@ -1641,7 +1687,7 @@ export function PksContent() {
                 >
                   <Upload className="h-4 w-4 mr-2" />
                   {(() => {
-                    if (isUploading) return "Mengunggah…";
+                    if (isUploading) return "Mengunggahâ€¦";
                     if (uploadDocTarget?.hasSignedDoc) return "Timpa & Upload Ulang";
                     return "Upload & Aktifkan";
                   })()}
@@ -1652,7 +1698,7 @@ export function PksContent() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Dialog TTD Investor ── */}
+      {/* â”€â”€ Dialog TTD Investor â”€â”€ */}
       <Dialog open={isTtdOpen} onOpenChange={(o) => { if (!o) { setIsTtdOpen(false); setTtdTarget(null); setTtdPreview(""); } }}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
@@ -1692,7 +1738,7 @@ export function PksContent() {
                   className="cursor-pointer"
                   onChange={handleTtdFileChange}
                 />
-                <p className="text-[11px] text-muted-foreground">JPEG / PNG / WebP · Maks. 200 KB</p>
+                <p className="text-[11px] text-muted-foreground">JPEG / PNG / WebP Â· Maks. 200 KB</p>
               </div>
             )}
           </div>
@@ -1711,7 +1757,7 @@ export function PksContent() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Error dialog ── */}
+      {/* â”€â”€ Error dialog â”€â”€ */}
       <ErrorDialog
         open={!!errorInfo}
         onClose={() => setErrorInfo(null)}

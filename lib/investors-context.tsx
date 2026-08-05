@@ -18,6 +18,8 @@ export interface Investor {
   occupation: string;
   investmentAmount: number;
   heirName: string;
+  heirRelationship: string;
+  heirEmail: string;
   heirBankName: string;
   heirAccountNumber: string;
   isMinBun?:      boolean;
@@ -54,9 +56,11 @@ function recordToInvestor(r: Record<string, unknown>, pbIdMap: Map<string, strin
     email:            (r.email           as string) || "",
     occupation:       (r.occupation      as string) || "",
     investmentAmount: r.investmentAmount as number,
-    heirName:         r.heirName         as string,
-    heirBankName:     r.heirBankName     as string,
-    heirAccountNumber: r.heirAccountNumber as string,
+    heirName:         (r.heirName         as string) || "",
+    heirRelationship: (r.heirRelationship as string) || "",
+    heirEmail:        (r.heirEmail        as string) || "",
+    heirBankName:     (r.heirBankName     as string) || "",
+    heirAccountNumber: (r.heirAccountNumber as string) || "",
     isMinBun:         r.isMinBun === true,
     isInternal:       r.isInternal === true,
     isTami:           r.isTami === true,
@@ -141,9 +145,11 @@ export function InvestorsProvider({ children }: { children: ReactNode }) {
           email:            inv.email || "",
           occupation:       inv.occupation || "",
           investmentAmount: inv.investmentAmount,
-          heirName:         inv.heirName,
-          heirBankName:     inv.heirBankName,
-          heirAccountNumber: inv.heirAccountNumber,
+          heirName:         inv.heirName || "",
+          heirRelationship: inv.heirRelationship || "",
+          heirEmail:        inv.heirEmail || "",
+          heirBankName:     inv.heirBankName || "",
+          heirAccountNumber: inv.heirAccountNumber || "",
           isMinBun:         inv.isMinBun === true,
           isInternal:       inv.isInternal === true,
           isTami:           inv.isTami === true,

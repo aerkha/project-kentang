@@ -1,8 +1,8 @@
-import type { Pks } from "./pks-context";
+﻿import type { Pks } from "./pks-context";
 import { type Transaksi, calcTransaksi } from "./transaksi-context";
 import { angkaTerbilang, terbilang } from "./terbilang";
 
-// ─── Data Pihak Pertama ──────────────────────────────────────────────────────
+// â”€â”€â”€ Data Pihak Pertama â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const PIHAK_PERTAMA_I = {
   nama:      "Adie Bayu Putra",
@@ -35,7 +35,7 @@ const MONTHS = [
   "Juli","Agustus","September","Oktober","November","Desember",
 ];
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function fmtDate(s: string) {
   const [y, m, d] = s.slice(0, 10).split("-").map(Number);
@@ -53,8 +53,8 @@ function daysBetween(startStr: string, endStr: string): number {
   return Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86_400_000);
 }
 
-// Total durasi jangka waktu kontrak (hari) — pakai endDate jika ada,
-// jika tidak fallback ke contractPeriod × siklus. Ini BERBEDA dari
+// Total durasi jangka waktu kontrak (hari) â€” pakai endDate jika ada,
+// jika tidak fallback ke contractPeriod Ã— siklus. Ini BERBEDA dari
 // contractPeriod yang hanya periode bagi hasil (default 30 hari).
 function totalDurationDays(pks: Pks): number {
   const endRaw = pks.endDate || addDays(pks.date, pks.contractPeriod * (pks.siklus ?? 1));
@@ -62,7 +62,7 @@ function totalDurationDays(pks: Pks): number {
 }
 
 // Jumlah bulan jangka waktu kontrak (1 bulan = 30 hari). Span kalender
-// dibulatkan ke bulan terdekat, mis. 18 Jun–18 Sep (92 hari) → 3 bulan.
+// dibulatkan ke bulan terdekat, mis. 18 Junâ€“18 Sep (92 hari) â†’ 3 bulan.
 function durationMonths(pks: Pks): number {
   return Math.max(1, Math.round(totalDurationDays(pks) / 30));
 }
@@ -81,6 +81,10 @@ function esc(s: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function paymentAccount(pks: Pks): string {
+  return esc(pks.paymentAccount || "BCA 6768043702");
 }
 
 function row(label: string, value: string, wide = false) {
@@ -108,7 +112,7 @@ function periodTextDirect(days: number): string {
   return `${cap(angkaTerbilang(months))} (${months}) bulan atau ${days} hari`;
 }
 
-// ─── CSS bersama ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ CSS bersama â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const BASE_CSS = `
   *{box-sizing:border-box;margin:0;padding:0;}
@@ -130,7 +134,7 @@ const BASE_CSS = `
   @media print{body{background:#fff;}.doc{width:auto;margin:0;padding:0;box-shadow:none;min-height:unset;}}
 `;
 
-// ─── Kalkulasi transaksi ──────────────────────────────────────────────────────
+// â”€â”€â”€ Kalkulasi transaksi â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface TrxData {
   trxQty: string; trxHpp: string; trxModal: string;
@@ -140,7 +144,7 @@ interface TrxData {
 }
 
 // Placeholder simulasi ketika Pks dibuat sebelum transaksi (alur:
-// broker → investor → Pks → transaksi → bagi hasil). Nilai-nilai ini
+// broker â†’ investor â†’ Pks â†’ transaksi â†’ bagi hasil). Nilai-nilai ini
 // mengisi tabel simulasi & distribusi bagi hasil agar template Pks
 // tidak memiliki kolom kosong saat pertama kali di-generate.
 const PLACEHOLDER_QTY        = 1500;
@@ -175,7 +179,7 @@ function buildPlaceholderTrxData(pks: Pks): TrxData {
     bhInvestor:    fmtRp(profit * pkPct),
     estKeuntungan: fmtRp(profit),
     roiPerBulan:   `${(roiRaw * 100).toFixed(2)}%`,
-    roiSetelahBH:  `${(roiRaw * pkPct * 100).toFixed(2)}% → Rp ${fmtRp(profit * pkPct)}`,
+    roiSetelahBH:  `${(roiRaw * pkPct * 100).toFixed(2)}% â†’ Rp ${fmtRp(profit * pkPct)}`,
   };
 }
 
@@ -220,7 +224,7 @@ function calcTrxData(pks: Pks, transaksis: Transaksi[]): TrxData {
   const estKeuntungan = fmtRp(profit);
   const roiRaw = pks.investmentAmount > 0 ? profit / pks.investmentAmount : 0;
   const roiPerBulan  = `${(roiRaw * 100).toFixed(2)}%`;
-  const roiSetelahBH = `${(roiRaw * pkPct * 100).toFixed(2)}% → Rp ${fmtRp(profit * pkPct)}`;
+  const roiSetelahBH = `${(roiRaw * pkPct * 100).toFixed(2)}% â†’ Rp ${fmtRp(profit * pkPct)}`;
 
   return {
     trxQty, trxHpp, trxModal, trxOngkir, trxHargaJual, trxIncome, trxProfit,
@@ -228,15 +232,15 @@ function calcTrxData(pks: Pks, transaksis: Transaksi[]): TrxData {
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Template A — Investor Under TM (3 pihak: PP I + PP II + Investor)
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Template A â€” Investor Under TM (3 pihak: PP I + PP II + Investor)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function generatePksHtmlTm(pks: Pks, transaksis: Transaksi[], pp2 = PIHAK_PERTAMA_II_MB): string {
   const hasBroker = !!(pks.brokerId && pks.brokerName);
   const isMb      = pp2 === PIHAK_PERTAMA_II_MB;
   // Khusus MB: jika ada broker, persentase listing PIHAK PERTAMA II = Parafitra + Broker.
-  // (Tabel simulasi/distribusi tetap memakai PP2 & PP3 terpisah — tidak diubah.)
+  // (Tabel simulasi/distribusi tetap memakai PP2 & PP3 terpisah â€” tidak diubah.)
   const pp2ListPct = isMb && hasBroker
     ? (pks.bagiHasilPP2 ?? 15) + (pks.bagiHasilPP3 ?? 0)
     : (pks.bagiHasilPP2 ?? 15);
@@ -253,7 +257,7 @@ function generatePksHtmlTm(pks: Pks, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<title>Perjanjian Kerjasama – ${esc(pks.id)}</title>
+<title>Perjanjian Kerjasama â€“ ${esc(pks.id)}</title>
 <style>${BASE_CSS}</style>
 </head>
 <body>
@@ -347,7 +351,7 @@ function generatePksHtmlTm(pks: Pks, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
     <table style="width:100%;border-collapse:collapse;font-size:9.5pt;margin-bottom:.6em;">
       <thead>
         <tr style="background:#f0f0f0;">
-          <th colspan="8" style="border:1px solid #000;padding:4px 6px;text-align:center;">Tabel Simulasi Bagi Hasil – Project All Customer</th>
+          <th colspan="8" style="border:1px solid #000;padding:4px 6px;text-align:center;">Tabel Simulasi Bagi Hasil â€“ Project All Customer</th>
         </tr>
         <tr style="background:#f0f0f0;">
           <th style="border:1px solid #000;padding:4px 5px;text-align:center;white-space:nowrap;">Pengiriman<br>ke</th>
@@ -428,7 +432,7 @@ function generatePksHtmlTm(pks: Pks, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
 
     <p style="margin-top:.8em;"><strong>B. PIHAK KEDUA</strong></p>
     <ol>
-      <li><p>Menyediakan modal kerja sebesar <strong>Rp.${amount} (${words})</strong> yang ditransfer ke rekening <strong>BCA 6768043702 atas nama Adie Bayu Putra S.P</strong> untuk <em>project trading</em> selama periode perjanjian kerjasama berlangsung mengacu pada pasal 3.</p></li>
+      <li><p>Menyediakan modal kerja sebesar <strong>Rp.${amount} (${words})</strong> yang ditransfer ke rekening <strong>${paymentAccount(pks)} atas nama Adie Bayu Putra S.P</strong> untuk <em>project trading</em> selama periode perjanjian kerjasama berlangsung mengacu pada pasal 3.</p></li>
       <li><p>Bersama-sama dengan pihak pertama memantau perkembangan usaha dan mengambil keputusan bersama.</p></li>
       <li><p>Apabila terjadi pembatalan kerja sama yang dilakukan PIHAK PERTAMA, maka PIHAK PERTAMA mengembalikan modal dan keuntungannya sesuai perjanjian kerjasama.</p></li>
       <li><p>Berhak atas keuntungan usaha sesuai dengan pasal 4.</p></li>
@@ -450,7 +454,7 @@ function generatePksHtmlTm(pks: Pks, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
       ${row("Nama Ahli Waris",          esc(pks.heirName), true)}
       ${row("Hubungan dengan Investor", esc(pks.heirRelationship), true)}
       ${row("No HP Ahli Waris",         esc(pks.heirPhone), true)}
-      ${row("Email Ahli Waris",         "-", true)}
+      ${row("Email Ahli Waris", esc(pks.heirEmail), true)}
     </div>
   </div>
 
@@ -520,9 +524,9 @@ function generatePksHtmlTm(pks: Pks, transaksis: Transaksi[], pp2 = PIHAK_PERTAM
 </html>`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Template B — Direct (2 pihak: PP I / Adie saja + Investor)
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Template B â€” Direct (2 pihak: PP I / Adie saja + Investor)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function generatePksHtmlDirect(pks: Pks, transaksis: Transaksi[]): string {
   const date        = fmtDate(pks.date);
@@ -545,7 +549,7 @@ function generatePksHtmlDirect(pks: Pks, transaksis: Transaksi[]): string {
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<title>Surat Perjanjian Investasi – ${esc(pks.id)}</title>
+<title>Surat Perjanjian Investasi â€“ ${esc(pks.id)}</title>
 <style>${BASE_CSS}</style>
 </head>
 <body>
@@ -700,7 +704,7 @@ function generatePksHtmlDirect(pks: Pks, transaksis: Transaksi[]): string {
 
     <p style="margin-top:.8em;"><strong>B. PIHAK KEDUA</strong></p>
     <ol>
-      <li><p>Menyediakan modal kerja sebesar <strong>Rp. ${amount} (${words})</strong> untuk proyek trading kentang selama ${totalDays} hari (${monthsLabel.toLowerCase()} bulan) yang di transfer langsung ke rekening PIHAK PERTAMA <strong>Bank Central Asia 6768043702 atas nama Adie Bayu Putra, S.P.</strong></p></li>
+      <li><p>Menyediakan modal kerja sebesar <strong>Rp. ${amount} (${words})</strong> untuk proyek trading kentang selama ${totalDays} hari (${monthsLabel.toLowerCase()} bulan) yang di transfer langsung ke rekening PIHAK PERTAMA <strong>${paymentAccount(pks)} atas nama Adie Bayu Putra, S.P.</strong></p></li>
       <li><p>Bersama-sama dengan PIHAK PERTAMA memantau perkembangan usaha dan mengambil keputusan bersama.</p></li>
       <li><p>Apabila terjadi pembatalan kerja sama yang dilakukan PIHAK PERTAMA, maka PIHAK PERTAMA mengembalikan modal dan keuntungannya.</p></li>
       <li><p>Berhak atas keuntungan usaha sesuai dengan pasal 4.</p></li>
@@ -779,11 +783,11 @@ function generatePksHtmlDirect(pks: Pks, transaksis: Transaksi[]): string {
 </html>`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Dispatcher — pilih template berdasarkan data PKS
-// bagiHasilPP2 > 0 → Under TM (3 pihak)
-// bagiHasilPP2 = 0 → Direct (2 pihak, Adie saja)
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Dispatcher â€” pilih template berdasarkan data PKS
+// bagiHasilPP2 > 0 â†’ Under TM (3 pihak)
+// bagiHasilPP2 = 0 â†’ Direct (2 pihak, Adie saja)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function generatePksHtml(pks: Pks, transaksis: Transaksi[] = []): string {
   const id = pks.investorId ?? "";

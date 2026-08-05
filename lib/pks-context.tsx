@@ -6,6 +6,29 @@ import { todayWibStr } from "./utils";
 
 const currentUserId = () => pb.authStore.record?.id ?? "";
 
+export const PAYMENT_ACCOUNTS = [
+  "BRI 054401001407568",
+  "BSI 7108358027",
+  "BCA 6768043702",
+  "CIMB 762666892800",
+  "Bank Mandiri 1300023400818",
+] as const;
+
+const PAYMENT_ACCOUNT_TAG = /^\[\[paymentAccount:([^\]]+)\]\](?:\n|$)/;
+
+/** Simpan pilihan rekening di field keterangan agar kompatibel dengan skema PocketBase yang ada. */
+function encodeKeterangan(keterangan: string, account: string): string {
+  return `[[paymentAccount:${account}]]${keterangan ? `\n${keterangan}` : ""}`;
+}
+
+function decodeKeterangan(raw: string): { keterangan: string; paymentAccount: string } {
+  const match = PAYMENT_ACCOUNT_TAG.exec(raw);
+  return {
+    keterangan: match ? raw.slice(match[0].length) : raw,
+    paymentAccount: match?.[1] || "BCA 6768043702",
+  };
+}
+
 export interface Pks {
   id: string;             // PKS-YYYYMM-NNN (customId, e.g. PKS-202505-001)
   date: string;
@@ -18,8 +41,11 @@ export interface Pks {
   endDate: string;
   contractPeriod: number;   // periode bagi hasil (hari, default 30)
   investmentAmount: number;
+  /** Rekening PIHAK PERTAMA yang dipilih untuk transfer modal. */
+  paymentAccount?: string;
   heirName: string;
   heirRelationship: string;
+  heirEmail: string;
   heirPhone: string;
   keterangan?: string;
   bagiHasilPP1: number;   // % Pihak Pertama I  (default 50)
@@ -105,6 +131,7 @@ export function recordToPks(r: Record<string, unknown>, pbIdMap: Map<string, str
   pbIdMap.set(customId, pbRecordId);
 
   const signedDocUrl = pbFileUrl(pbRecordId, r.signedDoc);
+  const decodedKeterangan = decodeKeterangan((r.keterangan as string) || "");
 
   return {
     id:                 customId,
@@ -119,10 +146,12 @@ export function recordToPks(r: Record<string, unknown>, pbIdMap: Map<string, str
     contractPeriod:     (r.contractPeriod    as number) || 30,
     siklus:             (r.siklus            as number) || 1,
     investmentAmount:   r.investmentAmount   as number,
+    paymentAccount:     decodedKeterangan.paymentAccount,
     heirName:           r.heirName           as string,
     heirRelationship:   r.heirRelationship   as string,
+    heirEmail:          (r.heirEmail         as string) || "",
     heirPhone:          r.heirPhone          as string,
-    keterangan:         (r.keterangan        as string) || "",
+    keterangan:         decodedKeterangan.keterangan,
     bagiHasilPP1:       (r.bagiHasilPP1      as number) ?? 50,
     bagiHasilPP2:       (r.bagiHasilPP2      as number) ?? 15,
     bagiHasilPK:        (r.bagiHasilPK       as number) ?? 35,
@@ -296,8 +325,9 @@ export function PksProvider({ children }: Readonly<{ children: ReactNode }>) {
       investmentAmount:   pks.investmentAmount,
       heirName:           pks.heirName,
       heirRelationship:   pks.heirRelationship,
+      heirEmail:          pks.heirEmail || "",
       heirPhone:          pks.heirPhone,
-      keterangan:         pks.keterangan || "",
+      keterangan:         encodeKeterangan(pks.keterangan || "", pks.paymentAccount || "BCA 6768043702"),
       bagiHasilPP1:       pks.bagiHasilPP1 ?? 50,
       bagiHasilPP2:       pks.bagiHasilPP2 ?? 15,
       bagiHasilPK:        pks.bagiHasilPK  ?? 35,
@@ -357,8 +387,14 @@ export function PksProvider({ children }: Readonly<{ children: ReactNode }>) {
       ...regularUpdates
     } = updates;
 
-    const { bagiHasilChecks, ...restUpdates } = regularUpdates;
+    const { bagiHasilChecks, paymentAccount, ...restUpdates } = regularUpdates;
     const pbUpdates: Record<string, unknown> = { ...restUpdates, updatedBy: currentUserId() };
+    if (paymentAccount !== undefined) {
+      pbUpdates.keterangan = encodeKeterangan(
+        (restUpdates.keterangan as string | undefined) || "",
+        paymentAccount,
+      );
+    }
     if (bagiHasilChecks !== undefined) {
       pbUpdates.bagiHasilChecks = JSON.stringify(bagiHasilChecks);
     }
