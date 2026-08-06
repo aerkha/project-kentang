@@ -572,10 +572,6 @@ export function DashboardContent() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Dashboard Analitik</h1>
-        <p className="text-muted-foreground">Monitor kinerja investasi dan portofolio</p>
-      </div>
 
       {/* ── Filter ── */}
       <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
