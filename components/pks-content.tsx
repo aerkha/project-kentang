@@ -43,6 +43,8 @@ import {
   CircleDashed,
   Upload,
   PenLine,
+  Search,
+  X,
 } from "lucide-react";
 
 function addDays(dateStr: string, days: number): string {
@@ -732,6 +734,9 @@ export function PksContent() {
 
   const [filter, setFilter] = useState<Filter>("semua");
   const changeFilter = (f: Filter) => { setFilter(f); setPage(1); };
+  // ── Search query (cari PKS berdasarkan No. PKS atau nama investor) ──
+  const [searchQuery, setSearchQuery] = useState("");
+  const changeSearchQuery = (q: string) => { setSearchQuery(q); setPage(1); };
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -806,10 +811,15 @@ export function PksContent() {
     : isBroker && currentBroker
     ? pksList.filter((m) => m.brokerId === currentBroker.id)
     : pksList;
-  // ── Filter ──
+  // ── Filter (status + pencarian berdasarkan No. PKS atau nama investor) ──
+  const normalizedQuery = searchQuery.trim().toLowerCase();
   const filtered = visiblePkss.filter((m) => {
-    if (filter === "semua") return true;
-    return getPksStatus(m) === filter;
+    if (filter !== "semua" && getPksStatus(m) !== filter) return false;
+    if (normalizedQuery) {
+      const haystack = `${m.id} ${m.investorName}`.toLowerCase();
+      if (!haystack.includes(normalizedQuery)) return false;
+    }
+    return true;
   });
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
@@ -1267,6 +1277,7 @@ export function PksContent() {
             <h3 className="text-lg font-medium mb-1">
               {
                 (() => {
+                  if (normalizedQuery) return "PKS tidak ditemukan";
                   if (filter === "semua") return "Belum ada PKS";
                   if (filter === "complete") return "Belum ada PKS yang selesai";
                   if (filter === "terminated") return "Belum ada PKS yang terminated";
@@ -1275,7 +1286,9 @@ export function PksContent() {
               }
             </h3>
             <p className="text-muted-foreground text-sm">
-              {filter === "semua"
+              {normalizedQuery
+                ? `Tidak ada PKS yang cocok dengan pencarian "${searchQuery}". Coba kata kunci lain.`
+                : filter === "semua"
                 ? "Buat Pks pertama dengan klik tombol di atas"
                 : "Coba filter lain"}
             </p>
@@ -1284,8 +1297,29 @@ export function PksContent() {
       ) : (
         /* ── Table ── */
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0">
             <CardTitle className="text-base">Daftar PKS</CardTitle>
+            {/* ── Input pencarian PKS ── */}
+            <div className="relative w-full sm:w-72">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => changeSearchQuery(e.target.value)}
+                placeholder="Cari No. PKS atau nama investor..."
+                className="h-8 pl-8 pr-8 text-xs"
+                aria-label="Cari PKS"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => changeSearchQuery("")}
+                  aria-label="Bersihkan pencarian"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
