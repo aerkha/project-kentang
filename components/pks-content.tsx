@@ -645,7 +645,6 @@ function PksFormFields({
               { field: "esignPihakPertama1" as const, label: "E-Sign Pihak Pertama I", hint: "Adie Bayu Putra", show: true },
               { field: "esignPihakPertama2" as const, label: "E-Sign Pihak Pertama II", hint: "Parafitra Fidiasari", show: true },
               { field: "esignPihakKedua"    as const, label: "E-Sign Pihak Kedua (Investor)", hint: formData.investorName || "Investor", show: true },
-              // esignPihakPertama3 sepenuhnya dihapus dari UI
             ] as const
           ).filter(({ show }) => show).map(({ field, label, hint }) => (
             <div key={field} className="space-y-1.5">

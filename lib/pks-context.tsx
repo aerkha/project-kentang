@@ -71,7 +71,6 @@ export interface Pks {
   brokerIdNumber?: string;
   brokerPhone?: string;
   bagiHasilPP3?: number;
-  esignPihakPertama3?: string;
   hasSignedDoc?: boolean;
   signedDocUrl?: string;
 }
@@ -179,7 +178,6 @@ export function recordToPks(r: Record<string, unknown>, pbIdMap: Map<string, str
     brokerIdNumber:     (r.brokerIdNumber as string) || "",
     brokerPhone:        (r.brokerPhone   as string) || "",
     bagiHasilPP3:       (r.bagiHasilPP3  as number) ?? 0,
-    esignPihakPertama3: pbFileUrl(pbRecordId, r.esignPihakPertama3),
     hasSignedDoc:       !!signedDocUrl,
     signedDocUrl,
   };
@@ -356,7 +354,6 @@ export function PksProvider({ children }: Readonly<{ children: ReactNode }>) {
         ["esignPihakPertama1", pks.esignPihakPertama1  ?? ""],
         ["esignPihakPertama2", pks.esignPihakPertama2  ?? ""],
         ["esignPihakKedua",    pks.esignPihakKedua     ?? ""],
-        ["esignPihakPertama3", pks.esignPihakPertama3  ?? ""],
       ] as [string, string][]
     ).filter(([, v]) => v.startsWith("data:"));
 
@@ -381,7 +378,6 @@ export function PksProvider({ children }: Readonly<{ children: ReactNode }>) {
       esignPihakPertama1,
       esignPihakPertama2,
       esignPihakKedua,
-      esignPihakPertama3,
       hasSignedDoc: _hsd,
       signedDocUrl: _sdu,
       ...regularUpdates
@@ -403,7 +399,6 @@ export function PksProvider({ children }: Readonly<{ children: ReactNode }>) {
       ["esignPihakPertama1", esignPihakPertama1],
       ["esignPihakPertama2", esignPihakPertama2],
       ["esignPihakKedua",    esignPihakKedua],
-      ["esignPihakPertama3", esignPihakPertama3],
     ];
     for (const [key, value] of esignAll) {
       if (value === "") pbUpdates[key] = null;

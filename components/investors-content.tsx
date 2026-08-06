@@ -47,9 +47,9 @@ import { generateCustomId } from "@/lib/investors-context";
 import { generateBrokerCustomId } from "@/lib/brokers-context";
 import { FileJson, Upload, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // Types
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 interface InvestorFormData {
   name: string;
@@ -115,9 +115,9 @@ const initialBrokerForm: BrokerFormData = {
   phone: "",
 };
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // Helpers
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 function generateRandomPassword(length = 8) {
   const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#";
@@ -128,9 +128,9 @@ function generateRandomPassword(length = 8) {
   return retVal;
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // Form components
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 interface InvestorFormProps {
   formData: InvestorFormData;
@@ -159,10 +159,10 @@ function BuktiUploadField({ file, onChange }: { file: File | null; onChange: (f:
         />
         {file ? (
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-green-600 text-lg">âœ…</span>
+            <span className="text-green-600 text-lg">✅</span>
             <div className="min-w-0">
               <p className="text-sm font-medium text-green-700 truncate">{file.name}</p>
-              <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB Â· Klik untuk ganti</p>
+              <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB · Klik untuk ganti</p>
             </div>
           </div>
         ) : (
@@ -176,9 +176,9 @@ function BuktiUploadField({ file, onChange }: { file: File | null; onChange: (f:
   );
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // Inline import panels (shared logic)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 interface InvImportRow {
   customId: string; name: string; idNumber: string; address: string; brokerName: string;
@@ -200,7 +200,7 @@ function FlagBadgeInline({ row }: { row: InvImportRow }) {
   if (row.isMinBun) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">{row.isInternal ? "MB-Internal" : "MinBun"}</span>;
   if (row.isTami)   return <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">Tami</span>;
   if (row.isDirect) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">DirectAB</span>;
-  return <span className="text-[10px] text-muted-foreground">â€”</span>;
+  return <span className="text-[10px] text-muted-foreground">—</span>;
 }
 
 function InvestorImportPanel({ existingIds, existingKtps, onUpdateInvestor, onReload, onDone }: {
@@ -341,10 +341,10 @@ function InvestorImportPanel({ existingIds, existingKtps, onUpdateInvestor, onRe
           {parseError && <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><XCircle className="h-4 w-4 mt-0.5 shrink-0" />{parseError}</div>}
           <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
             <p className="font-medium">Format:</p>
-            <p>â€¢ Field wajib: <code>name</code>, <code>investmentAmount</code></p>
-            <p>â€¢ Salah satu flag <code>true</code>: <code>isMinBun</code>, <code>isTami</code>, atau <code>isDirect</code></p>
-            <p>â€¢ <code>customId</code> boleh dikosongkan â€” otomatis di-generate sesuai tipe</p>
-            <p>â€¢ Opsional ahli waris: <code>heirRelationship</code>, <code>heirEmail</code></p>
+            <p>• Field wajib: <code>name</code>, <code>investmentAmount</code></p>
+            <p>• Salah satu flag <code>true</code>: <code>isMinBun</code>, <code>isTami</code>, atau <code>isDirect</code></p>
+            <p>• <code>customId</code> boleh dikosongkan — otomatis di-generate sesuai tipe</p>
+            <p>• Opsional ahli waris: <code>heirRelationship</code>, <code>heirEmail</code></p>
           </div>
         </>
       )}
@@ -371,7 +371,7 @@ function InvestorImportPanel({ existingIds, existingKtps, onUpdateInvestor, onRe
                   <tr key={i} className={dupWarning ? "bg-amber-50" : i % 2 === 0 ? "bg-background" : "bg-muted/30"}>
                     <td className="px-3 py-2 font-mono">
                       {row.customId || <span className="text-muted-foreground italic">auto</span>}
-                      {dupWarning && <span className="ml-1 text-amber-600">âš  {dupWarning}</span>}
+                      {dupWarning && <span className="ml-1 text-amber-600">⚠ {dupWarning}</span>}
                     </td>
                     <td className="px-3 py-2">{row.name}</td>
                     <td className="px-3 py-2"><FlagBadgeInline row={row} /></td>
@@ -413,7 +413,7 @@ function InvestorImportPanel({ existingIds, existingKtps, onUpdateInvestor, onRe
                 </tr></thead>
                 <tbody>{rows.map(({ row, status, error }, i) => (
                   <tr key={i} className={i % 2 === 0 ? "bg-background" : "bg-muted/30"}>
-                    <td className="px-3 py-2">{status === "pending" && <span className="text-muted-foreground">â€”</span>}{status === "importing" && <Loader2 className="h-3 w-3 animate-spin text-primary" />}{status === "success" && <CheckCircle2 className="h-3 w-3 text-green-600" />}{status === "error" && <XCircle className="h-3 w-3 text-destructive" />}</td>
+                    <td className="px-3 py-2">{status === "pending" && <span className="text-muted-foreground">—</span>}{status === "importing" && <Loader2 className="h-3 w-3 animate-spin text-primary" />}{status === "success" && <CheckCircle2 className="h-3 w-3 text-green-600" />}{status === "error" && <XCircle className="h-3 w-3 text-destructive" />}</td>
                     <td className="px-3 py-2 font-mono">{row.customId}</td>
                     <td className="px-3 py-2">{row.name}</td>
                     <td className={`px-3 py-2 ${status === "error" ? "text-destructive" : "text-muted-foreground"}`}>{status === "success" ? (error ?? "OK") : (error ?? "")}</td>
@@ -503,9 +503,9 @@ function BrokerImportPanel({ existingIds, onUpdateBroker, onReload, onDone }: {
           {parseError && <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><XCircle className="h-4 w-4 mt-0.5 shrink-0" />{parseError}</div>}
           <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
             <p className="font-medium">Format:</p>
-            <p>â€¢ Field wajib: <code>name</code>, <code>phone</code></p>
-            <p>â€¢ <code>customId</code> boleh dikosongkan â€” otomatis di-generate (BRK-xxxx)</p>
-            <p>â€¢ Field opsional: <code>address</code>, <code>email</code>, <code>idNumber</code>, <code>bankName</code>, <code>accountNumber</code></p>
+            <p>• Field wajib: <code>name</code>, <code>phone</code></p>
+            <p>• <code>customId</code> boleh dikosongkan — otomatis di-generate (BRK-xxxx)</p>
+            <p>• Field opsional: <code>address</code>, <code>email</code>, <code>idNumber</code>, <code>bankName</code>, <code>accountNumber</code></p>
           </div>
         </>
       )}
@@ -565,7 +565,7 @@ function BrokerImportPanel({ existingIds, onUpdateBroker, onReload, onDone }: {
                 </tr></thead>
                 <tbody>{rows.map(({ row, status, error }, i) => (
                   <tr key={i} className={i % 2 === 0 ? "bg-background" : "bg-muted/30"}>
-                    <td className="px-3 py-2">{status === "pending" && <span className="text-muted-foreground">â€”</span>}{status === "importing" && <Loader2 className="h-3 w-3 animate-spin text-primary" />}{status === "success" && <CheckCircle2 className="h-3 w-3 text-green-600" />}{status === "error" && <XCircle className="h-3 w-3 text-destructive" />}</td>
+                    <td className="px-3 py-2">{status === "pending" && <span className="text-muted-foreground">—</span>}{status === "importing" && <Loader2 className="h-3 w-3 animate-spin text-primary" />}{status === "success" && <CheckCircle2 className="h-3 w-3 text-green-600" />}{status === "error" && <XCircle className="h-3 w-3 text-destructive" />}</td>
                     <td className="px-3 py-2 font-mono">{row.customId}</td>
                     <td className="px-3 py-2">{row.name}</td>
                     <td className={`px-3 py-2 ${status === "error" ? "text-destructive" : "text-muted-foreground"}`}>{status === "success" ? (error ?? "OK") : (error ?? "")}</td>
@@ -591,7 +591,7 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
     <form onSubmit={onSubmit}>
       <div className="overflow-y-auto max-h-[62vh] pr-2 space-y-5">
 
-        {/* â”€â”€ Data Investor â”€â”€ */}
+        {/* ── Data Investor ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Data Investor
@@ -683,7 +683,7 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
           </div>
         </div>
 
-        {/* â”€â”€ Data Investasi â”€â”€ */}
+        {/* ── Data Investasi ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Data Investasi
@@ -748,7 +748,7 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
           </div>
         </div>
 
-        {/* â”€â”€ Bukti Transfer â”€â”€ */}
+        {/* ── Bukti Transfer ── */}
         {onBuktiChange && (
           <div className="space-y-3">
             <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
@@ -758,7 +758,7 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
           </div>
         )}
 
-        {/* â”€â”€ Rekening Investor â”€â”€ */}
+        {/* ── Rekening Investor ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Rekening Investor
@@ -792,7 +792,7 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
           </div>
         </div>
 
-        {/* â”€â”€ Tipe Investor â”€â”€ */}
+        {/* ── Tipe Investor ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Tipe Investor <span className="text-destructive">*</span>
@@ -827,7 +827,7 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
                   }}
                 />
               </div>
-              {/* Sub-toggle Internal â€” hanya tampil jika MinBun aktif */}
+              {/* Sub-toggle Internal — hanya tampil jika MinBun aktif */}
               {key === "isMinBun" && formData.isMinBun && (
                 <div className="flex items-start justify-between gap-4 px-3 pb-3 pt-0 ml-4 border-t border-primary/10 mt-0 pt-2">
                   <div className="space-y-0.5">
@@ -846,7 +846,7 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
           ))}
         </div>
 
-        {/* â”€â”€ Data Ahli Waris â”€â”€ */}
+        {/* ── Data Ahli Waris ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Data Ahli Waris
@@ -911,7 +911,7 @@ function InvestorFormFields({ formData, setFormData, onSubmit, submitLabel, prev
 
       <DialogFooter className="mt-4 pt-4 border-t">
         <Button type="submit" disabled={isSaving}>
-          {isSaving ? "Menyimpanâ€¦" : submitLabel}
+          {isSaving ? "Menyimpan…" : submitLabel}
         </Button>
       </DialogFooter>
     </form>
@@ -935,7 +935,7 @@ function BrokerFormFields({ formData, setFormData, onSubmit, submitLabel, previe
     <form onSubmit={onSubmit}>
       <div className="overflow-y-auto max-h-[62vh] pr-2 space-y-5">
 
-        {/* â”€â”€ Data Broker â”€â”€ */}
+        {/* ── Data Broker ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Data Broker
@@ -1016,7 +1016,7 @@ function BrokerFormFields({ formData, setFormData, onSubmit, submitLabel, previe
           </div>
         </div>
 
-        {/* â”€â”€ Rekening Broker â”€â”€ */}
+        {/* ── Rekening Broker ── */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
             Rekening Broker
@@ -1053,24 +1053,24 @@ function BrokerFormFields({ formData, setFormData, onSubmit, submitLabel, previe
 
       <DialogFooter className="mt-4 pt-4 border-t">
         <Button type="submit" disabled={isSaving}>
-          {isSaving ? "Menyimpanâ€¦" : submitLabel}
+          {isSaving ? "Menyimpan…" : submitLabel}
         </Button>
       </DialogFooter>
     </form>
   );
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // Main component
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 function maskKtp(ktp: string) {
-  if (!ktp) return "â€”";
+  if (!ktp) return "—";
   if (ktp.length <= 6) return ktp;
   const visible = 4;
   const tail    = 4;
   const mid     = Math.max(0, ktp.length - visible - tail);
-  return ktp.slice(0, visible) + "â€¢".repeat(mid) + ktp.slice(-tail);
+  return ktp.slice(0, visible) + "•".repeat(mid) + ktp.slice(-tail);
 }
 
 function formatRp(n: number) {
@@ -1079,9 +1079,9 @@ function formatRp(n: number) {
   }).format(n);
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // Helper: prefix untuk entri cash flow internal
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 const INTERNAL_REF_PREFIX = "[Internal:";
 function makeInternalRef(investorId: string) {
   return `${INTERNAL_REF_PREFIX}${investorId}]`;
@@ -1115,7 +1115,7 @@ export function InvestorsContent() {
     ? investors.filter((inv) => inv.brokerName === currentBroker.name)
     : investors;
 
-  // Status aktif diturunkan dari transaksi â€” satu sumber kebenaran (PKS hanya formalitas).
+  // Status aktif diturunkan dari transaksi — satu sumber kebenaran (PKS hanya formalitas).
   const activeIds = useMemo(() => activeInvestorIds(transaksis), [transaksis]);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -1137,7 +1137,7 @@ export function InvestorsContent() {
     });
 
 
-  // â”€â”€ Dana terpakai per investor (transaksi aktif: modal belum kembali) â”€â”€
+  // ── Dana terpakai per investor (transaksi aktif: modal belum kembali) ──
   const investorDanaMap = useMemo(() => {
     const map = new Map<string, number>();
     transaksis.forEach((t) => {
@@ -1149,7 +1149,7 @@ export function InvestorsContent() {
     return map;
   }, [transaksis]);
 
-  // â”€â”€ Modal yang sudah dialokasikan ke PKS per investor â”€â”€
+  // ── Modal yang sudah dialokasikan ke PKS per investor ──
   const pksAllocatedMap = useMemo(() => {
     const map = new Map<string, number>();
     pksList.forEach((m) => {
@@ -1159,7 +1159,7 @@ export function InvestorsContent() {
     return map;
   }, [pksList]);
 
-  // â”€â”€ Estimasi bagi hasil per investor (dari data transaksi) â”€â”€
+  // ── Estimasi bagi hasil per investor (dari data transaksi) ──
   const investorPnlMap = useMemo(() => {
     const map = new Map<string, number>();
     transaksis.forEach((t) => {
@@ -1265,7 +1265,7 @@ export function InvestorsContent() {
     return `BRK-${String(maxNum + 1).padStart(4, "0")}`;
   };
 
-  // â”€â”€ Helpers â”€â”€
+  // ── Helpers ──
 
   const activeFlags = (form: InvestorFormData) => {
     const flags: string[] = [];
@@ -1296,7 +1296,7 @@ export function InvestorsContent() {
     }
   };
 
-  // â”€â”€ Buat PKS dari investor card â”€â”€
+  // ── Buat PKS dari investor card ──
 
   const handleCreatePks = async (investor: Investor) => {
     const allocated = pksAllocatedMap.get(investor.id) ?? 0;
@@ -1353,12 +1353,11 @@ export function InvestorsContent() {
         esignPihakPertama1: esignPP1,
         esignPihakPertama2: esignPP2,
         esignPihakKedua:    esignPK,
-        esignPihakPertama3: "",
       });
       if (brokerRec) {
-        toast.success(`Draft PKS untuk ${investor.name} berhasil dibuat â€” buka di halaman PKS untuk mengatur komisi broker (PP3 saat ini 0%)`);
+        toast.success(`Draft PKS untuk ${investor.name} berhasil dibuat — buka di halaman PKS untuk mengatur komisi broker (PP3 saat ini 0%)`);
       } else {
-        toast.success(`Draft PKS untuk ${investor.name} berhasil dibuat â€” lihat di halaman PKS`);
+        toast.success(`Draft PKS untuk ${investor.name} berhasil dibuat — lihat di halaman PKS`);
       }
     } catch (err) {
       const pbErr = err as { response?: { message?: string }; data?: { message?: string }; message?: string };
@@ -1373,7 +1372,7 @@ export function InvestorsContent() {
     }
   };
 
-  // â”€â”€ Investor handlers â”€â”€
+  // ── Investor handlers ──
 
   const handleAddInvestor = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -1421,7 +1420,7 @@ export function InvestorsContent() {
         const today = todayWibStr();
         await addPengeluaran({
           date: today,
-          deskripsi: `Modal Internal â€” ${investorForm.name}`,
+          deskripsi: `Modal Internal — ${investorForm.name}`,
           debet: 0,
           kredit: parseFloat(investorForm.investmentAmount) || 0,
           kategori: "Investasi",
@@ -1435,7 +1434,7 @@ export function InvestorsContent() {
         try {
           const filename = await uploadBuktiTransfer(newId, addInvestorFile);
           buktiUrl = getBuktiUrl(newId, filename);
-        } catch { /* upload gagal â€” lanjut tanpa bukti */ }
+        } catch { /* upload gagal — lanjut tanpa bukti */ }
       }
 
       // 3. Buat Akun User Otomatis (Background)
@@ -1542,14 +1541,14 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
       if (wasInternal && nowInternal) {
         if (existingEntry) {
           await updatePengeluaran(existingEntry.id, {
-            deskripsi: `Modal Internal â€” ${investorForm.name}`,
+            deskripsi: `Modal Internal — ${investorForm.name}`,
             kredit: parseFloat(investorForm.investmentAmount) || 0,
           });
         } else {
           const today = todayWibStr();
           await addPengeluaran({
             date: today,
-            deskripsi: `Modal Internal â€” ${investorForm.name}`,
+            deskripsi: `Modal Internal — ${investorForm.name}`,
             debet: 0,
             kredit: parseFloat(investorForm.investmentAmount) || 0,
             kategori: "Investasi",
@@ -1560,7 +1559,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
         const today = todayWibStr();
         await addPengeluaran({
           date: today,
-          deskripsi: `Modal Internal â€” ${investorForm.name}`,
+          deskripsi: `Modal Internal — ${investorForm.name}`,
           debet: 0,
           kredit: parseFloat(investorForm.investmentAmount) || 0,
           kategori: "Investasi",
@@ -1639,7 +1638,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
         } else {
           await addPengeluaran({
             date: todayWibStr(),
-            deskripsi: `Modal Internal â€” ${topUpInvestor.name}`,
+            deskripsi: `Modal Internal — ${topUpInvestor.name}`,
             debet: 0,
             kredit: newAmount,
             kategori: "Investasi",
@@ -1653,7 +1652,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
         try {
           const filename = await uploadBuktiTransfer(topUpInvestor.id, topUpFile);
           buktiUrl = getBuktiUrl(topUpInvestor.id, filename);
-        } catch { /* upload gagal â€” lanjut tanpa bukti */ }
+        } catch { /* upload gagal — lanjut tanpa bukti */ }
       }
 
       notifyOwner("top_up", topUpInvestor.id, topUpInvestor.name, nominal, {
@@ -1738,7 +1737,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
     }
   };
 
-  // â”€â”€ Broker handlers â”€â”€
+  // ── Broker handlers ──
 
   const handleAddBroker = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -1773,7 +1772,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
         phone: brokerForm.phone,
       });
 
-      // â”€â”€ Buat Akun Otomatis untuk Broker â”€â”€
+      // ── Buat Akun Otomatis untuk Broker ──
       const randomPass = generateRandomPassword(8);
       const accountEmail = brokerForm.email.trim();
 
@@ -1915,9 +1914,9 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
   return (
     <div className="space-y-6">
 
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      {/* ——————————————————————————————————————
           INVESTOR SECTION
-      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      —————————————————————————————————————— */}
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -1925,7 +1924,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
           <p className="text-muted-foreground">Kelola data investor dan broker</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* â”€â”€ Tambah Broker (admin only) â”€â”€ */}
+          {/* ── Tambah Broker (admin only) ── */}
           {canCreate && <Dialog open={isAddBrokerOpen} onOpenChange={(v) => { if (!v) setAddBrokerMode("form"); setIsAddBrokerOpen(v); }}>
             <DialogTrigger asChild>
               <Button variant="outline">
@@ -1968,7 +1967,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
             </DialogContent>
           </Dialog>}
 
-          {/* â”€â”€ Tambah Investor â”€â”€ */}
+          {/* ── Tambah Investor ── */}
           {canCreate && <Dialog open={isAddInvestorOpen} onOpenChange={(v) => { if (!v) setAddInvestorMode("form"); setIsAddInvestorOpen(v); }}>
             <DialogTrigger asChild>
               <Button>
@@ -2115,7 +2114,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
             return (
             <Card key={investor.id} className={`transition-shadow ${isActive ? "hover:shadow-md" : "opacity-60 hover:shadow-sm"}`}>
 
-              {/* â”€â”€ Compact header (always visible) â”€â”€ */}
+              {/* ── Compact header (always visible) ── */}
               <div
                 className="p-3 cursor-pointer select-none"
                 onClick={() => toggleCard(investor.id)}
@@ -2205,14 +2204,14 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                 )}
               </div>
 
-              {/* â”€â”€ Expanded detail â”€â”€ */}
+              {/* ── Expanded detail ── */}
               {isExpanded && (
                 <CardContent className="border-t pt-3 pb-3 space-y-3 text-sm">
 
                   <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                     <div>
                       <p className="text-xs text-muted-foreground">Broker</p>
-                      <p className="font-medium truncate">{investor.brokerName || "â€”"}</p>
+                      <p className="font-medium truncate">{investor.brokerName || "—"}</p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">No Handphone</p>
@@ -2220,7 +2219,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Pekerjaan</p>
-                      <p className="font-medium truncate">{investor.occupation || "â€”"}</p>
+                      <p className="font-medium truncate">{investor.occupation || "—"}</p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">No KTP</p>
@@ -2238,7 +2237,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                     <div className="flex gap-1.5 items-center text-xs">
                       <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
                       <span className="font-medium">{investor.bankName}</span>
-                      <span className="text-muted-foreground">â€” {investor.accountNumber}</span>
+                      <span className="text-muted-foreground">— {investor.accountNumber}</span>
                     </div>
                   </div>
 
@@ -2263,13 +2262,13 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                         <div className="flex gap-1.5 items-center text-xs mt-0.5">
                           <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
                           <span className="font-medium">{investor.heirBankName}</span>
-                          <span className="text-muted-foreground">â€” {investor.heirAccountNumber}</span>
+                          <span className="text-muted-foreground">— {investor.heirAccountNumber}</span>
                         </div>
                       )}
                     </div>
                   )}
 
-                  {/* â”€â”€ Riwayat Modal â”€â”€ */}
+                  {/* ── Riwayat Modal ── */}
                   <div className="border-t border-border/50 pt-2">
                     <p className="text-xs text-muted-foreground mb-1.5">Riwayat Modal</p>
                     {modalList.length === 0 ? (
@@ -2285,7 +2284,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                                   {entry.type === "topup" ? "Top Up" : "Modal Awal"}
                                 </span>
                                 {entry.keterangan && (
-                                  <span className="text-muted-foreground ml-1">Â· {entry.keterangan}</span>
+                                  <span className="text-muted-foreground ml-1">· {entry.keterangan}</span>
                                 )}
                                 {entry.pksId && (
                                   <span className="ml-1 font-mono text-primary">#{entry.pksId}</span>
@@ -2306,7 +2305,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                     )}
                   </div>
 
-                  {/* â”€â”€ Estimasi Bagi Hasil â”€â”€ */}
+                  {/* ── Estimasi Bagi Hasil ── */}
                   {transaksis.length > 0 && (
                     <div className="border-t border-border/50 pt-2">
                       <p className="text-xs text-muted-foreground mb-1">Estimasi Bagi Hasil</p>
@@ -2331,9 +2330,9 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
       {!isInvestor && (<>
       <Separator className="my-4" />
 
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      {/* ——————————————————————————————————————
           BROKER SECTION
-      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      —————————————————————————————————————— */}
 
       <div>
         <h2 className="text-xl font-bold text-foreground">Manajemen Broker</h2>
@@ -2363,7 +2362,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
             <Card key={broker.id} className={`hover:shadow-md transition-shadow ${isLocked ? "ring-1 ring-primary/20" : ""}`}>
 
 
-              {/* â”€â”€ Compact header (always visible) â”€â”€ */}
+              {/* ── Compact header (always visible) ── */}
               <div
                 className="p-3 cursor-pointer select-none"
                 onClick={() => toggleBrokerCard(broker.id)}
@@ -2396,7 +2395,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                       </Button>
                     )}
                     {isLocked && (
-                      <Badge variant="secondary" className="bg-primary/10 text-primary text-[10px] px-1.5 shrink-0" title="Broker sistem MinBun â€” hanya admin yang dapat mengedit (tidak dapat dihapus)">
+                      <Badge variant="secondary" className="bg-primary/10 text-primary text-[10px] px-1.5 shrink-0" title="Broker sistem MinBun — hanya admin yang dapat mengedit (tidak dapat dihapus)">
                         <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />
         Sistem
                       </Badge>
@@ -2412,11 +2411,11 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                 {/* Phone mini preview */}
                 <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
                   <span>{broker.phone}</span>
-                  {broker.email && <><span>Â·</span><span className="truncate">{broker.email}</span></>}
+                  {broker.email && <><span>·</span><span className="truncate">{broker.email}</span></>}
                 </div>
               </div>
 
-              {/* â”€â”€ Expanded detail â”€â”€ */}
+              {/* ── Expanded detail ── */}
               {isBrokerExpanded && (
                 <CardContent className="border-t pt-3 pb-3 space-y-3 text-sm">
                   <div className="grid grid-cols-2 gap-x-4 gap-y-2">
@@ -2444,7 +2443,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                     <div className="flex gap-1.5 items-center text-xs">
                       <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
                       <span className="font-medium">{broker.bankName}</span>
-                      <span className="text-muted-foreground">â€” {broker.accountNumber}</span>
+                      <span className="text-muted-foreground">— {broker.accountNumber}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -2455,16 +2454,16 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
         </div>
       )}
 
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-          DIALOGS â€” Investor
-      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {/* ——————————————————————————————————————
+          DIALOGS — Investor
+      —————————————————————————————————————— */}
 
       <Dialog open={isEditInvestorOpen} onOpenChange={setIsEditInvestorOpen}>
         <DialogContent className="sm:max-w-[580px]">
           <DialogHeader>
             <DialogTitle>Edit Investor</DialogTitle>
             <DialogDescription>
-              Perbarui data investor â€” ID tidak dapat diubah
+              Perbarui data investor — ID tidak dapat diubah
             </DialogDescription>
           </DialogHeader>
           <InvestorFormFields
@@ -2472,7 +2471,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
             setFormData={setInvestorForm}
             onSubmit={handleEditInvestor}
             submitLabel="Simpan Perubahan"
-            previewId={selectedInvestor?.id ?? "â€”"}
+            previewId={selectedInvestor?.id ?? "—"}
             brokers={brokers}
             isSaving={isSaving}
           />
@@ -2493,13 +2492,13 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
               Batal
             </Button>
             <Button variant="destructive" disabled={isSaving} onClick={handleDeleteInvestorConfirm}>
-              {isSaving ? "Menghapusâ€¦" : "Hapus"}
+              {isSaving ? "Menghapus…" : "Hapus"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* â”€â”€ Dialog Top Up â”€â”€ */}
+      {/* ── Dialog Top Up ── */}
       <Dialog open={isTopUpOpen} onOpenChange={setIsTopUpOpen}>
         <DialogContent className="sm:max-w-[380px]">
           <DialogHeader>
@@ -2551,7 +2550,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
                 Batal
               </Button>
               <Button type="submit" disabled={isSaving} className="bg-green-600 hover:bg-green-700">
-                {isSaving ? "Menyimpanâ€¦" : "Konfirmasi Top Up"}
+                {isSaving ? "Menyimpan…" : "Konfirmasi Top Up"}
               </Button>
             </DialogFooter>
           </form>
@@ -2560,16 +2559,16 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
 
       </>)}{/* end !isInvestor broker section */}
 
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-          DIALOGS â€” Broker
-      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {/* ——————————————————————————————————————
+          DIALOGS — Broker
+      —————————————————————————————————————— */}
 
       <Dialog open={isEditBrokerOpen} onOpenChange={setIsEditBrokerOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Edit Broker</DialogTitle>
             <DialogDescription>
-              Perbarui data broker â€” ID tidak dapat diubah
+              Perbarui data broker — ID tidak dapat diubah
             </DialogDescription>
           </DialogHeader>
           <BrokerFormFields
@@ -2603,7 +2602,7 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
         </DialogContent>
       </Dialog>
 
-      {/* â”€â”€ Error dialog â”€â”€ */}
+      {/* ── Error dialog ── */}
       <ErrorDialog
         open={!!errorInfo}
         onClose={() => setErrorInfo(null)}
