@@ -273,8 +273,6 @@ function TrxFormFields({
   const displaySisaForPks = (pks: Pks): number => {
     const inv = investors.find((x) => x.id === pks.investorId);
     if (!inv) return pks.investmentAmount;
-    // m-15: gunakan min() antara Pks.investmentAmount dan sisa modal investor.
-    // Sebelumnya Math.min() sudah dipanggil — tetap, hanya dokumentasikan.
     return Math.min(pks.investmentAmount, sisaModal(inv));
   };
 
@@ -285,14 +283,18 @@ function TrxFormFields({
     formData.investorEntries.find((e) => e.pksId === pks.id);
 
   // Daftar PKS di jalur tertentu yang BOLEH ditampilkan di form.
-  // PKS milik transaksi yang sedang diedit selalu dimasukkan supaya
-  // user bisa tetap melihat/mengedit nilainya.
+  // Filter ketat: hanya PKS yang baru dicentang di form, dipakai transaksi
+  // yang sedang diedit, ATAU punya sisa modal > 0. PKS yang sudah terpakai
+  // 100% oleh transaksi aktif lain sudah di-exclude oleh parent
+  // (activePkss) — namun jika lolos, kami filter ulang di sini.
   const pksByJalur = (jalur: InvestorJalur): Pks[] =>
     activePkss.filter((m) => {
       const inv = investors.find((x) => x.id === m.investorId);
       if (!inv || getJalur(inv) !== jalur) return false;
-      // Tampilkan jika: PKS punya sisa modal / sedang dicentang / dipakai transaksi yang diedit
-      return displaySisaForPks(m) > 0 || isPksChecked(m) || (editingPksIds?.has(m.id) ?? false);
+      const isEditingKem = editingPksIds?.has(m.id) ?? false;
+      const alreadyChecked = isPksChecked(m);
+      if (isEditingKem || alreadyChecked) return true;
+      return displaySisaForPks(m) > 0;
     });
 
   const toggleJalur = (jalur: InvestorJalur) => {
@@ -398,7 +400,7 @@ function TrxFormFields({
       ),
     }));
   };
-  
+
   // DUKUNGAN BOOLEAN UNTUK AUTORENEWAL
   const set = (k: keyof Omit<TrxFormData, "investorEntries">, v: string | boolean) =>
     setFormData({ ...formData, [k]: v });
@@ -406,24 +408,24 @@ function TrxFormFields({
   const overLimitEntries = useMemo(() => {
     const ids = new Set<string>();
     const totalByInvestor = new Map<string, number>();
-    
+
     formData.investorEntries.forEach((e) => {
       if (!e.pksId || !e.nilaiInvestasi) return;
       const nilai = Number.parseFloat(e.nilaiInvestasi) || 0;
       totalByInvestor.set(e.investorId, (totalByInvestor.get(e.investorId) ?? 0) + nilai);
     });
-    
+
     formData.investorEntries.forEach((e) => {
       if (!e.pksId || !e.nilaiInvestasi) return;
       const pks = activePkss.find((m) => m.id === e.pksId);
       if (!pks) return;
       const nilai = Number.parseFloat(e.nilaiInvestasi) || 0;
-      
+
       if (nilai > pks.investmentAmount) { ids.add(e.pksId); return; }
-      
+
       const inv = investors.find((x) => x.id === e.investorId);
       if (!inv) return;
-      
+
       const sisa = Math.max(0, inv.investmentAmount - (committedModal.get(inv.id) ?? 0));
       if ((totalByInvestor.get(e.investorId) ?? 0) > sisa) ids.add(e.pksId);
     });
@@ -463,7 +465,7 @@ function TrxFormFields({
   };
 
   const brokerSummary = useMemo(() => {
-    const sets = new Map<string, Set<string>>(); 
+    const sets = new Map<string, Set<string>>();
     formData.investorEntries.forEach((e) => {
       if (!e.investorId) return;
       const inv = investors.find((x) => x.id === e.investorId);
@@ -480,7 +482,7 @@ function TrxFormFields({
   return (
     <form onSubmit={handleFormSubmit} className="flex flex-col gap-0">
       <div className="overflow-y-auto max-h-[62vh] pr-2 space-y-5">
-        
+
         {/* Info Pengiriman & Autorenewal */}
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">
@@ -503,7 +505,7 @@ function TrxFormFields({
               <Input id="trx-desc" value={formData.description} onChange={(e) => set("description", e.target.value)} placeholder="30 hari" />
             </div>
           </div>
-          
+
           {/* Box Autorenewal (KINI MUNCUL KEMBALI) */}
           <div className="flex flex-col gap-3 p-3 bg-muted/40 border border-border rounded-md mt-2">
             <label className="flex items-center gap-2.5 cursor-pointer">
@@ -588,13 +590,11 @@ function TrxFormFields({
           {(["MB", "TM", "D"] as InvestorJalur[]).map((jalur) => {
             if (!openJalurs.has(jalur)) return null;
             const jalurPks = pksByJalur(jalur);
-            // Hitung jumlah PKS di jalur ini yang sedang dicentang
             const checkedCount = jalurPks.filter((p) => isPksChecked(p)).length;
             return (
               <div key={jalur} className="rounded-md border border-border p-3 space-y-2 bg-muted/20">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{JALUR_LABEL[jalur]}</p>
-                  {/* TASK: tombol "Hapus semua ceklis" per jalur */}
                   {checkedCount > 0 && (
                     <Button
                       type="button"
@@ -627,7 +627,7 @@ function TrxFormFields({
                       } else if (pksSisa <= 7) {
                         pksSisaClass = 'text-orange-500';
                       }
-                      
+
                       return (
                         <div key={pks.id} className="flex items-center gap-3">
                           <Checkbox
@@ -778,7 +778,6 @@ function PksExpiryWarning() {
     const result: PksExpiryRow[] = [];
 
     for (const pks of pksList) {
-      // Hanya PKS yang aktif (belum terminated) dan milik investor dengan ID valid
       if (pks.isTerminated) continue;
       if (!pks.investorId) continue;
 
@@ -788,24 +787,16 @@ function PksExpiryWarning() {
       const pksEnd = endDatePks(pks);
       const pksSisa = sisaHariPks(pks);
 
-      // Hanya tampilkan PKS yang akan jatuh tempo dalam rentang window
-      // (<= PKS_WARN_WINDOW_DAYS ke depan). PKS yang sudah lewat tetap
-      // ditampilkan (sisa negatif) karena berkaitan erat dengan transaksi.
       if (pksSisa > PKS_WARN_WINDOW_DAYS) continue;
 
-      // Cari transaksi ber-status "berjalan" yang masih menggunakan PKS ini
       const usedBy = transaksis.filter((t) => {
         const eff = effectiveStatus(t);
-        // Terapkan hanya pada transaksi yang statusnya 'berjalan'
         if (eff !== "berjalan") return false;
         return t.investorEntries.some((e) => e.pksId === pks.id);
       });
 
-      // Tampilkan hanya PKS yang dipakai oleh transaksi 'berjalan'
       if (usedBy.length === 0) continue;
 
-      // Hanya tampilkan PKS yang masa berakhirnya LEBIH AWAL dari tanggal
-      // berakhir transaksi (strictly earlier).
       const earlyEnough = usedBy.some((t) => pksEnd < endDateTrx(t));
       if (!earlyEnough) continue;
 
@@ -821,12 +812,10 @@ function PksExpiryWarning() {
       });
     }
 
-    // Urutkan berdasarkan tanggal berakhir PKS (yang paling dekat dulu)
     result.sort((a, b) => a.pksEndDate.localeCompare(b.pksEndDate));
     return result;
   }, [pksList, investors, transaksis]);
 
-  // Filter berdasarkan rentang tanggal yang dipilih user
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
       if (filterStart && r.pksEndDate < filterStart) return false;
@@ -857,7 +846,6 @@ function PksExpiryWarning() {
           </div>
         </div>
 
-        {/* Filter rentang tanggal */}
         <div className="mt-3 flex flex-col sm:flex-row sm:items-end gap-2 rounded-md border border-border bg-muted/30 p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:mr-1">
             <Calendar className="h-3.5 w-3.5" />
@@ -1005,7 +993,7 @@ export default function TransaksiContent() {
   const { pksList, updatePks, deletePks } = usePks();
   const { user, isInvestor } = useAuth();
   const { brokers } = useBrokers();
-  
+
   const isAdmin   = user?.role === "admin";
   const perm      = usePermissions();
   const canCreate = isAdmin || perm.create;
@@ -1025,13 +1013,12 @@ export default function TransaksiContent() {
   const [errorInfo, setErrorInfo]             = useState<PbErrorInfo | null>(null);
   const [form, setForm]                       = useState<TrxFormData>(initialForm());
 
-  // State untuk Riwayat Mapping Modal: pencarian + paginasi
   const [searchQuery, setSearchQuery]   = useState("");
   const [riwayatPage, setRiwayatPage]   = useState(1);
 
   const isBroker = user?.role === "broker";
   const currentBroker = brokers.find(b => b.id === user?.brokerId);
-  
+
   const visibleTransaksis = isInvestor && user?.investorId
     ? transaksis.filter((t) => t.investorEntries.some((e) => e.investorId === user.investorId))
     : isBroker && currentBroker
@@ -1039,9 +1026,6 @@ export default function TransaksiContent() {
     : transaksis;
 
   const metrics = useMemo(() => {
-    // Seluruh summary card hanya merepresentasikan Mapping Modal yang status
-    // tampilnya sedang Berjalan. Mapping yang periodenya sudah lewat tidak ikut
-    // dihitung walaupun status mentah di database masih "berjalan".
     const runningTransaksis = visibleTransaksis.filter(
       (transaksi) => getDisplayStatus(transaksi) === "berjalan",
     );
@@ -1060,8 +1044,6 @@ export default function TransaksiContent() {
     [visibleTransaksis],
   );
 
-  // Filter pencarian untuk Riwayat Mapping Modal.
-  // Pencarian meliputi: ID transaksi, nama/ID investor, broker, status, periode.
   const filteredRiwayat = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return sorted;
@@ -1071,7 +1053,6 @@ export default function TransaksiContent() {
       const displayStatus = getDisplayStatus(t);
       const statusLabel = TRANSAKSI_STATUS_LABEL[displayStatus] || displayStatus;
       if (statusLabel.toLowerCase().includes(q)) return true;
-      // Cek investor & broker pada entri
       for (const e of t.investorEntries) {
         if ((e.investorName ?? "").toLowerCase().includes(q)) return true;
         if ((e.investorId ?? "").toLowerCase().includes(q)) return true;
@@ -1082,7 +1063,6 @@ export default function TransaksiContent() {
     });
   }, [sorted, searchQuery]);
 
-  // Paginasi: reset ke halaman 1 saat pencarian / list sumber berubah.
   useEffect(() => {
     setRiwayatPage(1);
   }, [searchQuery, sorted.length]);
@@ -1096,8 +1076,6 @@ export default function TransaksiContent() {
 
   const nextId = () => {
     const max = transaksis.reduce((m, x) => {
-      // m-3: anchor regex ke akhir ID — "TRX-0001A" → "0001", bukan "0001" yg
-      // salah kalau ID mengandung karakter tak terduga di tengah.
       const numStr = x.id.replace(/^TRX-/i, "").replace(/[A-Za-z]+$/, "");
       const n = Number.parseInt(numStr) || 0;
       return Math.max(m, n);
@@ -1126,7 +1104,7 @@ export default function TransaksiContent() {
           pctTrader:          Number.parseFloat(e.pctTrader)    || 0,
           pctMinBun:          Number.parseFloat(e.pctMinBun)    || 0,
           pctBrokerI:         Number.parseFloat(e.pctBrokerI)   || 0,
-          pctBrokerII:        Number.parseFloat(e.pctBrokerII)  || 0, // m-4: pass through user input
+          pctBrokerII:        Number.parseFloat(e.pctBrokerII)  || 0,
         };
       }),
     ongkirPerKg:  Number.parseFloat(f.ongkirPerKg) || 0,
@@ -1135,12 +1113,6 @@ export default function TransaksiContent() {
     catatanAkhir: existing?.catatanAkhir ?? "",
   });
 
-  // PATCH (kritikal #5): reconcilePksTermination harus baca state TERKINI dari PocketBase,
-  // bukan snapshot `transaksis` dari closure React. Sebelumnya reconciliation
-  // dipanggil langsung setelah `addTransaksi`/`updateTransaksi` dengan list
-  // yang masih versi lama — sehingga PKS yang seharusnya aktif malah
-  // ditandai terminated. Sekarang `loadTransaksis()` melakukan fetch ulang
-  // sebelum menilai status PKS.
   const reloadTransaksisForReconcile = async () => {
     try {
       const fresh = await pb.collection("transaksis").getFullList<Transaksi>(
@@ -1160,29 +1132,17 @@ export default function TransaksiContent() {
         ...r,
         investorEntries: invMap.get((r as any).id) ?? [],
       }));
-      // Pakai `transaksisRef` dari konteks (lihat lib/transaksi-context.tsx) sebagai
-      // sync target, bukan state lokal — tidak ada setter `setTransaksis` di sini.
-      // Refresh dari konteks dilakukan lewat normalisasi data berikut: kita
-      // bangun ulang `transaksis` via reloadInvestors() di konteks upstream.
-      // Untuk konsistensi, langsung baca list ini untuk reconcile.
       latestTransaksisForReconcileRef.current = nextList;
     } catch (err) {
       console.error("[transaksi] gagal reload paska-reconcile:", err);
     }
   };
-  // Ref yang memegang snapshot transaksi terbaru, di-update oleh
-  // `reloadTransaksisForReconcile` agar `reconcilePksTermination` punya
-  // sumber kebenaran terkini (bukan closure stale).
   const latestTransaksisForReconcileRef = useRef<Transaksi[]>([]);
-  // Sinkronkan ref dengan state setiap render supaya transaksis dari prop
-  // yang baru (mis. setelah re-fetch internal context) juga dipakai sebagai
-  // fallback saat reload gagal.
   latestTransaksisForReconcileRef.current = transaksis;
 
   const reconcilePksTermination = async (affectedInvestorIds: string[]) => {
     try {
       const ids = Array.from(new Set(affectedInvestorIds));
-      // Baca list terkini sebagai sumber kebenaran.
       const currentList = latestTransaksisForReconcileRef.current;
       for (const invId of ids) {
         const desired = !isInvestorActive(invId, currentList);
@@ -1202,9 +1162,6 @@ export default function TransaksiContent() {
     setIsSaving(true);
     try {
       const data = formToData(form);
-      // C-3 + PATCH #5: panggil `addTransaksi`, lalu REFRESH list sebelum
-      // reconcile agar state yang dipakai akurat. Sebelumnya pakai closure
-      // stale → bisa terjadi active PKS ditandai terminated.
       await addTransaksi(data);
       await reloadTransaksisForReconcile();
       await reconcilePksTermination(
@@ -1282,15 +1239,7 @@ export default function TransaksiContent() {
   const confirmDelete = async () => {
     if (!selected) return;
     setIsDeleting(true);
-    // M-4: Hapus Pks terlebih dahulu; bila transaksi gagal dihapus setelah
-    // Pks hilang, Pks bisa dibuat ulang dari snapshot `pksToBulkDelete`.
-    // Strategi ini menghindari kebocoran Pks orphan (Pks tanpa transaksi).
     const pksSnapshot = [...pksToBulkDelete];
-    // PATCH (serius #6): tambah field wajib (investorAddress, contractPeriod,
-    // bagiHasilPP1/PP2/PK, investorPhone, heir data, dst) agar Pks hasil restore
-    // TIDAK kehilangan fungsi utama (perhitungan bagi hasil, kontak, dll).
-    // Sebelumnya, field selain beberapa di-pass menghasilkan Pks dengan default
-    // kosong — secara teknis valid tapi data loss fungsional.
     try {
       await Promise.all(pksSnapshot.map((m) => deletePks(m.id)));
       await deleteTransaksi(selected.id);
@@ -1351,9 +1300,6 @@ export default function TransaksiContent() {
     setIsFinalizing(true);
     try {
       await updateTransaksi(selected.id, { status: finalizeStatus, catatanAkhir: finalizeNote });
-      // PATCH #5: panggil `reconcilePksTermination` dengan 1 argumen saja
-      // setelah patch terbaru. Fungsi ini membaca `latestTransaksisForReconcileRef`
-      // sebagai sumber kebenaran, bukan snapshot closure.
       await reconcilePksTermination(
         selected.investorEntries.map((e) => e.investorId),
       );
@@ -1383,33 +1329,37 @@ export default function TransaksiContent() {
     return map;
   }, [transaksis, editingTransaksi]);
 
+  // ====== PERBAIKAN: Filter PKS yang sudah dipakai transaksi aktif ======
+  // Tentukan ID PKS yang dipakai oleh transaksi aktif LAIN. Pakai 2 sumber
+  // data (defense-in-depth) untuk mengatasi race-condition antara update
+  // pksList.isTerminated dan update.transaksis:
+  //   (a) transaksi yang visible di halaman (visibleTransaksis), dan
+  //   (b) seluruh transaksi dari konteks (transaksis, yang mungkin
+  //       sudah dimuat sebelum re-render).
+  // PKS milik transaksi yang sedang diedit dikecualikan dari exclusion
+  // (di-handle terpisah lewat editingPksIds di level form).
   const activePkss = useMemo(() => {
-    // 1) Hanya PKS yang BELUM terminated (flag isTerminated = false)
-    const baseActive = pksList.filter((m) => !m.isTerminated);
-    if (visibleTransaksis.length === 0) return baseActive;
-    // 2) Kumpulkan ID PKS yang dipakai oleh transaksi aktif LAIN.
-    //    (Transaksi yang sedang diedit dikecualikan agar PKS-nya tetap muncul.)
     const excludeTrxId = editingTransaksi?.id;
     const usedPksIdsByOthers = new Set<string>();
-    for (const t of visibleTransaksis) {
-      if (excludeTrxId && t.id === excludeTrxId) continue;
-      const eff = effectiveStatus(t);
-      // Hanya transaksi "berjalan" / "bermasalah" yang menggunakan PKS secara aktif
-      if (eff !== "berjalan" && eff !== "bermasalah") continue;
-      for (const e of t.investorEntries) {
-        if (e.pksId) usedPksIdsByOthers.add(e.pksId);
+    const collect = (list: Transaksi[]) => {
+      for (const t of list) {
+        if (excludeTrxId && t.id === excludeTrxId) continue;
+        const eff = effectiveStatus(t);
+        if (eff !== "berjalan" && eff !== "bermasalah") continue;
+        for (const e of t.investorEntries) {
+          if (e.pksId) usedPksIdsByOthers.add(e.pksId);
+        }
       }
-    }
-    // 3) PKS yang sudah dipakai oleh transaksi lain TIDAK dimasukkan ke
-    //    daftar pilihan (sesuai requirement: "hilangkan pks yang sudah dipakai").
-    return baseActive.filter((m) => !usedPksIdsByOthers.has(m.id));
-  }, [pksList, visibleTransaksis, editingTransaksi]);
+    };
+    collect(visibleTransaksis);
+    collect(transaksis);
+    // PKS yang dipakai oleh transaksi aktif LAIN di-exclude.
+    // Filter ini tidak bergantung pada pksList.isTerminated supaya PKS
+    // yang baru dibuat (belum sempat di-reconcile-terminate) tetap
+    // ter-exclude dengan benar.
+    return pksList.filter((m) => !usedPksIdsByOthers.has(m.id));
+  }, [pksList, visibleTransaksis, transaksis, editingTransaksi]);
 
-  /**
-   * ID PKS yang dipakai oleh transaksi yang sedang diedit — dikirim ke form
-   * supaya PKS tersebut tetap ditampilkan di daftar (meski sudah dipakai
-   * transaksi lain, saat diedit hanya untuk transaksi ini).
-   */
   const editingPksIds = useMemo<ReadonlySet<string>>(() => {
     if (!editingTransaksi) return new Set<string>();
     const ids = new Set<string>();
@@ -1531,7 +1481,6 @@ export default function TransaksiContent() {
           <CardHeader className="pb-3">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <CardTitle className="text-base">Riwayat Mapping Modal</CardTitle>
-              {/* Filter pencarian — cari di ID, nama investor, broker, status, periode */}
               <div className="relative w-full sm:w-72">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
@@ -1599,7 +1548,6 @@ export default function TransaksiContent() {
                           .filter(Boolean)
                       )];
                       const brokerLabel = brokers.length > 0 ? brokers.join(", ") : "—";
-                      // Nama-nama investor (pakai Set untuk de-duplikasi nama yang sama)
                       const investorNames = [
                         ...new Set(
                           t.investorEntries
@@ -1689,7 +1637,6 @@ export default function TransaksiContent() {
               </table>
             </div>
           </CardContent>
-          {/* Pagination — 20 item per halaman */}
           {filteredRiwayat.length > 0 && (
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-3 border-t border-border/60 text-xs text-muted-foreground">
               <div>
