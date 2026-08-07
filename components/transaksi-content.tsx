@@ -4,6 +4,8 @@
 // useState di-init dengan Set kosong dan tidak pernah di-update.
 // TASK (mapping modal): tambahkan filter PKS yang sudah dipakai transaksi
 // aktif lain, dan tombol "Hapus semua ceklis" per jalur investor.
+// TASK (riwayat): tambah filter pencarian, paginasi 20/baris, ubah kolom
+// investor dari angka ke nama, dan hilangkan kolom selisih.
 import { useEffect, useState, useMemo, useRef, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import { ErrorDialog } from "@/components/ui/error-dialog";
@@ -53,6 +55,9 @@ import {
   Calendar,
   X,
   Eraser,
+  Search,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -199,18 +204,6 @@ function getSisaHariColor(s: number) {
   if (s < 0) return "text-red-500";
   if (s <= 3) return "text-orange-500";
   return "text-muted-foreground/70";
-}
-
-function getSelisihStatusText(s: number) {
-  if (s === 0) return "✓";
-  if (s > 0) return `-${formatShort(s)}`;
-  return `+${formatShort(Math.abs(s))}`;
-}
-
-function getSelisihStatusColor(s: number) {
-  if (s === 0) return "text-green-600";
-  if (s > 0) return "text-red-500";
-  return "text-orange-500";
 }
 
 function Preview({ label, value, color }: Readonly<{ label: string; value: string; color?: string }>) {
@@ -1003,6 +996,9 @@ function PksExpiryWarning() {
 // Main component
 // ─────────────────────────────────────────────
 
+/** Jumlah item per halaman pada tabel Riwayat Mapping Modal. */
+const RIWAYAT_PAGE_SIZE = 20;
+
 export default function TransaksiContent() {
   const { transaksis, addTransaksi, updateTransaksi, deleteTransaksi } = useTransaksi();
   const { investors }  = useInvestors();
@@ -1028,6 +1024,10 @@ export default function TransaksiContent() {
   const [finalizeNote, setFinalizeNote]       = useState("");
   const [errorInfo, setErrorInfo]             = useState<PbErrorInfo | null>(null);
   const [form, setForm]                       = useState<TrxFormData>(initialForm());
+
+  // State untuk Riwayat Mapping Modal: pencarian + paginasi
+  const [searchQuery, setSearchQuery]   = useState("");
+  const [riwayatPage, setRiwayatPage]   = useState(1);
 
   const isBroker = user?.role === "broker";
   const currentBroker = brokers.find(b => b.id === user?.brokerId);
@@ -1059,6 +1059,40 @@ export default function TransaksiContent() {
     () => [...visibleTransaksis].sort((a, b) => b.date.localeCompare(a.date)),
     [visibleTransaksis],
   );
+
+  // Filter pencarian untuk Riwayat Mapping Modal.
+  // Pencarian meliputi: ID transaksi, nama/ID investor, broker, status, periode.
+  const filteredRiwayat = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return sorted;
+    return sorted.filter((t) => {
+      if (t.id.toLowerCase().includes(q)) return true;
+      if ((t.description ?? "").toLowerCase().includes(q)) return true;
+      const displayStatus = getDisplayStatus(t);
+      const statusLabel = TRANSAKSI_STATUS_LABEL[displayStatus] || displayStatus;
+      if (statusLabel.toLowerCase().includes(q)) return true;
+      // Cek investor & broker pada entri
+      for (const e of t.investorEntries) {
+        if ((e.investorName ?? "").toLowerCase().includes(q)) return true;
+        if ((e.investorId ?? "").toLowerCase().includes(q)) return true;
+        if ((e.investorBrokerName ?? "").toLowerCase().includes(q)) return true;
+        if ((e.pksId ?? "").toLowerCase().includes(q)) return true;
+      }
+      return false;
+    });
+  }, [sorted, searchQuery]);
+
+  // Paginasi: reset ke halaman 1 saat pencarian / list sumber berubah.
+  useEffect(() => {
+    setRiwayatPage(1);
+  }, [searchQuery, sorted.length]);
+
+  const totalRiwayatPages = Math.max(1, Math.ceil(filteredRiwayat.length / RIWAYAT_PAGE_SIZE));
+  const safeRiwayatPage   = Math.min(riwayatPage, totalRiwayatPages);
+  const pagedRiwayat      = useMemo(() => {
+    const start = (safeRiwayatPage - 1) * RIWAYAT_PAGE_SIZE;
+    return filteredRiwayat.slice(start, start + RIWAYAT_PAGE_SIZE);
+  }, [filteredRiwayat, safeRiwayatPage]);
 
   const nextId = () => {
     const max = transaksis.reduce((m, x) => {
@@ -1494,7 +1528,39 @@ export default function TransaksiContent() {
         </Card>
       ) : (
         <Card>
-          <CardHeader><CardTitle className="text-base">Riwayat Mapping Modal</CardTitle></CardHeader>
+          <CardHeader className="pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <CardTitle className="text-base">Riwayat Mapping Modal</CardTitle>
+              {/* Filter pencarian — cari di ID, nama investor, broker, status, periode */}
+              <div className="relative w-full sm:w-72">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Cari ID, investor, broker, status…"
+                  className="pl-8 pr-8 h-9 text-xs"
+                  aria-label="Cari di Riwayat Mapping Modal"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    title="Bersihkan pencarian"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+            {searchQuery && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Menampilkan {filteredRiwayat.length} dari {sorted.length} transaksi
+                untuk &quot;{searchQuery}&quot;.
+              </p>
+            )}
+          </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -1507,99 +1573,111 @@ export default function TransaksiContent() {
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">HPP</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Qty</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Modal</th>
-                    <th className="text-center py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Investor</th>
+                    <th className="text-left  py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Investor</th>
                     <th className="text-left  py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Broker</th>
-                    <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Selisih</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Income</th>
                     <th className="text-right py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Profit</th>
                     <th className="text-center py-3 px-4 font-medium text-muted-foreground whitespace-nowrap">Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sorted.map((t) => {
-                    const c = calcTransaksi(t);
-                    const baseStatus = effectiveStatus(t);
-                    const displayStatus = getDisplayStatus(t);
-                    const tAny = t as any;
+                  {pagedRiwayat.length === 0 ? (
+                    <tr>
+                      <td colSpan={12} className="py-10 text-center text-sm text-muted-foreground">
+                        Tidak ada transaksi yang cocok dengan pencarian &quot;{searchQuery}&quot;.
+                      </td>
+                    </tr>
+                  ) : (
+                    pagedRiwayat.map((t) => {
+                      const c = calcTransaksi(t);
+                      const displayStatus = getDisplayStatus(t);
+                      const tAny = t as any;
 
-                    const brokers = [...new Set(
-                      t.investorEntries
-                        .map((e) => e.investorBrokerName)
-                        .filter(Boolean)
-                    )];
-                    const brokerLabel = brokers.length > 0 ? brokers.join(", ") : "—";
-                    return (
-                      <tr key={t.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-                        <td className="py-3 px-4 font-mono text-xs font-medium">{t.id}</td>
-                        <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">{formatDate(t.date)}</td>
-                        <td className="py-3 px-4 text-center">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${statusVariant(displayStatus)}`}>
-                            {TRANSAKSI_STATUS_LABEL[displayStatus] || displayStatus}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-muted-foreground max-w-[140px]">
-                          <div className="truncate">{t.description || "—"}</div>
-                          {displayStatus === "berjalan" && (() => {
-                            const s = sisaHari(t);
-                            return (
-                              <div className={`text-[10px] ${getSisaHariColor(s)}`}>
-                                {getSisaHariText(s)}
+                      const brokers = [...new Set(
+                        t.investorEntries
+                          .map((e) => e.investorBrokerName)
+                          .filter(Boolean)
+                      )];
+                      const brokerLabel = brokers.length > 0 ? brokers.join(", ") : "—";
+                      // Nama-nama investor (pakai Set untuk de-duplikasi nama yang sama)
+                      const investorNames = [
+                        ...new Set(
+                          t.investorEntries
+                            .map((e) => e.investorName || e.investorId)
+                            .filter(Boolean),
+                        ),
+                      ];
+                      const investorCell = investorNames.length === 0
+                        ? "—"
+                        : investorNames.length <= 2
+                          ? investorNames.join(", ")
+                          : `${investorNames.slice(0, 2).join(", ")} +${investorNames.length - 2}`;
+                      return (
+                        <tr key={t.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                          <td className="py-3 px-4 font-mono text-xs font-medium">{t.id}</td>
+                          <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">{formatDate(t.date)}</td>
+                          <td className="py-3 px-4 text-center">
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${statusVariant(displayStatus)}`}>
+                              {TRANSAKSI_STATUS_LABEL[displayStatus] || displayStatus}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-muted-foreground max-w-[140px]">
+                            <div className="truncate">{t.description || "—"}</div>
+                            {displayStatus === "berjalan" && (() => {
+                              const s = sisaHari(t);
+                              return (
+                                <div className={`text-[10px] ${getSisaHariColor(s)}`}>
+                                  {getSisaHariText(s)}
+                                </div>
+                              );
+                            })()}
+                            {tAny.isAutorenewal && (
+                              <div className="mt-1 inline-flex items-center gap-1 text-[9px] font-medium bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded-full" title={`Berakhir: ${tAny.endDate ? formatDate(tAny.endDate) : "Tidak dibatasi"}`}>
+                                <RefreshCw className="h-2.5 w-2.5" /> Autorenewal
                               </div>
-                            );
-                          })()}
-                          {tAny.isAutorenewal && (
-                            <div className="mt-1 inline-flex items-center gap-1 text-[9px] font-medium bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded-full" title={`Berakhir: ${tAny.endDate ? formatDate(tAny.endDate) : "Tidak dibatasi"}`}>
-                              <RefreshCw className="h-2.5 w-2.5" /> Autorenewal
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap">{formatRp(t.hpp)}</td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap">{formatQty(c.qty)}</td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap">{formatRp(t.kebutuhanModal)}</td>
+                          <td className="py-3 px-4 text-xs text-foreground" title={investorNames.join(", ")}>
+                            {investorCell}
+                          </td>
+                          <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">{brokerLabel}</td>
+                          <td className="py-3 px-4 text-right font-medium whitespace-nowrap">{formatRp(c.income)}</td>
+                          <td className={`py-3 px-4 text-right font-bold whitespace-nowrap ${c.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                            {formatRp(c.profit)}
+                          </td>
+                          <td className="py-3 px-4">
+                            {(canEdit || canDelete) && (
+                            <div className="flex items-center justify-center gap-1">
+                              {canEdit && (
+                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Ubah status" onClick={() => openFinalize(t)}>
+                                <ClipboardCheck className="h-3.5 w-3.5 text-blue-500" />
+                              </Button>
+                              )}
+                              {canEdit && (
+                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit Mapping Modal" onClick={() => openEdit(t)}>
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              )}
+                              {canDelete && (
+                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Hapus Mapping Modal" onClick={() => openDelete(t)}>
+                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                              </Button>
+                              )}
                             </div>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">{formatRp(t.hpp)}</td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">{formatQty(c.qty)}</td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">{formatRp(t.kebutuhanModal)}</td>
-                        <td className="py-3 px-4 text-center">
-                          <span className="inline-flex items-center justify-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-                            {t.investorEntries.length} investor
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">{brokerLabel}</td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <span className={`text-xs font-medium ${getSelisihStatusColor(c.selisih)}`}>
-                            {getSelisihStatusText(c.selisih)}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right font-medium whitespace-nowrap">{formatRp(c.income)}</td>
-                        <td className={`py-3 px-4 text-right font-bold whitespace-nowrap ${c.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                          {formatRp(c.profit)}
-                        </td>
-                        <td className="py-3 px-4">
-                          {(canEdit || canDelete) && (
-                          <div className="flex items-center justify-center gap-1">
-                            {canEdit && (
-                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Ubah status" onClick={() => openFinalize(t)}>
-                              <ClipboardCheck className="h-3.5 w-3.5 text-blue-500" />
-                            </Button>
                             )}
-                            {canEdit && (
-                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit Mapping Modal" onClick={() => openEdit(t)}>
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            )}
-                            {canDelete && (
-                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Hapus Mapping Modal" onClick={() => openDelete(t)}>
-                              <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                            </Button>
-                            )}
-                          </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-border bg-muted/20">
-                    <td colSpan={10} className="py-3 px-4 font-semibold text-sm">
-                      Total ({visibleTransaksis.length} transaksi)
+                    <td colSpan={9} className="py-3 px-4 font-semibold text-sm">
+                      Total ({filteredRiwayat.length} transaksi)
                     </td>
                     <td className="py-3 px-4 text-right font-bold whitespace-nowrap">{formatRp(metrics.totalIncome)}</td>
                     <td className={`py-3 px-4 text-right font-bold whitespace-nowrap ${metrics.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
@@ -1611,6 +1689,41 @@ export default function TransaksiContent() {
               </table>
             </div>
           </CardContent>
+          {/* Pagination — 20 item per halaman */}
+          {filteredRiwayat.length > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-3 border-t border-border/60 text-xs text-muted-foreground">
+              <div>
+                Halaman <span className="font-medium text-foreground">{safeRiwayatPage}</span> dari{" "}
+                <span className="font-medium text-foreground">{totalRiwayatPages}</span>
+                {" "}— menampilkan {pagedRiwayat.length} dari {filteredRiwayat.length} transaksi
+                ({RIWAYAT_PAGE_SIZE}/hal).
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1"
+                  onClick={() => setRiwayatPage((p) => Math.max(1, p - 1))}
+                  disabled={safeRiwayatPage <= 1}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Sebelumnya
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1"
+                  onClick={() => setRiwayatPage((p) => Math.min(totalRiwayatPages, p + 1))}
+                  disabled={safeRiwayatPage >= totalRiwayatPages}
+                >
+                  Berikutnya
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 
