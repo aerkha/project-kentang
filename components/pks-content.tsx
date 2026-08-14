@@ -989,15 +989,23 @@ export function PksContent() {
         heirEmail: form.heirEmail,
         heirPhone: form.heirPhone,
         keterangan: form.keterangan,
-        bagiHasilPP1: Number.parseFloat(form.bagiHasilPP1) || 50,
-        bagiHasilPP2: Number.parseFloat(form.bagiHasilPP2) || 15,
-        bagiHasilPK:  Number.parseFloat(form.bagiHasilPK)  || 35,
+        // FIX: Jangan pakai `|| default` karena input "0" adalah nilai sah
+        // dan `Number.parseFloat("0") || 15` akan jatuh ke default 15, membuat
+        // total PP1+PP2+PP3+PK salah (mis. 60+15+0+40 = 115% padahal user
+        // memasukkan PP2=0). Pakai Number.isFinite sebagai gantinya.
+        bagiHasilPP1: (() => { const n = Number.parseFloat(form.bagiHasilPP1); return Number.isFinite(n) ? n : 50; })(),
+        bagiHasilPP2: (() => { const n = Number.parseFloat(form.bagiHasilPP2); return Number.isFinite(n) ? n : 15; })(),
+        bagiHasilPK:  (() => { const n = Number.parseFloat(form.bagiHasilPK);  return Number.isFinite(n) ? n : 35; })(),
         brokerId:      form.brokerId,
         brokerName:    form.brokerName,
         brokerAddress: form.brokerAddress,
         brokerIdNumber: form.brokerIdNumber,
         brokerPhone:   form.brokerPhone,
-        bagiHasilPP3:  form.brokerId ? (Number.parseFloat(form.bagiHasilPP3) || 0) : 0, // << PAYLOAD PP3 DIKEMBALIKAN
+        bagiHasilPP3:  (() => {
+          if (!form.brokerId) return 0;
+          const n = Number.parseFloat(form.bagiHasilPP3);
+          return Number.isFinite(n) ? n : 0;
+        })(),
         esignPihakPertama1: form.esignPihakPertama1,
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
@@ -1053,15 +1061,21 @@ export function PksContent() {
         heirEmail: form.heirEmail,
         heirPhone: form.heirPhone,
         keterangan: form.keterangan,
-        bagiHasilPP1: Number.parseFloat(form.bagiHasilPP1) || 50,
-        bagiHasilPP2: Number.parseFloat(form.bagiHasilPP2) || 15,
-        bagiHasilPK:  Number.parseFloat(form.bagiHasilPK)  || 35,
+        // FIX: Sama seperti handleAdd, gunakan Number.isFinite daripada `|| default`
+        // agar nilai "0" tidak jatuh ke default.
+        bagiHasilPP1: (() => { const n = Number.parseFloat(form.bagiHasilPP1); return Number.isFinite(n) ? n : 50; })(),
+        bagiHasilPP2: (() => { const n = Number.parseFloat(form.bagiHasilPP2); return Number.isFinite(n) ? n : 15; })(),
+        bagiHasilPK:  (() => { const n = Number.parseFloat(form.bagiHasilPK);  return Number.isFinite(n) ? n : 35; })(),
         brokerId:      form.brokerId,
         brokerName:    form.brokerName,
         brokerAddress: form.brokerAddress,
         brokerIdNumber: form.brokerIdNumber,
         brokerPhone:   form.brokerPhone,
-        bagiHasilPP3:  form.brokerId ? (Number.parseFloat(form.bagiHasilPP3) || 0) : 0, // << PAYLOAD PP3 DIKEMBALIKAN
+        bagiHasilPP3:  (() => {
+          if (!form.brokerId) return 0;
+          const n = Number.parseFloat(form.bagiHasilPP3);
+          return Number.isFinite(n) ? n : 0;
+        })(),
         esignPihakPertama1: form.esignPihakPertama1,
         esignPihakPertama2: form.esignPihakPertama2,
         esignPihakKedua: form.esignPihakKedua,
