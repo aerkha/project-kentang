@@ -7,6 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import { Database, Users, Building2, Plus, Edit } from "lucide-react";
 import { toast } from "sonner";
 
@@ -18,7 +21,31 @@ export default function MasterDataPage() {
   const [isBuyerOpen, setIsBuyerOpen] = useState(false);
   
   // State form ditambahkan properti 'id' untuk mendeteksi mode Edit/Tambah
-  const initialBandar = { id: "", kode: "", nama: "", telepon: "", alamat: "" };
+  const initialBandar = { 
+    id: "", 
+    kode: "", 
+    nama: "",
+    tipe_pemasok: "perorangan",
+    alamat_pembayaran: "",
+    telp_bisnis: "",
+    hp_whatsapp: "",
+    email: "",
+    nama_bank: "",
+    nomor_rekening: "",
+    syarat_pembayaran: "COD",
+    default_diskon: 0,
+    deskripsi: "",
+    akun_utang: "",
+    akun_uang_muka: "",
+    pajak_termasuk: false,
+    tipe_id_pajak: "NPWP",
+    nomor_wajib_pajak: "",
+    nama_wajib_pajak: "",
+    nitku: "",
+    tipe_transaksi: "Perolehan Dalam Negri",
+    alamat_pajak_sama: true,
+    alamat_pajak: ""
+  };
   const initialBuyer = { id: "", kode: "", nama: "", kategori: "Pasar Induk", perusahaan: "", npwp: "", telepon: "", alamat: "" };
 
   const [formBandar, setFormBandar] = useState(initialBandar);
@@ -188,9 +215,9 @@ export default function MasterDataPage() {
                 <tbody>
                   {bandars.map((b: any) => (
                     <tr key={b.id} className="border-b hover:bg-muted/30">
-                      <td className="p-2 font-mono text-indigo-700 font-bold">{b.kode}</td>
-                      <td className="p-2 font-semibold">{b.nama}</td>
-                      <td className="p-2">{b.telepon || "-"}</td>
+                       <td className="p-2 font-mono text-indigo-700 font-bold">{b.kode}</td>
+                       <td className="p-2 font-semibold">{b.nama}</td>
+                       <td className="p-2">{b.hp_whatsapp || b.telp_bisnis || "-"}</td>
                       <td className="p-2 text-center">
                         <Button variant="ghost" size="icon" onClick={() => handleEditBandar(b)} className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Edit Data">
                           <Edit className="h-4 w-4" />
@@ -244,24 +271,167 @@ export default function MasterDataPage() {
 
       {/* MODAL FORM BANDAR */}
       <Dialog open={isBandarOpen} onOpenChange={setIsBandarOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{formBandar.id ? "Edit Data Bandar" : "Tambah Data Bandar"}</DialogTitle></DialogHeader>
           <form onSubmit={handleSimpanBandar} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2 space-y-1">
-                <Label>Nama Bandar</Label>
-                <Input placeholder="Ketik nama untuk mengenerate kode..." value={formBandar.nama} onChange={e => setFormBandar({ ...formBandar, nama: e.target.value })} required />
-              </div>
-              <div className="space-y-1">
-                <Label>Kode Bandar</Label>
-                <Input value={formBandar.kode} onChange={e => setFormBandar({ ...formBandar, kode: e.target.value })} required className="uppercase font-mono font-bold text-indigo-700" />
-              </div>
-              <div className="space-y-1">
-                <Label>No. Telepon / WA</Label>
-                <Input type="tel" value={formBandar.telepon || ""} onChange={e => setFormBandar({ ...formBandar, telepon: e.target.value })} />
-              </div>
-            </div>
-            <DialogFooter>
+            <Tabs defaultValue="umum" className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="umum">Umum</TabsTrigger>
+                <TabsTrigger value="pembelian">Pembelian</TabsTrigger>
+                <TabsTrigger value="pajak">Pajak</TabsTrigger>
+              </TabsList>
+
+              {/* TAB UMUM */}
+              <TabsContent value="umum" className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2 space-y-1">
+                    <Label>Nama <span className="text-red-500">*</span></Label>
+                    <Input placeholder="Ketik nama untuk mengenerate kode..." value={formBandar.nama} onChange={e => setFormBandar({ ...formBandar, nama: e.target.value })} required />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>ID Pemasok <span className="text-red-500">*</span></Label>
+                    <Input value={formBandar.kode} onChange={e => setFormBandar({ ...formBandar, kode: e.target.value })} required className="uppercase font-mono font-bold text-indigo-700" placeholder="Isi otomatis" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Tipe Pemasok <span className="text-red-500">*</span></Label>
+                    <Select value={formBandar.tipe_pemasok} onValueChange={v => setFormBandar({ ...formBandar, tipe_pemasok: v })} required>
+                      <SelectTrigger><SelectValue placeholder="Pilih Tipe" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="perorangan">Perorangan</SelectItem>
+                        <SelectItem value="perusahaan">Perusahaan</SelectItem>
+                        <SelectItem value="pemerintah">Pemerintah</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <Label>Alamat Pembayaran</Label>
+                    <Textarea placeholder="Alamat lengkap..." value={formBandar.alamat_pembayaran} onChange={e => setFormBandar({ ...formBandar, alamat_pembayaran: e.target.value })} rows={2} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>No. Telp. Bisnis</Label>
+                    <Input type="tel" placeholder="021-12345678" value={formBandar.telp_bisnis} onChange={e => setFormBandar({ ...formBandar, telp_bisnis: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Handphone/Whatsapp</Label>
+                    <Input type="tel" placeholder="08123456789" value={formBandar.hp_whatsapp} onChange={e => setFormBandar({ ...formBandar, hp_whatsapp: e.target.value })} />
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <Label>Email</Label>
+                    <Input type="email" placeholder="email@example.com" value={formBandar.email} onChange={e => setFormBandar({ ...formBandar, email: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Nama Bank</Label>
+                    <Input placeholder="Contoh: Bank BCA" value={formBandar.nama_bank} onChange={e => setFormBandar({ ...formBandar, nama_bank: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Nomor Rekening</Label>
+                    <Input placeholder="1234567890" value={formBandar.nomor_rekening} onChange={e => setFormBandar({ ...formBandar, nomor_rekening: e.target.value })} />
+                  </div>
+                </div>
+              </TabsContent>
+
+              {/* TAB PEMBELIAN */}
+              <TabsContent value="pembelian" className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label>Syarat Pembayaran <span className="text-red-500">*</span></Label>
+                    <Select value={formBandar.syarat_pembayaran} onValueChange={v => setFormBandar({ ...formBandar, syarat_pembayaran: v })} required>
+                      <SelectTrigger><SelectValue placeholder="Pilih Syarat" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="COD">COD</SelectItem>
+                        <SelectItem value="Set manual">Set manual</SelectItem>
+                        <SelectItem value="TOP 15">TOP 15</SelectItem>
+                        <SelectItem value="TOP 21">TOP 21</SelectItem>
+                        <SelectItem value="TOP 30">TOP 30</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Default Diskon (%)</Label>
+                    <Input type="number" min="0" max="100" step="0.01" placeholder="0" value={formBandar.default_diskon} onChange={e => setFormBandar({ ...formBandar, default_diskon: parseFloat(e.target.value) || 0 })} />
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <Label>Deskripsi</Label>
+                    <Textarea placeholder="Catatan tambahan tentang pemasok..." value={formBandar.deskripsi} onChange={e => setFormBandar({ ...formBandar, deskripsi: e.target.value })} rows={3} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Akun Utang</Label>
+                    <Input placeholder="Kode akun utang" value={formBandar.akun_utang} onChange={e => setFormBandar({ ...formBandar, akun_utang: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Akun Uang Muka</Label>
+                    <Input placeholder="Kode akun uang muka" value={formBandar.akun_uang_muka} onChange={e => setFormBandar({ ...formBandar, akun_uang_muka: e.target.value })} />
+                  </div>
+                </div>
+              </TabsContent>
+
+              {/* TAB PAJAK */}
+              <TabsContent value="pajak" className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2 flex items-center space-x-2">
+                    <Checkbox 
+                      id="pajak_termasuk" 
+                      checked={formBandar.pajak_termasuk} 
+                      onCheckedChange={(checked) => setFormBandar({ ...formBandar, pajak_termasuk: checked as boolean })} 
+                    />
+                    <Label htmlFor="pajak_termasuk" className="cursor-pointer font-normal">Default Faktur sudah termasuk Pajak</Label>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Tipe ID Pajak <span className="text-red-500">*</span></Label>
+                    <Select value={formBandar.tipe_id_pajak} onValueChange={v => setFormBandar({ ...formBandar, tipe_id_pajak: v })} required>
+                      <SelectTrigger><SelectValue placeholder="Pilih Tipe" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NIK">NIK</SelectItem>
+                        <SelectItem value="NPWP">NPWP</SelectItem>
+                        <SelectItem value="Passpor">Passpor</SelectItem>
+                        <SelectItem value="Lainnya">Lainnya</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Nomor Wajib Pajak</Label>
+                    <Input placeholder="12.345.678.9-012.000" value={formBandar.nomor_wajib_pajak} onChange={e => setFormBandar({ ...formBandar, nomor_wajib_pajak: e.target.value })} />
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <Label>Nama Wajib Pajak</Label>
+                    <Input placeholder="Nama sesuai dokumen pajak" value={formBandar.nama_wajib_pajak} onChange={e => setFormBandar({ ...formBandar, nama_wajib_pajak: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>NITKU</Label>
+                    <Input placeholder="Nomor NITKU" value={formBandar.nitku} onChange={e => setFormBandar({ ...formBandar, nitku: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Tipe Transaksi <span className="text-red-500">*</span></Label>
+                    <Select value={formBandar.tipe_transaksi} onValueChange={v => setFormBandar({ ...formBandar, tipe_transaksi: v })} required>
+                      <SelectTrigger><SelectValue placeholder="Pilih Tipe" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Digunggung">Digunggung</SelectItem>
+                        <SelectItem value="Tidak dikreditkan">Tidak dikreditkan</SelectItem>
+                        <SelectItem value="Perolehan Dalam Negri">Perolehan Dalam Negri</SelectItem>
+                        <SelectItem value="Impor">Impor</SelectItem>
+                        <SelectItem value="Faktur Pajak">Faktur Pajak</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="col-span-2 flex items-center space-x-2">
+                    <Checkbox 
+                      id="alamat_pajak_sama" 
+                      checked={formBandar.alamat_pajak_sama} 
+                      onCheckedChange={(checked) => setFormBandar({ ...formBandar, alamat_pajak_sama: checked as boolean })} 
+                    />
+                    <Label htmlFor="alamat_pajak_sama" className="cursor-pointer font-normal">Alamat pajak sama dengan alamat pembayaran</Label>
+                  </div>
+                  {!formBandar.alamat_pajak_sama && (
+                    <div className="col-span-2 space-y-1">
+                      <Label>Alamat Pajak</Label>
+                      <Textarea placeholder="Alamat untuk keperluan pajak..." value={formBandar.alamat_pajak} onChange={e => setFormBandar({ ...formBandar, alamat_pajak: e.target.value })} rows={2} />
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+            </Tabs>
+
+            <DialogFooter className="mt-6">
               <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700">
                 {formBandar.id ? "Simpan Perubahan" : "Simpan Bandar"}
               </Button>

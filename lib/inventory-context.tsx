@@ -3,7 +3,34 @@
 import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from "react";
 import pb from "./pocketbase";
 
-export interface MasterBandar { id: string; kode: string; nama: string; telepon: string; alamat: string; }
+export interface MasterBandar { 
+  id: string; 
+  kode: string; 
+  nama: string; 
+  tipe_pemasok: string;
+  alamat_pembayaran: string;
+  telp_bisnis: string;
+  hp_whatsapp: string;
+  email: string;
+  nama_bank: string;
+  nomor_rekening: string;
+  syarat_pembayaran: string;
+  default_diskon: number;
+  deskripsi: string;
+  akun_utang: string;
+  akun_uang_muka: string;
+  pajak_termasuk: boolean;
+  tipe_id_pajak: string;
+  nomor_wajib_pajak: string;
+  nama_wajib_pajak: string;
+  nitku: string;
+  tipe_transaksi: string;
+  alamat_pajak_sama: boolean;
+  alamat_pajak: string;
+  // Legacy fields for backward compatibility
+  telepon?: string;
+  alamat?: string;
+}
 export interface MasterBuyer { id: string; kode: string; nama: string; kategori: string; telepon: string; alamat: string; perusahaan?: string; npwp?: string; }
 export interface InvPembelian { id: string; batch_id: string; tanggal: string; bandar: string; tonase_lapangan: number; tonase_gudang: number; harga_per_kg: number; total_harga: number; tujuan: string; status: string; }
 export interface InvSortir { id: string; batch_id?: string; pembelian_id: string; tanggal_sortir: string; grade_a: number; grade_b: number; grade_c: number; grade_baby: number; grade_reject: number; susut: number; pic_sortir: string; }
