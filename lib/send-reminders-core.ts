@@ -616,15 +616,49 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
       return "failed";
     });
 
-    // PATCH (ringan #20): errorMessage disimpan sebagai array JSON-like agar
-    // tidak hilang newline atau line breaks yang umum di pesan error.
-    // Sebelumnya `errors.join(" | ")` membuat string panjang susah dibaca
-    // di UI Riwayat Reminder. Sekarang encode setiap error ke baris terpisah.
-    const errorMessagePayload = errors.length > 0
-      ? errors.map((e, i) => `[${i + 1}/${errors.length}] ${e}`).join("\n")
-      : "";
+    // PATCH (ringan #20 + UX #28): errorMessage disimpan dengan format yang lebih
+    // jelas dan informatif untuk membantu user memahami status channel notifikasi.
+    // Format baru menjelaskan detail status setiap channel (Email & WhatsApp).
     const anyChannelSent = adminEmailStatus === "sent" || waStatus === "sent";
     const allChannelsSkipped = adminEmailStatus === "skipped" && waStatus === "skipped";
+
+    // Build pesan keterangan yang jelas berdasarkan kombinasi status channel
+    let keteranganMessage: string;
+    
+    if (anyChannelSent) {
+      // Ada channel yang sukses - jelaskan mana yang berhasil/gagal
+      const parts: string[] = [];
+      if (adminEmailStatus === "sent") parts.push("✓ Email terkirim");
+      else if (adminEmailStatus === "failed") parts.push("✗ Email gagal");
+      else if (adminEmailStatus === "skipped") parts.push("○ Email dilewati (tidak dikonfigurasi)");
+      
+      if (waStatus === "sent") parts.push("✓ WhatsApp terkirim");
+      else if (waStatus === "failed") parts.push("✗ WhatsApp gagal");
+      else if (waStatus === "skipped") parts.push("○ WhatsApp dilewati (tidak dikonfigurasi)");
+      
+      keteranganMessage = parts.join(" · ");
+      
+      // Tambahkan detail error jika ada channel yang gagal
+      if (errors.length > 0) {
+        keteranganMessage += "\n\nDetail error:\n" + errors.map((e, i) => `${i + 1}. ${e}`).join("\n");
+      }
+    } else {
+      // Semua channel gagal atau skip
+      if (allChannelsSkipped) {
+        keteranganMessage = "⚠ Tidak ada channel notifikasi yang aktif\n\n" +
+          "Email dan WhatsApp belum dikonfigurasi. Silakan atur GMAIL_USER, GMAIL_APP_PASSWORD, " +
+          "dan ADMIN_EMAIL di environment variables untuk mengaktifkan notifikasi email.";
+      } else {
+        // Ada yang failed
+        keteranganMessage = "✗ Semua channel notifikasi gagal\n\n";
+        if (adminEmailStatus === "failed") keteranganMessage += "• Email: Gagal\n";
+        if (waStatus === "failed") keteranganMessage += "• WhatsApp: Gagal\n";
+        
+        if (errors.length > 0) {
+          keteranganMessage += "\nDetail error:\n" + errors.map((e, i) => `${i + 1}. ${e}`).join("\n");
+        }
+      }
+    }
 
     // Catat attempt untuk audit, tetapi jangan mengembalikan status sukses atau
     // menghitung task sebagai terkirim bila tidak ada channel yang benar-benar
@@ -640,9 +674,7 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
           jumlah:       task.amount,
           emailStatus:  adminEmailStatus,
           waStatus,
-          errorMessage: errorMessagePayload || (
-            allChannelsSkipped ? "Tidak ada channel notifikasi yang aktif" : "Semua channel notifikasi gagal"
-          ),
+          errorMessage: keteranganMessage,
           triggeredBy,
         }).catch(() => {}),
       ),
