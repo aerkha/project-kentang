@@ -1338,6 +1338,7 @@ export default function TransaksiContent() {
   //       sudah dimuat sebelum re-render).
   // PKS milik transaksi yang sedang diedit dikecualikan dari exclusion
   // (di-handle terpisah lewat editingPksIds di level form).
+  // TAMBAHAN: Hanya tampilkan PKS dengan status "draft" atau "complete" (bukan "terminated").
   const activePkss = useMemo(() => {
     const excludeTrxId = editingTransaksi?.id;
     const usedPksIdsByOthers = new Set<string>();
@@ -1357,7 +1358,14 @@ export default function TransaksiContent() {
     // Filter ini tidak bergantung pada pksList.isTerminated supaya PKS
     // yang baru dibuat (belum sempat di-reconcile-terminate) tetap
     // ter-exclude dengan benar.
-    return pksList.filter((m) => !usedPksIdsByOthers.has(m.id));
+    // FILTER TAMBAHAN: Hanya tampilkan PKS dengan status draft/completed (tidak terminated).
+    return pksList.filter((m) => {
+      // Exclude PKS yang sudah dipakai transaksi aktif lain
+      if (usedPksIdsByOthers.has(m.id)) return false;
+      // Hanya tampilkan PKS yang belum terminated (draft atau complete)
+      if (m.isTerminated) return false;
+      return true;
+    });
   }, [pksList, visibleTransaksis, transaksis, editingTransaksi]);
 
   const editingPksIds = useMemo<ReadonlySet<string>>(() => {
