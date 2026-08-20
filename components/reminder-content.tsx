@@ -38,6 +38,12 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Bell,
   CheckCircle2,
   Circle,
@@ -61,6 +67,8 @@ import {
   XCircle,
   Crown,
   Download,
+  FileDown,
+  FileSpreadsheet,
 } from "lucide-react";
 
 // ── Helpers Umum ─────────────────────────────────────────────────────────────
@@ -1846,6 +1854,60 @@ export function ReminderContent() {
     }
   };
 
+  const handleDownloadCsv = () => {
+    if (displayEntities.length === 0) return;
+    setIsDownloading(true);
+    try {
+      const headers = [
+        "Penerima Tagihan",
+        "Komponen Peran",
+        "Keterangan",
+        "Bank",
+        "No Rekening",
+        "Jatuh Tempo",
+        "Jumlah Tagihan",
+        "Total Transfer",
+      ];
+
+      const rows = displayEntities.flatMap((entity) => {
+        return entity.filteredItems.map((item, index) => {
+          const dueDate = item.type === "Bagi Hasil"
+            ? dueDateTransaksi(item.trx)
+            : endDatePks(item.pks);
+          
+          return [
+            index === 0 ? entity.nama : "",
+            entity.roles.join(" & "),
+            `${item.type}${item.type !== item.keterangan ? ` (${item.keterangan})` : ""}`,
+            entity.bankName,
+            entity.accountNumber,
+            new Date(dueDate).toLocaleDateString("id-ID"),
+            item.jumlah.toString(),
+            index === 0 ? entity.totalAmount.toString() : "",
+          ];
+        });
+      });
+
+      const csvContent = [
+        headers.join(","),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+      ].join("\n");
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `tugas-transfer-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      toast.success("CSV berhasil diunduh");
+    } catch (err) {
+      console.error("Error downloading CSV:", err);
+      toast.error("Gagal mengunduh CSV");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const handleSendReminder = async () => {
     setIsSendingReminder(true);
     try {
@@ -1961,16 +2023,30 @@ export function ReminderContent() {
             <CardTitle className="text-base">Tugas Transfer Harian</CardTitle>
 
             <div className="flex items-center gap-2 flex-wrap">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDownloadJpeg}
-                disabled={isDownloading || displayEntities.length === 0}
-                className="h-8"
-              >
-                <Download className={`h-3.5 w-3.5 mr-1.5 ${isDownloading ? "animate-pulse" : ""}`} />
-                {isDownloading ? "Mengunduh..." : "Download JPEG"}
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isDownloading || displayEntities.length === 0}
+                    className="h-8"
+                  >
+                    <Download className={`h-3.5 w-3.5 mr-1.5 ${isDownloading ? "animate-pulse" : ""}`} />
+                    {isDownloading ? "Mengunduh..." : "Download"}
+                    <ChevronDown className="h-3.5 w-3.5 ml-1.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleDownloadJpeg} disabled={isDownloading}>
+                    <FileDown className="h-4 w-4 mr-2" />
+                    Download JPEG
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleDownloadCsv} disabled={isDownloading}>
+                    <FileSpreadsheet className="h-4 w-4 mr-2" />
+                    Download CSV
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <div className="flex items-center gap-2">
                 <Label htmlFor="filter-jatuh-tempo" className="text-xs text-muted-foreground whitespace-nowrap">
                   Jatuh tempo
