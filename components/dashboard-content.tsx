@@ -182,23 +182,32 @@ export function DashboardContent() {
     const activeInvestors = investors.filter((inv) => activeIds.has(inv.id));
     const totalInvestors  = activeInvestors.length;
     
-    // Total investasi dihitung dari transaksi dengan status "berjalan"
-    let totalInvestment = 0;
+    // Total investasi dihitung dari PKS yang memiliki transaksi berjalan
+    const pksWithRunningTrx = new Set<string>();
     transaksis.forEach((t) => {
-      // Hanya hitung transaksi dengan status "berjalan"
-      if (t.status !== "berjalan" && t.status !== "perbarui") return;
-      
-      t.investorEntries.forEach((e) => {
-        if (e.nilaiInvestasi > 0) {
-          totalInvestment += e.nilaiInvestasi;
-        }
-      });
+      const eff = t.status === "perbarui" ? "berjalan" : t.status;
+      // Hitung PKS yang punya transaksi berjalan atau bermasalah
+      if (eff === "berjalan" || eff === "bermasalah") {
+        t.investorEntries.forEach((e) => {
+          if (e.pksId && e.nilaiInvestasi > 0) {
+            pksWithRunningTrx.add(e.pksId);
+          }
+        });
+      }
+    });
+    
+    // Jumlahkan investmentAmount dari PKS yang punya transaksi berjalan
+    let totalInvestment = 0;
+    pksList.forEach((pks) => {
+      if (pksWithRunningTrx.has(pks.id)) {
+        totalInvestment += pks.investmentAmount;
+      }
     });
     
     const avgInvestment   = totalInvestors > 0 ? totalInvestment / totalInvestors : 0;
     const totalBrokers    = brokers.length;
     return { totalInvestors, totalInvestment, avgInvestment, totalBrokers };
-  }, [investors, brokers, activeIds, transaksis]);
+  }, [investors, brokers, activeIds, transaksis, pksList]);
 
 
   // ── Chart: investasi per broker — stacked per investor ──
