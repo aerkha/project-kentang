@@ -182,24 +182,10 @@ export function DashboardContent() {
     const activeInvestors = investors.filter((inv) => activeIds.has(inv.id));
     const totalInvestors  = activeInvestors.length;
     
-    // Total investasi dihitung dari PKS yang memiliki transaksi berjalan
-    const pksWithRunningTrx = new Set<string>();
-    transaksis.forEach((t) => {
-      const eff = t.status === "perbarui" ? "berjalan" : t.status;
-      // Hitung PKS yang punya transaksi berjalan atau bermasalah
-      if (eff === "berjalan" || eff === "bermasalah") {
-        t.investorEntries.forEach((e) => {
-          if (e.pksId && e.nilaiInvestasi > 0) {
-            pksWithRunningTrx.add(e.pksId);
-          }
-        });
-      }
-    });
-    
-    // Jumlahkan investmentAmount dari PKS yang punya transaksi berjalan
+    // Total investasi dihitung dari PKS yang berstatus draft/completed (tidak terminated)
     let totalInvestment = 0;
     pksList.forEach((pks) => {
-      if (pksWithRunningTrx.has(pks.id)) {
+      if (!pks.isTerminated) {
         totalInvestment += pks.investmentAmount;
       }
     });
@@ -207,7 +193,7 @@ export function DashboardContent() {
     const avgInvestment   = totalInvestors > 0 ? totalInvestment / totalInvestors : 0;
     const totalBrokers    = brokers.length;
     return { totalInvestors, totalInvestment, avgInvestment, totalBrokers };
-  }, [investors, brokers, activeIds, transaksis, pksList]);
+  }, [investors, brokers, activeIds, pksList]);
 
 
   // ── Chart: investasi per broker — stacked per investor ──
