@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
+import { toJpeg } from "html-to-image";
 
 // Helper untuk revoke object URL agar tidak memory leak.
 function revokePreview(url: string) {
@@ -59,6 +60,7 @@ import {
   Upload,
   XCircle,
   Crown,
+  Download,
 } from "lucide-react";
 
 // ── Helpers Umum ─────────────────────────────────────────────────────────────
@@ -1351,6 +1353,10 @@ export function ReminderContent() {
   const [isSavingTR,   setIsSavingTR]   = useState(false);
   const [formMinbun,   setFormMinbun]   = useState({ nama: minbun.nama, bankName: minbun.bankName, accountNumber: minbun.accountNumber });
   const [formTrader,   setFormTrader]   = useState({ nama: trader.nama, bankName: trader.bankName, accountNumber: trader.accountNumber });
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  // Ref untuk section "Tugas Transfer Harian" yang akan di-download
+  const tugasTransferRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setFormMinbun({ nama: minbun.nama, bankName: minbun.bankName, accountNumber: minbun.accountNumber }); }, [minbun]);
   useEffect(() => { setFormTrader({ nama: trader.nama, bankName: trader.bankName, accountNumber: trader.accountNumber }); }, [trader]);
@@ -1819,6 +1825,27 @@ export function ReminderContent() {
     catch { toast.error("Gagal menyimpan rekening Trader"); } finally { setIsSavingTR(false); }
   };
 
+  const handleDownloadJpeg = async () => {
+    if (!tugasTransferRef.current) return;
+    setIsDownloading(true);
+    try {
+      const dataUrl = await toJpeg(tugasTransferRef.current, {
+        quality: 0.95,
+        backgroundColor: '#ffffff',
+      });
+      const link = document.createElement('a');
+      link.download = `tugas-transfer-${new Date().toISOString().slice(0, 10)}.jpeg`;
+      link.href = dataUrl;
+      link.click();
+      toast.success("JPEG berhasil diunduh");
+    } catch (err) {
+      console.error("Error downloading JPEG:", err);
+      toast.error("Gagal mengunduh JPEG");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const handleSendReminder = async () => {
     setIsSendingReminder(true);
     try {
@@ -1928,12 +1955,22 @@ export function ReminderContent() {
       </div>
 
       {/* Task list Bulk */}
-      <Card>
+      <Card ref={tugasTransferRef}>
         <CardHeader className="pb-0">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <CardTitle className="text-base">Tugas Transfer Harian</CardTitle>
 
             <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDownloadJpeg}
+                disabled={isDownloading || displayEntities.length === 0}
+                className="h-8"
+              >
+                <Download className={`h-3.5 w-3.5 mr-1.5 ${isDownloading ? "animate-pulse" : ""}`} />
+                {isDownloading ? "Mengunduh..." : "Download JPEG"}
+              </Button>
               <div className="flex items-center gap-2">
                 <Label htmlFor="filter-jatuh-tempo" className="text-xs text-muted-foreground whitespace-nowrap">
                   Jatuh tempo
