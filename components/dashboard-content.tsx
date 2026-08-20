@@ -234,6 +234,7 @@ export function DashboardContent() {
   const [dateRange,      setDateRange]      = useState<DateRange | undefined>(undefined);
   const [filterBroker,   setFilterBroker]   = useState<string>("");
   const [filterInvestor, setFilterInvestor] = useState<string>("");
+  const [filterPintu,    setFilterPintu]    = useState<string>("");
 
   // ── Available brokers from investor data ──
   const availableBrokers = useMemo(() => {
@@ -286,9 +287,16 @@ export function DashboardContent() {
         const inv = investors.find((i) => i.id === m.investorId);
         if ((inv?.brokerName?.trim() || "Tanpa Broker") !== filterBroker) return false;
       }
+      // Filter berdasarkan Pintu (prefix investor ID)
+      if (filterPintu) {
+        const investorId = m.investorId.toUpperCase();
+        if (filterPintu === "MinBun" && !investorId.startsWith("INV-MB-")) return false;
+        if (filterPintu === "Tami" && !investorId.startsWith("INV-TM-")) return false;
+        if (filterPintu === "DirectAB" && !investorId.startsWith("INV-D-")) return false;
+      }
       return true;
     }),
-    [pksList, fromStr, toStr, filterInvestor, filterBroker, investors],
+    [pksList, fromStr, toStr, filterInvestor, filterBroker, filterPintu, investors],
   );
 
   // ── Investors filtered for detail table ──
@@ -692,9 +700,24 @@ export function DashboardContent() {
             </SelectContent>
           </Select>
 
-          {periodMetrics.isFiltered && (
+          <Select
+            value={filterPintu || "__all"}
+            onValueChange={(v) => setFilterPintu(v === "__all" ? "" : v)}
+          >
+            <SelectTrigger className="w-[140px] h-8 text-sm">
+              <SelectValue placeholder="Semua Pintu" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">Semua Pintu</SelectItem>
+              <SelectItem value="MinBun">MinBun</SelectItem>
+              <SelectItem value="Tami">Tami</SelectItem>
+              <SelectItem value="DirectAB">DirectAB</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {(periodMetrics.isFiltered || filterPintu) && (
             <button
-              onClick={() => { setDateRange(undefined); setFilterBroker(""); setFilterInvestor(""); }}
+              onClick={() => { setDateRange(undefined); setFilterBroker(""); setFilterInvestor(""); setFilterPintu(""); }}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md text-muted-foreground hover:bg-muted transition-colors"
             >
               <X className="h-3.5 w-3.5" />
