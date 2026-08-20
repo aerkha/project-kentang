@@ -181,11 +181,24 @@ export function DashboardContent() {
   const metrics = useMemo(() => {
     const activeInvestors = investors.filter((inv) => activeIds.has(inv.id));
     const totalInvestors  = activeInvestors.length;
-    const totalInvestment = activeInvestors.reduce((sum, inv) => sum + inv.investmentAmount, 0);
+    
+    // Total investasi dihitung dari transaksi dengan status "berjalan"
+    let totalInvestment = 0;
+    transaksis.forEach((t) => {
+      // Hanya hitung transaksi dengan status "berjalan"
+      if (t.status !== "berjalan" && t.status !== "perbarui") return;
+      
+      t.investorEntries.forEach((e) => {
+        if (e.nilaiInvestasi > 0) {
+          totalInvestment += e.nilaiInvestasi;
+        }
+      });
+    });
+    
     const avgInvestment   = totalInvestors > 0 ? totalInvestment / totalInvestors : 0;
     const totalBrokers    = brokers.length;
     return { totalInvestors, totalInvestment, avgInvestment, totalBrokers };
-  }, [investors, brokers, activeIds]);
+  }, [investors, brokers, activeIds, transaksis]);
 
 
   // ── Chart: investasi per broker — stacked per investor ──
