@@ -897,7 +897,7 @@ export function DashboardContent() {
                         }
                         contentStyle={tooltipStyle}
                         labelStyle={{ color: "hsl(var(--card-foreground))" }}
-                        itemStyle={{ color: "#f59e0b" }}
+                        itemStyle={{ color: "#BD0000" }}
                       />
                       <Bar
                         dataKey="investment"
@@ -1011,7 +1011,7 @@ export function DashboardContent() {
                     formatter={(value, name) => [formatCurrency(value as number), name as string]}
                     contentStyle={tooltipStyle}
                     labelStyle={{ color: "hsl(var(--card-foreground))", fontWeight: 600 }}
-                    itemStyle={{ color: "#f59e0b" }}
+                    itemStyle={{ color: "#BD0000" }}
                   />
                   <Legend wrapperStyle={{ fontSize: "11px" }} />
                   {modalByKeteranganData.labels.map((label, i) => (
@@ -1068,7 +1068,7 @@ export function DashboardContent() {
                     ]}
                     contentStyle={tooltipStyle}
                     labelStyle={{ color: "hsl(var(--card-foreground))", fontWeight: 600 }}
-                    itemStyle={{ color: "#f59e0b" }}
+                    itemStyle={{ color: "#BD0000" }}
                   />
                   {brokerStackedData.investorIds.map((id, i) => (
                     <Bar
