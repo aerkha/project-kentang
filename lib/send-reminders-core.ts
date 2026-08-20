@@ -372,7 +372,35 @@ async function findPendingTasks(pb: PocketBase): Promise<PendingTask[]> {
 // ─── Email HTML: ringkasan untuk admin ─────────────────────────────────────────
 
 function buildAdminEmailHtml(tasks: PendingTask[], date: string): string {
-  const rows = tasks.map((t) => `
+  // Kelompokkan tasks berdasarkan tanggal jatuh tempo
+  const tasksByDate = new Map<string, PendingTask[]>();
+  for (const task of tasks) {
+    const existing = tasksByDate.get(task.date) || [];
+    existing.push(task);
+    tasksByDate.set(task.date, existing);
+  }
+
+  // Urutkan tanggal
+  const sortedDates = Array.from(tasksByDate.keys()).sort();
+
+  // Build rows dengan subtotal per tanggal
+  const rows: string[] = [];
+  
+  for (const dateKey of sortedDates) {
+    const dateTasks = tasksByDate.get(dateKey) || [];
+    
+    // Header tanggal jatuh tempo
+    rows.push(`
+    <tr style="background:#f3f4f6;">
+      <td colspan="6" style="padding:12px 12px;font-weight:700;color:#111827;font-size:14px;">
+        📅 Jatuh Tempo: ${fmtDate(dateKey)}
+      </td>
+    </tr>
+    `);
+    
+    // Tasks untuk tanggal ini
+    for (const t of dateTasks) {
+      rows.push(`
     <tr style="border-bottom:1px solid #e5e7eb;">
       <td style="padding:10px 12px;font-family:monospace;font-weight:700;color:#111827;">${t.id}</td>
       <td style="padding:10px 12px;white-space:nowrap;">
@@ -385,7 +413,43 @@ function buildAdminEmailHtml(tasks: PendingTask[], date: string): string {
       <td style="padding:10px 12px;text-align:right;font-weight:600;">${t.amount > 0 ? fmtRp(t.amount) : "—"}</td>
       <td style="padding:10px 12px;text-align:center;color:#dc2626;font-weight:600;white-space:nowrap;">${t.statusLabel}</td>
     </tr>
-  `).join("");
+      `);
+    }
+    
+    // Subtotal untuk tanggal ini
+    const subtotal = dateTasks.reduce((sum, t) => sum + t.amount, 0);
+    const countBagiHasil = dateTasks.filter(t => t.type === "Bagi Hasil").length;
+    const countPengembalian = dateTasks.filter(t => t.type === "Pengembalian Modal").length;
+    
+    rows.push(`
+    <tr style="background:#fef3c7;border-top:2px solid #f59e0b;border-bottom:2px solid #f59e0b;">
+      <td colspan="3" style="padding:10px 12px;font-weight:700;color:#92400e;text-align:right;">
+        Subtotal (${dateTasks.length} tagihan: ${countBagiHasil} Bagi Hasil, ${countPengembalian} Pengembalian Modal):
+      </td>
+      <td colspan="3" style="padding:10px 12px;text-align:right;font-weight:700;color:#92400e;font-size:15px;">
+        ${fmtRp(subtotal)}
+      </td>
+    </tr>
+    `);
+  }
+
+  // Grand total di akhir
+  const grandTotal = tasks.reduce((sum, t) => sum + t.amount, 0);
+  const totalBagiHasil = tasks.filter(t => t.type === "Bagi Hasil").length;
+  const totalPengembalian = tasks.filter(t => t.type === "Pengembalian Modal").length;
+  
+  rows.push(`
+    <tr style="background:#dcfce7;border-top:3px solid #16a34a;">
+      <td colspan="3" style="padding:14px 12px;font-weight:700;color:#14532d;text-align:right;font-size:15px;">
+        TOTAL KESELURUHAN (${tasks.length} tagihan: ${totalBagiHasil} Bagi Hasil, ${totalPengembalian} Pengembalian Modal):
+      </td>
+      <td colspan="3" style="padding:14px 12px;text-align:right;font-weight:700;color:#14532d;font-size:17px;">
+        ${fmtRp(grandTotal)}
+      </td>
+    </tr>
+  `);
+
+  const rowsHtml = rows.join("");
 
   return `
 <!DOCTYPE html>
@@ -415,7 +479,7 @@ function buildAdminEmailHtml(tasks: PendingTask[], date: string): string {
             <th style="padding:10px 12px;color:#374151;font-weight:600;text-align:center;">Status</th>
           </tr>
         </thead>
-        <tbody>${rows}</tbody>
+        <tbody>${rowsHtml}</tbody>
       </table>
     </div>
     <div style="padding:20px 32px;background:#f9fafb;border-top:1px solid #e5e7eb;">
