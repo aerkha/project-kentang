@@ -364,9 +364,32 @@ export function DashboardContent() {
         const usiaHari   = Math.max(0, Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(uy, um - 1, ud)) / 86_400_000));
         const usiaBulan  = Math.floor(usiaHari / 30);
         const endDateStr = pks.endDate || addDays(pks.date, pks.contractPeriod * (pks.siklus ?? 1));
+        
+        // Hitung siklus aktual berdasarkan transaksi yang ada dalam periode PKS ini
+        // Jika ada transaksi dengan autorenewal, berarti PKS sudah melewati siklus pertama
+        const [sy, sm, sd] = pks.date.slice(0, 10).split("-").map(Number);
+        const pksStart = Date.UTC(sy, sm - 1, sd);
+        const [ey, em, ed] = endDateStr.slice(0, 10).split("-").map(Number);
+        const pksEnd = Date.UTC(ey, em - 1, ed);
+        
+        // Hitung berapa banyak transaksi unik untuk investor ini dalam periode PKS
+        const trxInPeriod = filteredTransaksis.filter((t) => {
+          const hasInvestor = t.investorEntries.some((e) => e.investorId === pks.investorId);
+          if (!hasInvestor) return false;
+          const [ty2, tm2, td2] = (t.date as string).slice(0, 10).split("-").map(Number);
+          const tDate = Date.UTC(ty2, tm2 - 1, td2);
+          return tDate >= pksStart && tDate < pksEnd;
+        });
+        
+        // Siklus dihitung dari jumlah periode contractPeriod yang telah berlalu
+        // Jika ada transaksi, hitung dari transaksi terakhir untuk menentukan siklus
+        const currentCycle = trxInPeriod.length > 0
+          ? Math.floor(usiaHari / pks.contractPeriod) + 1
+          : 1;
+        
         const roi = (v: number) => (modal > 0 ? (v / modal) * 100 : 0);
         return {
-          no: idx + 1, pks, endDateStr, usiaBulan, ...dist,
+          no: idx + 1, pks, endDateStr, usiaBulan, currentCycle, ...dist,
           roiTotal:          roi(dist.totalProfit),
           roiTraderInvestor: roi(dist.trader + dist.investor),
           roiInvestor:       roi(dist.investor),
@@ -1373,7 +1396,7 @@ export function DashboardContent() {
                       <td className="py-2.5 px-2.5 whitespace-nowrap text-muted-foreground">{formatDate(row.pks.date)}</td>
                       <td className="py-2.5 px-2.5 whitespace-nowrap text-muted-foreground">{formatDate(row.endDateStr)}</td>
                       <td className="py-2.5 px-2.5 font-mono text-muted-foreground whitespace-nowrap">{row.pks.id}</td>
-                      <td className="py-2.5 px-2.5 text-center text-muted-foreground whitespace-nowrap">Siklus ke-{row.pks.siklus ?? 1}</td>
+                      <td className="py-2.5 px-2.5 text-center text-muted-foreground whitespace-nowrap">Siklus ke-{row.currentCycle}</td>
                       <td className={`py-2.5 px-2.5 text-right font-bold whitespace-nowrap ${row.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {formatShortFloat(row.totalProfit)}
                       </td>
