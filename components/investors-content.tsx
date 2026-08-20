@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { useInvestors, type Investor } from "@/lib/investors-context";
 import { useBrokers, SYSTEM_BROKER_ID, type Broker } from "@/lib/brokers-context";
 
-import { useTransaksi, calcTransaksi, activeInvestorIds, type TransaksiStatus } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, type TransaksiStatus } from "@/lib/transaksi-context";
 import { usePks, getPksStatus, investorPkPct } from "@/lib/pks-context";
 import { usePengeluaran } from "@/lib/cashflow-context";
 import { Button } from "@/components/ui/button";
@@ -1115,8 +1115,17 @@ export function InvestorsContent() {
     ? investors.filter((inv) => inv.brokerName === currentBroker.name)
     : investors;
 
-  // Status aktif diturunkan dari transaksi — satu sumber kebenaran (PKS hanya formalitas).
-  const activeIds = useMemo(() => activeInvestorIds(transaksis), [transaksis]);
+  // Status aktif investor ditentukan oleh PKS: investor aktif jika memiliki
+  // minimal 1 PKS dengan status draft atau completed (tidak terminated).
+  const activeIds = useMemo(() => {
+    const ids = new Set<string>();
+    pksList.forEach((pks) => {
+      if (!pks.isTerminated) {
+        ids.add(pks.investorId);
+      }
+    });
+    return ids;
+  }, [pksList]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<"all" | "minbun" | "tami" | "direct">("all");
