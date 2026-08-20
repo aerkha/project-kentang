@@ -302,35 +302,28 @@ export function DashboardContent() {
 
   // ── Chart: kontribusi investasi per jalur (entry channel) ──
   const jalurContribData = useMemo(() => {
-    // Hitung kontribusi investasi berdasarkan 3 pintu masuk investasi:
-    // MinBun, Tami, dan DirectAB (bukan pembagian ministry/business/trader/broker)
+    // Hitung total modal investasi berdasarkan 3 pintu masuk dari ID investor:
+    // MinBun = INV-MB-xxx, Tami = INV-TM-xxx, DirectAB = INV-D-xxx
     let totalMinBun = 0;
     let totalTami = 0;
     let totalDirectAB = 0;
     
-    filteredTransaksis.forEach((trx) => {
-      const calc = calcTransaksi(trx);
-      if (calc.totalInvestasi === 0 || calc.profit <= 0) return;
+    // Iterasi setiap PKS yang terfilter untuk menghitung kontribusi modal per pintu
+    filteredPkssByPeriod.forEach((pks) => {
+      // Tentukan pintu masuk berdasarkan prefix ID investor
+      const investorId = pks.investorId.toUpperCase();
       
-      trx.investorEntries.forEach((entry) => {
-        if (entry.nilaiInvestasi <= 0) return;
-        
-        // Fallback % jika semua 0, konsisten dengan reminder
-        const allZero = entry.pctTrader === 0 && entry.pctMinBun === 0 && entry.pctBrokerI === 0 && entry.pctBrokerII === 0;
-        const hasBroker = !!entry.investorBrokerName;
-        const pctMinBun = allZero ? (hasBroker ? 0 : 5) : entry.pctMinBun;
-        const pctTami = allZero ? 10 : entry.pctTrader;
-        const pctDirectAB = allZero ? (hasBroker ? 5 : 0) : (entry.pctBrokerI + entry.pctBrokerII);
-        
-        // Proporsi dari profit transaksi
-        const ratio = entry.nilaiInvestasi / calc.totalInvestasi;
-        const profit = calc.profit * ratio;
-        
-        // Distribusi ke masing-masing pintu (jalur)
-        totalMinBun += profit * pctMinBun / 100;
-        totalTami += profit * pctTami / 100;
-        totalDirectAB += profit * pctDirectAB / 100;
-      });
+      if (investorId.startsWith("INV-MB-")) {
+        // MinBun
+        totalMinBun += pks.investmentAmount;
+      } else if (investorId.startsWith("INV-TM-")) {
+        // Tami
+        totalTami += pks.investmentAmount;
+      } else if (investorId.startsWith("INV-D-")) {
+        // DirectAB
+        totalDirectAB += pks.investmentAmount;
+      }
+      // Jika prefix tidak cocok, tidak dihitung (atau bisa ditambahkan kategori "Lain-lain")
     });
     
     const total = totalMinBun + totalTami + totalDirectAB;
@@ -349,7 +342,7 @@ export function DashboardContent() {
     ].filter((e) => e.value > 0); // hanya tampilkan pintu yang ada kontribusinya
     
     return { entries, total };
-  }, [filteredTransaksis]);
+  }, [filteredPkssByPeriod]);
 
   // ── Rekap filter state ──
   const [showFilter, setShowFilter] = useState(false);
@@ -1074,7 +1067,7 @@ export function DashboardContent() {
           <CardHeader>
             <CardTitle>Kontribusi Investasi per Pintu</CardTitle>
             <CardDescription>
-              Distribusi profit berdasarkan 3 pintu masuk investasi — MinBun, Tami, dan DirectAB
+              Total modal investasi berdasarkan 3 pintu masuk — MinBun, Tami, dan DirectAB
               {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
             </CardDescription>
           </CardHeader>
@@ -1082,7 +1075,7 @@ export function DashboardContent() {
             {jalurContribData.entries.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-[260px] text-muted-foreground gap-2">
                 <Wallet className="h-10 w-10" />
-                <p className="text-sm">Belum ada kontribusi profit</p>
+                <p className="text-sm">Belum ada investasi</p>
               </div>
             ) : (
               <>
@@ -1120,7 +1113,7 @@ export function DashboardContent() {
                           return (
                             <div style={tooltipStyle} className="px-3 py-2 space-y-0.5">
                               <p className="font-semibold text-sm">Pintu {entry.name}</p>
-                              <p className="text-xs text-muted-foreground">Kontribusi Profit</p>
+                              <p className="text-xs text-muted-foreground">Modal Investasi</p>
                               <p className="text-sm font-bold">{formatCurrency(entry.value)}</p>
                               <p className="text-xs text-muted-foreground">{share}% dari total</p>
                             </div>
