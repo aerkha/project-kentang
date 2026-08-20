@@ -897,11 +897,11 @@ export function DashboardContent() {
                         }
                         contentStyle={tooltipStyle}
                         labelStyle={{ color: "hsl(var(--card-foreground))" }}
-                        itemStyle={{ color: "#ffffff" }}
+                        itemStyle={{ color: "#f59e0b" }}
                       />
                       <Bar
                         dataKey="investment"
-                        fill="#f59e0b"
+                        fill="hsl(var(--chart-1))"
                         radius={[4, 4, 0, 0]}
                         name="investment"
                       >
@@ -1011,7 +1011,7 @@ export function DashboardContent() {
                     formatter={(value, name) => [formatCurrency(value as number), name as string]}
                     contentStyle={tooltipStyle}
                     labelStyle={{ color: "hsl(var(--card-foreground))", fontWeight: 600 }}
-                    itemStyle={{ color: "#ffffff" }}
+                    itemStyle={{ color: "#f59e0b" }}
                   />
                   <Legend wrapperStyle={{ fontSize: "11px" }} />
                   {modalByKeteranganData.labels.map((label, i) => (
@@ -1019,7 +1019,7 @@ export function DashboardContent() {
                       key={label}
                       dataKey={label}
                       stackId="modal"
-                      fill="#f59e0b"
+                      fill={modalByKeteranganData.colorMap.get(label)}
                       radius={i === modalByKeteranganData.labels.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
                       name={label}
                     >
@@ -1068,14 +1068,14 @@ export function DashboardContent() {
                     ]}
                     contentStyle={tooltipStyle}
                     labelStyle={{ color: "hsl(var(--card-foreground))", fontWeight: 600 }}
-                    itemStyle={{ color: "#ffffff" }}
+                    itemStyle={{ color: "#f59e0b" }}
                   />
                   {brokerStackedData.investorIds.map((id, i) => (
                     <Bar
                       key={id}
                       dataKey={id}
                       stackId="b"
-                      fill="#f59e0b"
+                      fill={brokerStackedData.colorMap.get(id)}
                       radius={i === brokerStackedData.investorIds.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
                       name={id}
                     />
