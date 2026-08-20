@@ -302,10 +302,10 @@ export function DashboardContent() {
 
   // ── Chart: kontribusi investasi per jalur (entry channel) ──
   const jalurContribData = useMemo(() => {
-    // Hitung kontribusi investasi berdasarkan jalur masuk (MinBun, Tami/Trader, DirectAB/Broker)
-    // dari transaksi yang profitable dengan investasi > 0
+    // Hitung kontribusi investasi berdasarkan 3 pintu masuk investasi:
+    // MinBun, Tami, dan DirectAB (bukan pembagian ministry/business/trader/broker)
     let totalMinBun = 0;
-    let totalTrader = 0;
+    let totalTami = 0;
     let totalDirectAB = 0;
     
     filteredTransaksis.forEach((trx) => {
@@ -319,34 +319,34 @@ export function DashboardContent() {
         const allZero = entry.pctTrader === 0 && entry.pctMinBun === 0 && entry.pctBrokerI === 0 && entry.pctBrokerII === 0;
         const hasBroker = !!entry.investorBrokerName;
         const pctMinBun = allZero ? (hasBroker ? 0 : 5) : entry.pctMinBun;
-        const pctTrader = allZero ? 10 : entry.pctTrader;
-        const pctBroker = allZero ? (hasBroker ? 5 : 0) : (entry.pctBrokerI + entry.pctBrokerII);
+        const pctTami = allZero ? 10 : entry.pctTrader;
+        const pctDirectAB = allZero ? (hasBroker ? 5 : 0) : (entry.pctBrokerI + entry.pctBrokerII);
         
         // Proporsi dari profit transaksi
         const ratio = entry.nilaiInvestasi / calc.totalInvestasi;
         const profit = calc.profit * ratio;
         
-        // Distribusi ke masing-masing jalur
+        // Distribusi ke masing-masing pintu (jalur)
         totalMinBun += profit * pctMinBun / 100;
-        totalTrader += profit * pctTrader / 100;
-        totalDirectAB += profit * pctBroker / 100;
+        totalTami += profit * pctTami / 100;
+        totalDirectAB += profit * pctDirectAB / 100;
       });
     });
     
-    const total = totalMinBun + totalTrader + totalDirectAB;
+    const total = totalMinBun + totalTami + totalDirectAB;
     
-    // Warna untuk setiap jalur
+    // Warna untuk setiap pintu masuk
     const COLORS = {
-      minbun: "#10b981",    // hijau untuk MinBun
-      tami: "#f59e0b",      // oranye untuk Tami (Trader)
-      directAB: "#3b82f6",  // biru untuk DirectAB (Broker)
+      minbun: "#10b981",    // hijau untuk pintu MinBun
+      tami: "#f59e0b",      // oranye untuk pintu Tami
+      directAB: "#3b82f6",  // biru untuk pintu DirectAB
     };
     
     const entries = [
       { name: "MinBun", value: totalMinBun, color: COLORS.minbun },
-      { name: "Tami", value: totalTrader, color: COLORS.tami },
+      { name: "Tami", value: totalTami, color: COLORS.tami },
       { name: "DirectAB", value: totalDirectAB, color: COLORS.directAB },
-    ].filter((e) => e.value > 0); // hanya tampilkan jalur yang ada kontribusinya
+    ].filter((e) => e.value > 0); // hanya tampilkan pintu yang ada kontribusinya
     
     return { entries, total };
   }, [filteredTransaksis]);
@@ -1072,10 +1072,9 @@ export function DashboardContent() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Kontribusi Investasi per Jalur</CardTitle>
+            <CardTitle>Kontribusi Investasi per Pintu</CardTitle>
             <CardDescription>
-              Distribusi profit berdasarkan pintu masuk investasi —
-              MinBun, Tami (Trader), dan DirectAB (Broker)
+              Distribusi profit berdasarkan 3 pintu masuk investasi — MinBun, Tami, dan DirectAB
               {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
             </CardDescription>
           </CardHeader>
@@ -1120,8 +1119,8 @@ export function DashboardContent() {
                             : "0";
                           return (
                             <div style={tooltipStyle} className="px-3 py-2 space-y-0.5">
-                              <p className="font-semibold text-sm">{entry.name}</p>
-                              <p className="text-xs text-muted-foreground">Jalur Investasi</p>
+                              <p className="font-semibold text-sm">Pintu {entry.name}</p>
+                              <p className="text-xs text-muted-foreground">Kontribusi Profit</p>
                               <p className="text-sm font-bold">{formatCurrency(entry.value)}</p>
                               <p className="text-xs text-muted-foreground">{share}% dari total</p>
                             </div>
