@@ -901,7 +901,7 @@ export function DashboardContent() {
                       />
                       <Bar
                         dataKey="investment"
-                        fill="#9ca3af"
+                        fill="#611100"
                         radius={[4, 4, 0, 0]}
                         name="investment"
                       >
