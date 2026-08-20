@@ -901,7 +901,7 @@ export function DashboardContent() {
                       />
                       <Bar
                         dataKey="investment"
-                        fill="hsl(var(--chart-1))"
+                        fill="#f59e0b"
                         radius={[4, 4, 0, 0]}
                         name="investment"
                       >
@@ -1019,7 +1019,7 @@ export function DashboardContent() {
                       key={label}
                       dataKey={label}
                       stackId="modal"
-                      fill={modalByKeteranganData.colorMap.get(label)}
+                      fill="#f59e0b"
                       radius={i === modalByKeteranganData.labels.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
                       name={label}
                     >
@@ -1075,7 +1075,7 @@ export function DashboardContent() {
                       key={id}
                       dataKey={id}
                       stackId="b"
-                      fill={brokerStackedData.colorMap.get(id)}
+                      fill="#f59e0b"
                       radius={i === brokerStackedData.investorIds.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
                       name={id}
                     />
