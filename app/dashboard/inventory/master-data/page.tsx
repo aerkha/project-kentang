@@ -46,7 +46,38 @@ export default function MasterDataPage() {
     alamat_pajak_sama: true,
     alamat_pajak: ""
   };
-  const initialBuyer = { id: "", kode: "", nama: "", kategori: "Pasar Induk", perusahaan: "", npwp: "", telepon: "", alamat: "" };
+  const initialBuyer = { 
+    id: "", 
+    kode: "", 
+    nama: "",
+    alamat_penagihan: "",
+    telp_bisnis: "",
+    hp_whatsapp: "",
+    email: "",
+    alamat_pengiriman_sama: true,
+    alamat_pengiriman: "",
+    harga: 0,
+    diskon: 0,
+    syarat_pembayaran: "COD",
+    deskripsi: "",
+    konsinyasi: false,
+    akun_piutang: "",
+    akun_uang_muka: "",
+    akun_penjualan: "",
+    akun_diskon_barang: "",
+    akun_beban_pokok_penjualan: "",
+    akun_retur_penjualan: "",
+    akun_diskon_penjualan: "",
+    pajak_termasuk: false,
+    tipe_id_pajak: "NPWP",
+    nomor_wajib_pajak: "",
+    nama_wajib_pajak: "",
+    nitku: "",
+    kode_negara: "",
+    tipe_transaksi: "Faktur Pajak",
+    alamat_pajak_sama: true,
+    alamat_pajak: ""
+  };
 
   const [formBandar, setFormBandar] = useState(initialBandar);
   const [formBuyer, setFormBuyer] = useState(initialBuyer);
@@ -97,15 +128,14 @@ export default function MasterDataPage() {
   useEffect(() => {
     // Generate HANYA jika sedang Tambah Baru (id kosong)
     if (isBuyerOpen && !formBuyer.id) {
-      const textAcuan = formBuyer.perusahaan || formBuyer.nama;
-      if (textAcuan) {
-        const autoKode = generateSmartKode(textAcuan, "BYR", buyers);
+      if (formBuyer.nama) {
+        const autoKode = generateSmartKode(formBuyer.nama, "BYR", buyers);
         setFormBuyer(prev => ({ ...prev, kode: autoKode }));
       } else {
         setFormBuyer(prev => ({ ...prev, kode: "" }));
       }
     }
-  }, [formBuyer.perusahaan, formBuyer.nama, isBuyerOpen, buyers, formBuyer.id]);
+  }, [formBuyer.nama, isBuyerOpen, buyers, formBuyer.id]);
 
 
   // -----------------------------------------------------------------
@@ -242,18 +272,14 @@ export default function MasterDataPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left mt-2 whitespace-nowrap">
                 <thead className="bg-muted/50 border-b">
-                  <tr><th className="p-2">Kode</th><th className="p-2">Perusahaan & PIC</th><th className="p-2">Kategori</th><th className="p-2">NPWP</th><th className="p-2 text-center w-16">Aksi</th></tr>
+                  <tr><th className="p-2">Kode</th><th className="p-2">Nama</th><th className="p-2">Telepon</th><th className="p-2 text-center w-16">Aksi</th></tr>
                 </thead>
                 <tbody>
                   {buyers.map((b: any) => (
                     <tr key={b.id} className="border-b hover:bg-muted/30">
                       <td className="p-2 font-mono text-indigo-700 font-bold">{b.kode}</td>
-                      <td className="p-2">
-                        <div className="font-bold text-slate-800">{b.perusahaan || "-"}</div>
-                        <div className="text-xs text-muted-foreground">Attn: {b.nama}</div>
-                      </td>
-                      <td className="p-2">{b.kategori}</td>
-                      <td className="p-2 font-mono text-xs">{b.npwp || "-"}</td>
+                      <td className="p-2 font-semibold">{b.nama}</td>
+                      <td className="p-2">{b.hp_whatsapp || b.telp_bisnis || "-"}</td>
                       <td className="p-2 text-center">
                         <Button variant="ghost" size="icon" onClick={() => handleEditBuyer(b)} className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Edit Data">
                           <Edit className="h-4 w-4" />
@@ -261,7 +287,7 @@ export default function MasterDataPage() {
                       </td>
                     </tr>
                   ))}
-                  {buyers.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">Belum ada data Buyer.</td></tr>}
+                  {buyers.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">Belum ada data Buyer.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -442,51 +468,203 @@ export default function MasterDataPage() {
 
       {/* MODAL FORM BUYER */}
       <Dialog open={isBuyerOpen} onOpenChange={setIsBuyerOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{formBuyer.id ? "Edit Data Buyer" : "Tambah Data Buyer"}</DialogTitle></DialogHeader>
           <form onSubmit={handleSimpanBuyer} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              
-              <div className="space-y-1.5">
-                <Label>Nama Perusahaan / PT</Label>
-                <Input placeholder="Contoh: PT. Sayur Segar Makmur" value={formBuyer.perusahaan || ""} onChange={e => setFormBuyer({ ...formBuyer, perusahaan: e.target.value })} />
-              </div>
-              
-              <div className="space-y-1.5">
-                <Label>Kategori</Label>
-                <Select value={formBuyer.kategori} onValueChange={v => setFormBuyer({ ...formBuyer, kategori: v })} required>
-                  <SelectTrigger><SelectValue placeholder="Pilih Kategori" /></SelectTrigger>
-                  <SelectContent><SelectItem value="Pasar Induk">Pasar Induk</SelectItem><SelectItem value="Modern Trade">Modern Trade / Supermarket</SelectItem><SelectItem value="Ekspor">Ekspor</SelectItem></SelectContent>
-                </Select>
-              </div>
+            <Tabs defaultValue="umum" className="w-full">
+              <TabsList className="grid w-full grid-cols-4">
+                <TabsTrigger value="umum">Umum</TabsTrigger>
+                <TabsTrigger value="pengiriman">Pengiriman</TabsTrigger>
+                <TabsTrigger value="penjualan">Penjualan</TabsTrigger>
+                <TabsTrigger value="pajak">Pajak</TabsTrigger>
+              </TabsList>
 
-              <div className="space-y-1.5">
-                <Label>Nama PIC / Pembeli <span className="text-red-500">*</span></Label>
-                <Input placeholder="Nama penanggung jawab" value={formBuyer.nama} onChange={e => setFormBuyer({ ...formBuyer, nama: e.target.value })} required />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>Kode Buyer</Label>
-                <Input value={formBuyer.kode} onChange={e => setFormBuyer({ ...formBuyer, kode: e.target.value })} required className="uppercase font-mono font-bold text-indigo-700" />
-              </div>
-
-              <div className="col-span-2 grid grid-cols-2 gap-4 pt-2 border-t mt-2">
-                <div className="space-y-1.5">
-                  <Label>Nomor NPWP</Label>
-                  <Input placeholder="12.345.678.9-012.000" value={formBuyer.npwp || ""} onChange={e => setFormBuyer({ ...formBuyer, npwp: e.target.value })} />
+              {/* TAB UMUM */}
+              <TabsContent value="umum" className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2 space-y-1">
+                    <Label>Nama <span className="text-red-500">*</span></Label>
+                    <Input placeholder="Ketik nama untuk mengenerate kode..." value={formBuyer.nama} onChange={e => setFormBuyer({ ...formBuyer, nama: e.target.value })} required />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>ID Pelanggan <span className="text-red-500">*</span></Label>
+                    <Input value={formBuyer.kode} onChange={e => setFormBuyer({ ...formBuyer, kode: e.target.value })} required className="uppercase font-mono font-bold text-indigo-700" placeholder="Isi otomatis" />
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <Label>Alamat Penagihan</Label>
+                    <Textarea placeholder="Alamat lengkap..." value={formBuyer.alamat_penagihan} onChange={e => setFormBuyer({ ...formBuyer, alamat_penagihan: e.target.value })} rows={2} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>No. Telp. Bisnis</Label>
+                    <Input type="tel" placeholder="021-12345678" value={formBuyer.telp_bisnis} onChange={e => setFormBuyer({ ...formBuyer, telp_bisnis: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Handphone/Whatsapp</Label>
+                    <Input type="tel" placeholder="08123456789" value={formBuyer.hp_whatsapp} onChange={e => setFormBuyer({ ...formBuyer, hp_whatsapp: e.target.value })} />
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <Label>Email</Label>
+                    <Input type="email" placeholder="email@example.com" value={formBuyer.email} onChange={e => setFormBuyer({ ...formBuyer, email: e.target.value })} />
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label>No. Telp / WhatsApp</Label>
-                  <Input type="tel" placeholder="081234567890" value={formBuyer.telepon || ""} onChange={e => setFormBuyer({ ...formBuyer, telepon: e.target.value })} />
-                </div>
-                <div className="col-span-2 space-y-1.5">
-                  <Label>Alamat Lengkap</Label>
-                  <Input placeholder="Contoh: Jl. Pasar Induk Blok A No. 1..." value={formBuyer.alamat || ""} onChange={e => setFormBuyer({ ...formBuyer, alamat: e.target.value })} />
-                </div>
-              </div>
+              </TabsContent>
 
-            </div>
-            <DialogFooter>
+              {/* TAB PENGIRIMAN */}
+              <TabsContent value="pengiriman" className="space-y-4">
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox 
+                      id="alamat_pengiriman_sama" 
+                      checked={formBuyer.alamat_pengiriman_sama} 
+                      onCheckedChange={(checked) => setFormBuyer({ ...formBuyer, alamat_pengiriman_sama: checked as boolean })} 
+                    />
+                    <Label htmlFor="alamat_pengiriman_sama" className="cursor-pointer font-normal">Sama dengan alamat penagihan</Label>
+                  </div>
+                  {!formBuyer.alamat_pengiriman_sama && (
+                    <div className="space-y-1">
+                      <Label>Alamat Pengiriman</Label>
+                      <Textarea placeholder="Alamat untuk pengiriman barang..." value={formBuyer.alamat_pengiriman} onChange={e => setFormBuyer({ ...formBuyer, alamat_pengiriman: e.target.value })} rows={3} />
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+
+              {/* TAB PENJUALAN */}
+              <TabsContent value="penjualan" className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label>Harga</Label>
+                    <Input type="number" min="0" step="0.01" placeholder="0" value={formBuyer.harga} onChange={e => setFormBuyer({ ...formBuyer, harga: parseFloat(e.target.value) || 0 })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Diskon (%)</Label>
+                    <Input type="number" min="0" max="100" step="0.01" placeholder="0" value={formBuyer.diskon} onChange={e => setFormBuyer({ ...formBuyer, diskon: parseFloat(e.target.value) || 0 })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Syarat Pembayaran <span className="text-red-500">*</span></Label>
+                    <Select value={formBuyer.syarat_pembayaran} onValueChange={v => setFormBuyer({ ...formBuyer, syarat_pembayaran: v })} required>
+                      <SelectTrigger><SelectValue placeholder="Pilih Syarat" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="COD">COD</SelectItem>
+                        <SelectItem value="TOP 15">TOP 15</SelectItem>
+                        <SelectItem value="TOP 21">TOP 21</SelectItem>
+                        <SelectItem value="TOP 30">TOP 30</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <Label>Deskripsi</Label>
+                    <Textarea placeholder="Catatan tambahan tentang pelanggan..." value={formBuyer.deskripsi} onChange={e => setFormBuyer({ ...formBuyer, deskripsi: e.target.value })} rows={2} />
+                  </div>
+                  <div className="col-span-2 flex items-center space-x-2">
+                    <Checkbox 
+                      id="konsinyasi" 
+                      checked={formBuyer.konsinyasi} 
+                      onCheckedChange={(checked) => setFormBuyer({ ...formBuyer, konsinyasi: checked as boolean })} 
+                    />
+                    <Label htmlFor="konsinyasi" className="cursor-pointer font-normal">Ya, Perusahaan menitipkan barang ke Pelanggan ini</Label>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Akun Piutang</Label>
+                    <Input placeholder="Kode akun piutang" value={formBuyer.akun_piutang} onChange={e => setFormBuyer({ ...formBuyer, akun_piutang: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Akun Uang Muka</Label>
+                    <Input placeholder="Kode akun uang muka" value={formBuyer.akun_uang_muka} onChange={e => setFormBuyer({ ...formBuyer, akun_uang_muka: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Akun Penjualan</Label>
+                    <Input placeholder="Kode akun penjualan" value={formBuyer.akun_penjualan} onChange={e => setFormBuyer({ ...formBuyer, akun_penjualan: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Akun Diskon Barang</Label>
+                    <Input placeholder="Kode akun diskon barang" value={formBuyer.akun_diskon_barang} onChange={e => setFormBuyer({ ...formBuyer, akun_diskon_barang: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Akun Beban Pokok Penjualan</Label>
+                    <Input placeholder="Kode akun beban pokok" value={formBuyer.akun_beban_pokok_penjualan} onChange={e => setFormBuyer({ ...formBuyer, akun_beban_pokok_penjualan: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Akun Retur Penjualan</Label>
+                    <Input placeholder="Kode akun retur" value={formBuyer.akun_retur_penjualan} onChange={e => setFormBuyer({ ...formBuyer, akun_retur_penjualan: e.target.value })} />
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <Label>Akun Diskon Penjualan</Label>
+                    <Input placeholder="Kode akun diskon penjualan" value={formBuyer.akun_diskon_penjualan} onChange={e => setFormBuyer({ ...formBuyer, akun_diskon_penjualan: e.target.value })} />
+                  </div>
+                </div>
+              </TabsContent>
+
+              {/* TAB PAJAK */}
+              <TabsContent value="pajak" className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2 flex items-center space-x-2">
+                    <Checkbox 
+                      id="pajak_termasuk_buyer" 
+                      checked={formBuyer.pajak_termasuk} 
+                      onCheckedChange={(checked) => setFormBuyer({ ...formBuyer, pajak_termasuk: checked as boolean })} 
+                    />
+                    <Label htmlFor="pajak_termasuk_buyer" className="cursor-pointer font-normal">Default Total Faktur sudah termasuk Pajak</Label>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Tipe ID Pajak <span className="text-red-500">*</span></Label>
+                    <Select value={formBuyer.tipe_id_pajak} onValueChange={v => setFormBuyer({ ...formBuyer, tipe_id_pajak: v })} required>
+                      <SelectTrigger><SelectValue placeholder="Pilih Tipe" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NIK">NIK</SelectItem>
+                        <SelectItem value="NPWP">NPWP</SelectItem>
+                        <SelectItem value="Passpor">Passpor</SelectItem>
+                        <SelectItem value="Lainnya">Lainnya</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Nomor Wajib Pajak</Label>
+                    <Input placeholder="12.345.678.9-012.000" value={formBuyer.nomor_wajib_pajak} onChange={e => setFormBuyer({ ...formBuyer, nomor_wajib_pajak: e.target.value })} />
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <Label>Nama Wajib Pajak</Label>
+                    <Input placeholder="Nama sesuai dokumen pajak" value={formBuyer.nama_wajib_pajak} onChange={e => setFormBuyer({ ...formBuyer, nama_wajib_pajak: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>NITKU</Label>
+                    <Input placeholder="Nomor NITKU" value={formBuyer.nitku} onChange={e => setFormBuyer({ ...formBuyer, nitku: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Kode Negara</Label>
+                    <Input placeholder="ID, SG, MY, dll" value={formBuyer.kode_negara} onChange={e => setFormBuyer({ ...formBuyer, kode_negara: e.target.value })} />
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <Label>Tipe Transaksi <span className="text-red-500">*</span></Label>
+                    <Select value={formBuyer.tipe_transaksi} onValueChange={v => setFormBuyer({ ...formBuyer, tipe_transaksi: v })} required>
+                      <SelectTrigger><SelectValue placeholder="Pilih Tipe" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Digunggung">Digunggung</SelectItem>
+                        <SelectItem value="Ekspor">Ekspor</SelectItem>
+                        <SelectItem value="Dokumen Tertentu">Dokumen Tertentu</SelectItem>
+                        <SelectItem value="Faktur Pajak">Faktur Pajak</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="col-span-2 flex items-center space-x-2">
+                    <Checkbox 
+                      id="alamat_pajak_sama_buyer" 
+                      checked={formBuyer.alamat_pajak_sama} 
+                      onCheckedChange={(checked) => setFormBuyer({ ...formBuyer, alamat_pajak_sama: checked as boolean })} 
+                    />
+                    <Label htmlFor="alamat_pajak_sama_buyer" className="cursor-pointer font-normal">Sama dengan alamat penagihan</Label>
+                  </div>
+                  {!formBuyer.alamat_pajak_sama && (
+                    <div className="col-span-2 space-y-1">
+                      <Label>Alamat Pajak</Label>
+                      <Textarea placeholder="Alamat untuk keperluan pajak..." value={formBuyer.alamat_pajak} onChange={e => setFormBuyer({ ...formBuyer, alamat_pajak: e.target.value })} rows={2} />
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+            </Tabs>
+
+            <DialogFooter className="mt-6">
               <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700">
                 {formBuyer.id ? "Simpan Perubahan" : "Simpan Buyer"}
               </Button>

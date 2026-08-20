@@ -31,7 +31,44 @@ export interface MasterBandar {
   telepon?: string;
   alamat?: string;
 }
-export interface MasterBuyer { id: string; kode: string; nama: string; kategori: string; telepon: string; alamat: string; perusahaan?: string; npwp?: string; }
+export interface MasterBuyer { 
+  id: string; 
+  kode: string; 
+  nama: string; 
+  alamat_penagihan: string;
+  telp_bisnis: string;
+  hp_whatsapp: string;
+  email: string;
+  alamat_pengiriman_sama: boolean;
+  alamat_pengiriman: string;
+  harga: number;
+  diskon: number;
+  syarat_pembayaran: string;
+  deskripsi: string;
+  konsinyasi: boolean;
+  akun_piutang: string;
+  akun_uang_muka: string;
+  akun_penjualan: string;
+  akun_diskon_barang: string;
+  akun_beban_pokok_penjualan: string;
+  akun_retur_penjualan: string;
+  akun_diskon_penjualan: string;
+  pajak_termasuk: boolean;
+  tipe_id_pajak: string;
+  nomor_wajib_pajak: string;
+  nama_wajib_pajak: string;
+  nitku: string;
+  kode_negara: string;
+  tipe_transaksi: string;
+  alamat_pajak_sama: boolean;
+  alamat_pajak: string;
+  // Legacy fields for backward compatibility
+  kategori?: string; 
+  telepon?: string; 
+  alamat?: string; 
+  perusahaan?: string; 
+  npwp?: string;
+}
 export interface InvPembelian { id: string; batch_id: string; tanggal: string; bandar: string; tonase_lapangan: number; tonase_gudang: number; harga_per_kg: number; total_harga: number; tujuan: string; status: string; }
 export interface InvSortir { id: string; batch_id?: string; pembelian_id: string; tanggal_sortir: string; grade_a: number; grade_b: number; grade_c: number; grade_baby: number; grade_reject: number; susut: number; pic_sortir: string; }
 export interface InvPengiriman { id: string; batch_id: string; sj_id?: string; invoice_id?: string; tanggal: string; tujuan?: string; supir?: string; plat_nomor: string; buyer: string; qty_grade_a: number; qty_grade_b: number; qty_grade_c: number; qty_grade_baby: number; qty_campur?: number; }
