@@ -955,7 +955,7 @@ export function DashboardContent() {
                         }}
                         contentStyle={tooltipStyle}
                         labelStyle={{ color: "hsl(var(--card-foreground))", fontWeight: 600 }}
-                        itemStyle={{ color: "#000000" }}
+                        itemStyle={{ color: "#858585" }}
                       />
                       <Legend
                         formatter={(value) =>
