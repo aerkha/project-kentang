@@ -230,40 +230,6 @@ export function DashboardContent() {
     return { data, investorIds, idToName, colorMap };
   }, [investors, brokers, activeIds]);
 
-  // ── Chart: kontribusi investasi per investor aktif ──
-  const investorContribData = useMemo(() => {
-    const active        = investors.filter((inv) => activeIds.has(inv.id) && inv.investmentAmount > 0);
-    const withBroker    = active.filter((inv) => !!inv.brokerName?.trim());
-    const withoutBroker = active.filter((inv) => !inv.brokerName?.trim());
-    const total         = active.reduce((s, inv) => s + inv.investmentAmount, 0);
-    const GAP_VAL       = total > 0 ? total * 0.025 : 1;
-
-    const BROKER_COLORS    = ["#2d6a4f", "#40916c", "#52b788", "#74c69d", "#95d5b2", "#b7e4c7"];
-    const NO_BROKER_COLORS = ["#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#ec4899", "#f97316"];
-
-    type Group = "broker" | "noBroker" | "gap";
-    const entries: Array<{ name: string; value: number; group: Group; color: string }> = [
-      ...withBroker.map((inv, i) => ({
-        name: inv.name, value: inv.investmentAmount,
-        group: "broker" as Group, color: BROKER_COLORS[i % BROKER_COLORS.length],
-      })),
-      ...(withBroker.length > 0 && withoutBroker.length > 0
-        ? [{ name: "__gap__", value: GAP_VAL, group: "gap" as Group, color: "transparent" }]
-        : []),
-      ...withoutBroker.map((inv, i) => ({
-        name: inv.name, value: inv.investmentAmount,
-        group: "noBroker" as Group, color: NO_BROKER_COLORS[i % NO_BROKER_COLORS.length],
-      })),
-    ];
-
-    return {
-      entries, total,
-      hasBroker:   withBroker.length > 0,
-      hasNoBroker: withoutBroker.length > 0,
-      activeCount: active.length,
-    };
-  }, [investors, activeIds]);
-
   // ── Filter state ──
   const [dateRange,      setDateRange]      = useState<DateRange | undefined>(undefined);
   const [filterBroker,   setFilterBroker]   = useState<string>("");
@@ -333,6 +299,57 @@ export function DashboardContent() {
       return true;
     });
   }, [investors, filterInvestor, filterBroker]);
+
+  // ── Chart: kontribusi investasi per jalur (entry channel) ──
+  const jalurContribData = useMemo(() => {
+    // Hitung kontribusi investasi berdasarkan jalur masuk (MinBun, Tami/Trader, DirectAB/Broker)
+    // dari transaksi yang profitable dengan investasi > 0
+    let totalMinBun = 0;
+    let totalTrader = 0;
+    let totalDirectAB = 0;
+    
+    filteredTransaksis.forEach((trx) => {
+      const calc = calcTransaksi(trx);
+      if (calc.totalInvestasi === 0 || calc.profit <= 0) return;
+      
+      trx.investorEntries.forEach((entry) => {
+        if (entry.nilaiInvestasi <= 0) return;
+        
+        // Fallback % jika semua 0, konsisten dengan reminder
+        const allZero = entry.pctTrader === 0 && entry.pctMinBun === 0 && entry.pctBrokerI === 0 && entry.pctBrokerII === 0;
+        const hasBroker = !!entry.investorBrokerName;
+        const pctMinBun = allZero ? (hasBroker ? 0 : 5) : entry.pctMinBun;
+        const pctTrader = allZero ? 10 : entry.pctTrader;
+        const pctBroker = allZero ? (hasBroker ? 5 : 0) : (entry.pctBrokerI + entry.pctBrokerII);
+        
+        // Proporsi dari profit transaksi
+        const ratio = entry.nilaiInvestasi / calc.totalInvestasi;
+        const profit = calc.profit * ratio;
+        
+        // Distribusi ke masing-masing jalur
+        totalMinBun += profit * pctMinBun / 100;
+        totalTrader += profit * pctTrader / 100;
+        totalDirectAB += profit * pctBroker / 100;
+      });
+    });
+    
+    const total = totalMinBun + totalTrader + totalDirectAB;
+    
+    // Warna untuk setiap jalur
+    const COLORS = {
+      minbun: "#10b981",    // hijau untuk MinBun
+      tami: "#f59e0b",      // oranye untuk Tami (Trader)
+      directAB: "#3b82f6",  // biru untuk DirectAB (Broker)
+    };
+    
+    const entries = [
+      { name: "MinBun", value: totalMinBun, color: COLORS.minbun },
+      { name: "Tami", value: totalTrader, color: COLORS.tami },
+      { name: "DirectAB", value: totalDirectAB, color: COLORS.directAB },
+    ].filter((e) => e.value > 0); // hanya tampilkan jalur yang ada kontribusinya
+    
+    return { entries, total };
+  }, [filteredTransaksis]);
 
   // ── Rekap filter state ──
   const [showFilter, setShowFilter] = useState(false);
@@ -1055,17 +1072,18 @@ export function DashboardContent() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Kontribusi Investasi per Investor</CardTitle>
+            <CardTitle>Kontribusi Investasi per Jalur</CardTitle>
             <CardDescription>
-              Proporsi modal dari {investorContribData.activeCount} investor aktif —
-              hijau = via broker, biru = langsung
+              Distribusi profit berdasarkan pintu masuk investasi —
+              MinBun, Tami (Trader), dan DirectAB (Broker)
+              {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {investorContribData.activeCount === 0 ? (
+            {jalurContribData.entries.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-[260px] text-muted-foreground gap-2">
-                <Users className="h-10 w-10" />
-                <p className="text-sm">Belum ada investor aktif</p>
+                <Wallet className="h-10 w-10" />
+                <p className="text-sm">Belum ada kontribusi profit</p>
               </div>
             ) : (
               <>
@@ -1073,7 +1091,7 @@ export function DashboardContent() {
                   <ResponsiveContainer width="100%" height="100%">
                     <RechartsPieChart>
                       <Pie
-                        data={investorContribData.entries}
+                        data={jalurContribData.entries}
                         cx="50%"
                         cy="50%"
                         innerRadius={52}
@@ -1082,12 +1100,12 @@ export function DashboardContent() {
                         dataKey="value"
                         strokeWidth={0}
                       >
-                        {investorContribData.entries.map((entry, index) => (
+                        {jalurContribData.entries.map((entry, index) => (
                           <Cell
                             key={`cell-${index}`}
                             fill={entry.color}
-                            stroke={entry.group === "gap" ? "none" : "white"}
-                            strokeWidth={entry.group === "gap" ? 0 : 1}
+                            stroke="white"
+                            strokeWidth={1}
                             style={{ outline: "none" }}
                           />
                         ))}
@@ -1095,17 +1113,15 @@ export function DashboardContent() {
                       <Tooltip
                         content={({ active, payload }) => {
                           if (!active || !payload?.length) return null;
-                          const entry = payload[0]?.payload as (typeof investorContribData.entries)[0];
-                          if (!entry || entry.group === "gap") return null;
-                          const share = investorContribData.total > 0
-                            ? ((entry.value / investorContribData.total) * 100).toFixed(1)
+                          const entry = payload[0]?.payload as (typeof jalurContribData.entries)[0];
+                          if (!entry) return null;
+                          const share = jalurContribData.total > 0
+                            ? ((entry.value / jalurContribData.total) * 100).toFixed(1)
                             : "0";
                           return (
                             <div style={tooltipStyle} className="px-3 py-2 space-y-0.5">
                               <p className="font-semibold text-sm">{entry.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {entry.group === "broker" ? "Via Broker" : "Langsung"}
-                              </p>
+                              <p className="text-xs text-muted-foreground">Jalur Investasi</p>
                               <p className="text-sm font-bold">{formatCurrency(entry.value)}</p>
                               <p className="text-xs text-muted-foreground">{share}% dari total</p>
                             </div>
@@ -1117,57 +1133,26 @@ export function DashboardContent() {
                 </div>
 
                 {/* Custom legend */}
-                <div className="mt-3 space-y-2.5 border-t pt-3">
-                  {investorContribData.hasBroker && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                        Via Broker
-                      </p>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                        {investorContribData.entries
-                          .filter((e) => e.group === "broker")
-                          .map((e) => (
-                            <div key={e.name} className="flex items-center gap-1.5 text-xs">
-                              <span
-                                className="w-2.5 h-2.5 rounded-full shrink-0"
-                                style={{ backgroundColor: e.color }}
-                              />
-                              <span className="truncate max-w-[110px]">{e.name}</span>
-                              <span className="text-muted-foreground tabular-nums">
-                                {investorContribData.total > 0
-                                  ? `${((e.value / investorContribData.total) * 100).toFixed(0)}%`
-                                  : "—"}
-                              </span>
-                            </div>
-                          ))}
+                <div className="mt-3 border-t pt-3">
+                  <div className="flex flex-wrap gap-x-6 gap-y-2 justify-center">
+                    {jalurContribData.entries.map((entry) => (
+                      <div key={entry.name} className="flex items-center gap-2 text-sm">
+                        <span
+                          className="w-3 h-3 rounded-full shrink-0"
+                          style={{ backgroundColor: entry.color }}
+                        />
+                        <span className="font-medium">{entry.name}</span>
+                        <span className="text-muted-foreground tabular-nums">
+                          {jalurContribData.total > 0
+                            ? `${((entry.value / jalurContribData.total) * 100).toFixed(1)}%`
+                            : "—"}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          ({formatShort(entry.value)})
+                        </span>
                       </div>
-                    </div>
-                  )}
-                  {investorContribData.hasNoBroker && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                        Langsung (Tanpa Broker)
-                      </p>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                        {investorContribData.entries
-                          .filter((e) => e.group === "noBroker")
-                          .map((e) => (
-                            <div key={e.name} className="flex items-center gap-1.5 text-xs">
-                              <span
-                                className="w-2.5 h-2.5 rounded-full shrink-0"
-                                style={{ backgroundColor: e.color }}
-                              />
-                              <span className="truncate max-w-[110px]">{e.name}</span>
-                              <span className="text-muted-foreground tabular-nums">
-                                {investorContribData.total > 0
-                                  ? `${((e.value / investorContribData.total) * 100).toFixed(0)}%`
-                                  : "—"}
-                              </span>
-                            </div>
-                          ))}
-                      </div>
-                    </div>
-                  )}
+                    ))}
+                  </div>
                 </div>
               </>
             )}
