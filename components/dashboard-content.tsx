@@ -273,9 +273,21 @@ export function DashboardContent() {
         });
         if (!hasMatch) return false;
       }
+      // Filter berdasarkan Pintu (channel kontribusi investor)
+      if (filterPintu) {
+        const hasMatchPintu = t.investorEntries.some((e) => {
+          const inv = investors.find((i) => i.id === e.investorId);
+          if (!inv) return false;
+          if (filterPintu === "MinBun" && !inv.isMinBun) return false;
+          if (filterPintu === "Tami" && !inv.isTami) return false;
+          if (filterPintu === "DirectAB" && !inv.isDirect) return false;
+          return true;
+        });
+        if (!hasMatchPintu) return false;
+      }
       return true;
     }),
-    [transaksis, fromStr, toStr, filterInvestor, filterBroker, investors],
+    [transaksis, fromStr, toStr, filterInvestor, filterBroker, filterPintu, investors],
   );
 
   const filteredPkssByPeriod = useMemo(
