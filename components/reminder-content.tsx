@@ -1396,16 +1396,16 @@ export function ReminderContent() {
         });
       }
       const entRef = map.get(key)!;
-      // Dedupe checkKey HANYA untuk item "Investor" dan "Pengembalian Modal"
-      // (per orang + 1 slot pelunasan). Untuk item "Broker", JANGAN
-      // dedupe — broker murni yang muncul di banyak TRX harus diagregat
-      // agar totalAmount dan rincian fee broker akurat. TRX yang berbeda
-      // untuk broker yang sama = TRX berbeda dengan checkKey berbeda
-      // (TRX ID di-serialize ke sourceId item, bukan checkKey).
+      // BUGFIX: Dedupe berdasarkan kombinasi sourceId + checkKey agar transaksi
+      // berbeda dari investor yang sama dengan jatuh tempo sama tidak di-filter.
+      // Sebelumnya hanya cek checkKey yang sama untuk semua transaksi investor
+      // (checkKey = `${investorId}_Investor`), sehingga transaksi kedua dst hilang.
+      // Untuk broker murni yang muncul di banyak TRX, tetap agregat semua fee.
+      // Untuk item "Pengembalian Modal", tetap dedupe per checkKey (1 PKS = 1 item).
       const isInvestorOrReturn = item.keterangan === "Investor" || item.keterangan === "Pengembalian Modal";
       if (isInvestorOrReturn) {
         const isDup = entRef.items.some(
-          (existing) => existing.checkKey === item.checkKey,
+          (existing) => existing.sourceId === item.sourceId && existing.checkKey === item.checkKey,
         );
         if (isDup) return;
       }
