@@ -317,9 +317,15 @@ export function DashboardContent() {
     return investors.filter((inv) => {
       if (filterInvestor && inv.id !== filterInvestor) return false;
       if (filterBroker && (inv.brokerName?.trim() || "Tanpa Broker") !== filterBroker) return false;
+      // Filter berdasarkan Pintu (channel kontribusi investor)
+      if (filterPintu) {
+        if (filterPintu === "MinBun" && !inv.isMinBun) return false;
+        if (filterPintu === "Tami" && !inv.isTami) return false;
+        if (filterPintu === "DirectAB" && !inv.isDirect) return false;
+      }
       return true;
     });
-  }, [investors, filterInvestor, filterBroker]);
+  }, [investors, filterInvestor, filterBroker, filterPintu]);
 
   // ── Chart: kontribusi investasi per jalur (entry channel) ──
   const jalurContribData = useMemo(() => {
