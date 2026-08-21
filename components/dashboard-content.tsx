@@ -287,12 +287,13 @@ export function DashboardContent() {
         const inv = investors.find((i) => i.id === m.investorId);
         if ((inv?.brokerName?.trim() || "Tanpa Broker") !== filterBroker) return false;
       }
-      // Filter berdasarkan Pintu (prefix investor ID)
+      // Filter berdasarkan Pintu (channel kontribusi investor)
       if (filterPintu) {
-        const investorId = m.investorId.toUpperCase();
-        if (filterPintu === "MinBun" && !investorId.startsWith("INV-MB-")) return false;
-        if (filterPintu === "Tami" && !investorId.startsWith("INV-TM-")) return false;
-        if (filterPintu === "DirectAB" && !investorId.startsWith("INV-D-")) return false;
+        const inv = investors.find((i) => i.id === m.investorId);
+        if (!inv) return false;
+        if (filterPintu === "MinBun" && !inv.isMinBun) return false;
+        if (filterPintu === "Tami" && !inv.isTami) return false;
+        if (filterPintu === "DirectAB" && !inv.isDirect) return false;
       }
       return true;
     }),
@@ -310,28 +311,28 @@ export function DashboardContent() {
 
   // ── Chart: kontribusi investasi per jalur (entry channel) ──
   const jalurContribData = useMemo(() => {
-    // Hitung total modal investasi berdasarkan 3 pintu masuk dari ID investor:
-    // MinBun = INV-MB-xxx, Tami = INV-TM-xxx, DirectAB = INV-D-xxx
+    // Hitung total modal investasi berdasarkan 3 pintu masuk dari channel kontribusi investor
+    // MinBun = investor.isMinBun, Tami = investor.isTami, DirectAB = investor.isDirect
     let totalMinBun = 0;
     let totalTami = 0;
     let totalDirectAB = 0;
     
     // Iterasi setiap PKS yang terfilter untuk menghitung kontribusi modal per pintu
     filteredPkssByPeriod.forEach((pks) => {
-      // Tentukan pintu masuk berdasarkan prefix ID investor
-      const investorId = pks.investorId.toUpperCase();
+      // Tentukan pintu masuk berdasarkan channel kontribusi investor
+      const inv = investors.find((i) => i.id === pks.investorId);
+      if (!inv) return;
       
-      if (investorId.startsWith("INV-MB-")) {
+      if (inv.isMinBun) {
         // MinBun
         totalMinBun += pks.investmentAmount;
-      } else if (investorId.startsWith("INV-TM-")) {
+      } else if (inv.isTami) {
         // Tami
         totalTami += pks.investmentAmount;
-      } else if (investorId.startsWith("INV-D-")) {
+      } else if (inv.isDirect) {
         // DirectAB
         totalDirectAB += pks.investmentAmount;
       }
-      // Jika prefix tidak cocok, tidak dihitung (atau bisa ditambahkan kategori "Lain-lain")
     });
     
     const total = totalMinBun + totalTami + totalDirectAB;
