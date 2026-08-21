@@ -103,6 +103,145 @@ async function buildHistory(
   }
 }
 
+// ── Build Detail Table ─────────────────────────────────────────────────────────
+
+async function buildDetailTable(
+  pb: PocketBase,
+  investorId: string,
+  transaksiIds: string
+): Promise<string> {
+  try {
+    // Parse multiple transaction IDs (comma separated)
+    const idTokens = transaksiIds.split(",").map(s => s.trim()).filter(Boolean);
+    
+    // Get transaksi_investors records for this investor
+    const tiRecords = await pb.collection("transaksi_investors").getFullList({
+      filter: `investorId = "${pbEsc(investorId)}"`,
+      fields: "transaksiId,investorName,nilaiInvestasi,pksId",
+    });
+
+    if (tiRecords.length === 0) return "";
+
+    const trxIds = [...new Set(tiRecords.map(r => r.transaksiId as string))];
+    const idFilter = trxIds.map(id => `id = "${pbEsc(id)}"`).join(" || ");
+    
+    // Get transaction details
+    const trxRecords = await pb.collection("transaksis").getFullList({
+      filter: idFilter,
+      fields: "id,customId,kebutuhanModal,hargaJual,hpp,ongkirPerKg",
+    });
+
+    const trxMap = new Map(trxRecords.map(r => [r.id as string, r]));
+
+    // Build rows for transactions that match the transaksiIds parameter
+    const rows: Array<{
+      trxId: string;
+      pksId: string;
+      modal: number;
+      profit: number;
+    }> = [];
+
+    for (const ti of tiRecords) {
+      const trx = trxMap.get(ti.transaksiId as string);
+      if (!trx) continue;
+
+      const customId = trx.customId as string;
+      
+      // Only include if this transaction is in the list
+      if (!idTokens.some(token => customId.includes(token))) continue;
+
+      const modal = ti.nilaiInvestasi as number;
+      const pksId = (ti.pksId as string) || "—";
+
+      // Calculate profit for this investor
+      const kebutuhanModal = (trx.kebutuhanModal as number) || 0;
+      const hargaJual = (trx.hargaJual as number) || 0;
+      const hpp = (trx.hpp as number) || 0;
+      const ongkirPerKg = (trx.ongkirPerKg as number) || 0;
+      
+      const qty = hpp > 0 ? kebutuhanModal / hpp : 0;
+      const totalOngkir = ongkirPerKg * qty;
+      const income = hargaJual * qty;
+      const totalProfit = income - (kebutuhanModal + totalOngkir);
+
+      // Investor's share of profit (proportional to their investment)
+      const totalInvestasi = tiRecords
+        .filter(r => r.transaksiId === ti.transaksiId)
+        .reduce((sum, r) => sum + (r.nilaiInvestasi as number), 0);
+      
+      const investorShare = totalInvestasi > 0 ? modal / totalInvestasi : 0;
+      const investorProfit = totalProfit * investorShare;
+
+      // Get PK% from PKS
+      let pkPct = 0.35; // default 35%
+      if (pksId && pksId !== "—") {
+        try {
+          const pksRecord = await pb.collection("mous").getFirstListItem(
+            `customId = "${pbEsc(pksId)}"`,
+            { fields: "bagiHasilPK" }
+          );
+          pkPct = (pksRecord.bagiHasilPK as number) / 100 || 0.35;
+        } catch {
+          // Use default if PKS not found
+        }
+      }
+
+      const finalProfit = investorProfit * pkPct;
+
+      rows.push({
+        trxId: customId,
+        pksId,
+        modal,
+        profit: finalProfit,
+      });
+    }
+
+    if (rows.length === 0) return "";
+
+    const rowsHtml = rows.map((r, i) => {
+      const bg = i % 2 === 0 ? "#ffffff" : "#f9fafb";
+      return `
+      <tr style="background:${bg};">
+        <td style="padding:9px 10px;font-family:monospace;font-size:12px;font-weight:700;">${r.trxId}</td>
+        <td style="padding:9px 10px;font-family:monospace;font-size:12px;">${r.pksId}</td>
+        <td style="padding:9px 10px;font-size:12px;text-align:right;">${fmtRp(r.modal)}</td>
+        <td style="padding:9px 10px;font-size:12px;text-align:right;font-weight:600;color:#16a34a;">${fmtRp(r.profit)}</td>
+      </tr>`;
+    }).join("");
+
+    const totalModal = rows.reduce((sum, r) => sum + r.modal, 0);
+    const totalProfit = rows.reduce((sum, r) => sum + r.profit, 0);
+
+    return `
+    <div style="margin-bottom:24px;">
+      <h2 style="margin:0 0 12px;font-size:14px;color:#111827;font-weight:700;">📋 Detail Transaksi</h2>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:440px;">
+          <thead>
+            <tr style="background:#f3f4f6;border-bottom:2px solid #e5e7eb;">
+              <th style="padding:9px 10px;text-align:left;color:#6b7280;font-weight:600;">ID Transaksi</th>
+              <th style="padding:9px 10px;text-align:left;color:#6b7280;font-weight:600;">ID PKS</th>
+              <th style="padding:9px 10px;text-align:right;color:#6b7280;font-weight:600;">Nominal Modal</th>
+              <th style="padding:9px 10px;text-align:right;color:#6b7280;font-weight:600;">Profit</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+          <tfoot>
+            <tr style="background:#dcfce7;border-top:2px solid #16a34a;">
+              <td colspan="2" style="padding:9px 10px;font-size:12px;color:#15803d;font-weight:700;">Total (${rows.length} transaksi)</td>
+              <td style="padding:9px 10px;text-align:right;font-weight:700;font-size:12px;color:#15803d;">${fmtRp(totalModal)}</td>
+              <td style="padding:9px 10px;text-align:right;font-weight:700;font-size:12px;color:#15803d;">${fmtRp(totalProfit)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>`;
+  } catch (err) {
+    console.error("[buildDetailTable] error:", err);
+    return "";
+  }
+}
+
 // ── Email HTML ─────────────────────────────────────────────────────────────────
 
 function buildHistoryTableHtml(rows: HistoryRow[]): string {
@@ -162,8 +301,9 @@ function buildEmailHtml(opts: {
   buktiUrl:     string;
   tanggal:      string;
   historyHtml:  string;
+  detailTable?: string;
 }): string {
-  const { investorName, transaksiId, keterangan, jumlah, buktiUrl, tanggal, historyHtml } = opts;
+  const { investorName, transaksiId, keterangan, jumlah, buktiUrl, tanggal, historyHtml, detailTable } = opts;
   return `
 <!DOCTYPE html>
 <html lang="id">
@@ -203,6 +343,8 @@ function buildEmailHtml(opts: {
           <td style="padding:10px 14px;border-top:1px solid #f3f4f6;">${tanggal}</td>
         </tr>
       </table>
+
+      ${detailTable || ""}
 
       ${buktiUrl ? `
       <div style="text-align:center;margin:24px 0;">
@@ -469,8 +611,11 @@ export async function POST(req: NextRequest) {
   // Opsi Khusus WhatsApp (Menggunakan format baru)
   const waOpts = { investorName, brokerName, noPks, modal, jumlah, buktiUrl, tanggal };
 
+  // Bangun tabel detail transaksi untuk email
+  const detailTable = await buildDetailTable(pb, investorId, transaksiId);
+
   // Opsi Khusus Email (Dipertahankan format lamanya)
-  const emailOpts = { investorName, transaksiId, keterangan, jumlah, buktiUrl, tanggal, historyHtml };
+  const emailOpts = { investorName, transaksiId, keterangan, jumlah, buktiUrl, tanggal, historyHtml, detailTable };
 
   const errors: string[] = [];
 

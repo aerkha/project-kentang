@@ -277,8 +277,9 @@ async function buildInvestorsMap(pb: PocketBase, trxPbIds: string): Promise<Map<
   try {
     const entries = await pb.collection("transaksi_investors").getFullList<any>({
       filter: trxPbIds,
-      fields: "transaksiId,investorName,nilaiInvestasi",
+      // Hapus fields parameter agar semua field ter-fetch (investorName dan nilaiInvestasi pasti ada)
     });
+    console.log(`[buildInvestorsMap] Berhasil load ${entries.length} entries untuk transaksi`);
     for (const e of entries) {
       const list = entriesMap.get(e.transaksiId) ?? [];
       list.push(e);
