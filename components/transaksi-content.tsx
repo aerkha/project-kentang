@@ -535,11 +535,11 @@ function TrxFormFields({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="trx-hpp" className="text-xs">HPP (Rp/kg) <span className="text-destructive">*</span></Label>
-              <Input id="trx-hpp" type="number" min="0" step="1" value={formData.hpp} onChange={(e) => set("hpp", e.target.value)} placeholder="2000" required />
+              <Input id="trx-hpp" type="number" min="0" step="any" value={formData.hpp} onChange={(e) => set("hpp", e.target.value)} placeholder="2000" required />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="trx-modal" className="text-xs">Kebutuhan Modal (Rp) <span className="text-destructive">*</span></Label>
-              <Input id="trx-modal" type="number" min="0" step="1" value={formData.kebutuhanModal} onChange={(e) => set("kebutuhanModal", e.target.value)} placeholder="10000000" required />
+              <Input id="trx-modal" type="number" min="0" step="any" value={formData.kebutuhanModal} onChange={(e) => set("kebutuhanModal", e.target.value)} placeholder="10000000" required />
             </div>
           </div>
           <Preview label="Quantity (kg) = Kebutuhan Modal ÷ HPP" value={hpp > 0 && modal > 0 ? formatQty(qty) : "—"} />
@@ -553,14 +553,14 @@ function TrxFormFields({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="trx-ongkir" className="text-xs">Ongkir per KG (Rp) <span className="text-destructive">*</span></Label>
-              <Input id="trx-ongkir" type="number" min="0" step="1" value={formData.ongkirPerKg} onChange={(e) => set("ongkirPerKg", e.target.value)} placeholder="500" required />
+              <Input id="trx-ongkir" type="number" min="0" step="any" value={formData.ongkirPerKg} onChange={(e) => set("ongkirPerKg", e.target.value)} placeholder="500" required />
             </div>
             <Preview label="Total Ongkir = Ongkir/kg × Qty" value={ongkirPerKg > 0 && qty > 0 ? formatRp(totalOngkir) : "—"} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="trx-harga" className="text-xs">Harga Jual per KG (Rp) <span className="text-destructive">*</span></Label>
-              <Input id="trx-harga" type="number" min="0" step="1" value={formData.hargaJual} onChange={(e) => set("hargaJual", e.target.value)} placeholder="3000" required />
+              <Input id="trx-harga" type="number" min="0" step="any" value={formData.hargaJual} onChange={(e) => set("hargaJual", e.target.value)} placeholder="3000" required />
             </div>
             <Preview label="Income = Harga Jual × Qty" value={hargaJual > 0 && qty > 0 ? formatRp(income) : "—"} />
           </div>
@@ -657,7 +657,7 @@ function TrxFormFields({
                           {checked && (
                             <div className="flex flex-col items-end gap-0.5 shrink-0">
                               <Input
-                                type="number" min="0" step="1"
+                                type="number" min="0" step="any"
                                 value={entry?.nilaiInvestasi ?? ""}
                                 onChange={(e) => updateNilai(pks.id, e.target.value)}
                                 className={`w-36 h-8 text-xs ${isOver ? "border-red-500 focus-visible:ring-red-500" : ""}`}
