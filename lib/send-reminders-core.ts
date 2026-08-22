@@ -31,6 +31,7 @@ interface PendingTask {
   date: string; 
   investors: string;
   amount: number;
+  bagiHasilAmount?: number;
   statusLabel: string;
 }
 
@@ -318,6 +319,19 @@ async function processBagiHasilTasks(pb: PocketBase, tasks: PendingTask[]): Prom
     const investors = [...new Set(entries.map((e: any) => e.investorName))].join(", ") || "—";
     const amount = entries.reduce((s: number, e: any) => s + e.nilaiInvestasi, 0);
     
+    // Hitung nominal bagi hasil yang sebenarnya
+    const hpp = trx.hpp || 0;
+    const hargaJual = trx.hargaJual || 0;
+    const totalInvestasi = amount;
+    const profit = Math.max(0, hargaJual - hpp);
+    
+    const bagiHasilAmount = entries.reduce((sum: number, e: any) => {
+      if (!e.nilaiInvestasi || totalInvestasi === 0) return sum;
+      const ratio = e.nilaiInvestasi / totalInvestasi;
+      const pkPct = (e.pctMinBun || 35) / 100;
+      return sum + (profit * ratio * pkPct);
+    }, 0);
+    
     let statusLabel: string;
     if (trx.status === "bermasalah") {
       statusLabel = "Bermasalah";
@@ -333,6 +347,7 @@ async function processBagiHasilTasks(pb: PocketBase, tasks: PendingTask[]): Prom
       date: getEndDateTrx(trx.date, trx.description),
       investors,
       amount,
+      bagiHasilAmount,
       statusLabel,
     });
   }
@@ -393,7 +408,7 @@ function buildAdminEmailHtml(tasks: PendingTask[], date: string): string {
     // Header tanggal jatuh tempo
     rows.push(`
     <tr style="background:#f3f4f6;">
-      <td colspan="6" style="padding:12px 12px;font-weight:700;color:#111827;font-size:14px;">
+      <td colspan="7" style="padding:12px 12px;font-weight:700;color:#111827;font-size:14px;">
         📅 Jatuh Tempo: ${fmtDate(dateKey)}
       </td>
     </tr>
@@ -412,6 +427,7 @@ function buildAdminEmailHtml(tasks: PendingTask[], date: string): string {
       <td style="padding:10px 12px;color:#6b7280;white-space:nowrap;">${fmtDate(t.date)}</td>
       <td style="padding:10px 12px;">${t.investors}</td>
       <td style="padding:10px 12px;text-align:right;font-weight:600;">${t.amount > 0 ? fmtRp(t.amount) : "—"}</td>
+      <td style="padding:10px 12px;text-align:right;font-weight:600;color:#16a34a;">${t.bagiHasilAmount && t.bagiHasilAmount > 0 ? fmtRp(t.bagiHasilAmount) : "—"}</td>
       <td style="padding:10px 12px;text-align:center;color:#dc2626;font-weight:600;white-space:nowrap;">${t.statusLabel}</td>
     </tr>
       `);
@@ -424,7 +440,7 @@ function buildAdminEmailHtml(tasks: PendingTask[], date: string): string {
     
     rows.push(`
     <tr style="background:#fef3c7;border-top:2px solid #f59e0b;border-bottom:2px solid #f59e0b;">
-      <td colspan="3" style="padding:10px 12px;font-weight:700;color:#92400e;text-align:right;">
+      <td colspan="4" style="padding:10px 12px;font-weight:700;color:#92400e;text-align:right;">
         Subtotal (${dateTasks.length} tagihan: ${countBagiHasil} Bagi Hasil, ${countPengembalian} Pengembalian Modal):
       </td>
       <td colspan="3" style="padding:10px 12px;text-align:right;font-weight:700;color:#92400e;font-size:15px;">
@@ -441,7 +457,7 @@ function buildAdminEmailHtml(tasks: PendingTask[], date: string): string {
   
   rows.push(`
     <tr style="background:#dcfce7;border-top:3px solid #16a34a;">
-      <td colspan="3" style="padding:14px 12px;font-weight:700;color:#14532d;text-align:right;font-size:15px;">
+      <td colspan="4" style="padding:14px 12px;font-weight:700;color:#14532d;text-align:right;font-size:15px;">
         TOTAL KESELURUHAN (${tasks.length} tagihan: ${totalBagiHasil} Bagi Hasil, ${totalPengembalian} Pengembalian Modal):
       </td>
       <td colspan="3" style="padding:14px 12px;text-align:right;font-weight:700;color:#14532d;font-size:17px;">
@@ -477,6 +493,7 @@ function buildAdminEmailHtml(tasks: PendingTask[], date: string): string {
             <th style="padding:10px 12px;color:#374151;font-weight:600;">Jatuh Tempo</th>
             <th style="padding:10px 12px;color:#374151;font-weight:600;">Investor</th>
             <th style="padding:10px 12px;color:#374151;font-weight:600;text-align:right;">Nominal Modal</th>
+            <th style="padding:10px 12px;color:#374151;font-weight:600;text-align:right;">Nominal Bagi Hasil</th>
             <th style="padding:10px 12px;color:#374151;font-weight:600;text-align:center;">Status</th>
           </tr>
         </thead>
@@ -642,7 +659,8 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
       return { status: 200, body: { sent: 0, message: "Tidak ada tagihan yang menunggu pembayaran hari ini" } };
     }
 
-    const toSend: PendingTask[] = [];
+    const
+     toSend: PendingTask[] = [];
 
     if (triggeredBy === "manual") {
       toSend.push(...allPending);
