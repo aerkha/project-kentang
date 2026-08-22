@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useAuth } from "@/lib/auth-context";
 import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
 import { usePks, investorPkPct } from "@/lib/pks-context";
@@ -169,31 +170,76 @@ function formatShortFloat(n: number) {
 }
 
 export function DashboardContent() {
+  const { user, isInvestor, isBroker } = useAuth();
   const { investors }   = useInvestors();
   const { brokers }     = useBrokers();
   const { pksList }        = usePks();
   const { transaksis }  = useTransaksi();
 
+  // ── AUTOMATIC ROLE FILTERING ──
+  // Filter data secara otomatis berdasarkan privilage akun login
+  // Ini akan diterapkan SEBELUM filter manual user
+  const allowedInvestorIds = useMemo(() => {
+    // Admin & Owner: bisa lihat semua data
+    if (!isInvestor && !isBroker) return null;
+
+    // Investor: hanya bisa lihat data milik dirinya sendiri
+    if (isInvestor && user?.investorId) {
+      return new Set([user.investorId]);
+    }
+
+    // Broker: hanya bisa lihat data investor yang menjadi afiliasinya
+    if (isBroker && user?.brokerId) {
+      const broker = brokers.find(b => b.id === user.brokerId);
+      if (broker) {
+        const affiliatedInvestors = investors.filter(inv => inv.brokerName === broker.name);
+        return new Set(affiliatedInvestors.map(inv => inv.id));
+      }
+      return new Set<string>();
+    }
+
+    return new Set<string>();
+  }, [isInvestor, isBroker, user, investors, brokers]);
+
+  // Terapkan filter otomatis ke semua data sebelum diproses lebih lanjut
+  const filteredInvestorsByRole = useMemo(() => {
+    if (!allowedInvestorIds) return investors;
+    return investors.filter(inv => allowedInvestorIds.has(inv.id));
+  }, [investors, allowedInvestorIds]);
+
+  const filteredPksByRole = useMemo(() => {
+    if (!allowedInvestorIds) return pksList;
+    return pksList.filter(pks => allowedInvestorIds.has(pks.investorId));
+  }, [pksList, allowedInvestorIds]);
+
+  const filteredTransaksisByRole = useMemo(() => {
+    if (!allowedInvestorIds) return transaksis;
+    return transaksis.filter(t => 
+      t.investorEntries.some(e => allowedInvestorIds.has(e.investorId))
+    );
+  }, [transaksis, allowedInvestorIds]);
+
   // Status aktif investor diturunkan dari transaksi — satu sumber kebenaran.
-  const activeIds = useMemo(() => activeInvestorIds(transaksis), [transaksis]);
+  const activeIds = useMemo(() => activeInvestorIds(filteredTransaksisByRole), [filteredTransaksisByRole]);
 
   // ── Portfolio metrics (hanya investor aktif) ──
   const metrics = useMemo(() => {
-    const activeInvestors = investors.filter((inv) => activeIds.has(inv.id));
+    const activeInvestors = filteredInvestorsByRole.filter((inv) => activeIds.has(inv.id));
     const totalInvestors  = activeInvestors.length;
     
     // Total investasi dihitung dari PKS yang berstatus draft/completed (tidak terminated)
     let totalInvestment = 0;
-    pksList.forEach((pks) => {
+    filteredPksByRole.forEach((pks) => {
       if (!pks.isTerminated) {
         totalInvestment += pks.investmentAmount;
       }
     });
     
     const avgInvestment   = totalInvestors > 0 ? totalInvestment / totalInvestors : 0;
-    const totalBrokers    = brokers.length;
+    // Untuk broker: hanya tampilkan 1 (dirinya sendiri)
+    const totalBrokers    = isBroker ? 1 : brokers.length;
     return { totalInvestors, totalInvestment, avgInvestment, totalBrokers };
-  }, [investors, brokers, activeIds, pksList]);
+  }, [filteredInvestorsByRole, brokers, activeIds, filteredPksByRole, isBroker]);
 
 
   // ── Chart: investasi per broker — stacked per investor ──
@@ -238,8 +284,14 @@ export function DashboardContent() {
 
   // ── Available brokers from investor data ──
   const availableBrokers = useMemo(() => {
+    // Jika user adalah broker: hanya tampilkan dirinya sendiri
+    if (isBroker && user?.brokerId) {
+      const broker = brokers.find(b => b.id === user.brokerId);
+      return broker ? [broker.name] : [];
+    }
+    
     const set = new Set<string>();
-    investors.forEach((inv) => {
+    filteredInvestorsByRole.forEach((inv) => {
       set.add(inv.brokerName?.trim() || "Tanpa Broker");
     });
     const sorted = brokers
@@ -247,22 +299,22 @@ export function DashboardContent() {
       .filter((n) => set.has(n));
     if (set.has("Tanpa Broker")) sorted.push("Tanpa Broker");
     return sorted;
-  }, [investors, brokers]);
+  }, [filteredInvestorsByRole, brokers, isBroker, user]);
 
   // ── Investors filtered by selected broker (for investor dropdown) ──
   const investorOptions = useMemo(() => {
-    return investors.filter((inv) => {
+    return filteredInvestorsByRole.filter((inv) => {
       if (!filterBroker) return true;
       return (inv.brokerName?.trim() || "Tanpa Broker") === filterBroker;
     });
-  }, [investors, filterBroker]);
+  }, [filteredInvestorsByRole, filterBroker]);
 
   // ── Filtered collections ──
   const fromStr = dateRange?.from ? format(dateRange.from, "yyyy-MM-dd") : "";
   const toStr   = dateRange?.to   ? format(dateRange.to,   "yyyy-MM-dd") : "";
 
   const filteredTransaksis = useMemo(
-    () => transaksis.filter((t) => {
+    () => filteredTransaksisByRole.filter((t) => {
       if (fromStr && t.date < fromStr) return false;
       if (toStr   && t.date > toStr)   return false;
       if (filterInvestor && !t.investorEntries.some((e) => e.investorId === filterInvestor)) return false;
@@ -291,7 +343,7 @@ export function DashboardContent() {
   );
 
   const filteredPkssByPeriod = useMemo(
-    () => pksList.filter((m) => {
+    () => filteredPksByRole.filter((m) => {
       if (fromStr && m.date < fromStr) return false;
       if (toStr   && m.date > toStr)   return false;
       if (filterInvestor && m.investorId !== filterInvestor) return false;
@@ -314,7 +366,7 @@ export function DashboardContent() {
 
   // ── Investors filtered for detail table ──
   const filteredInvestors = useMemo(() => {
-    return investors.filter((inv) => {
+    return filteredInvestorsByRole.filter((inv) => {
       if (filterInvestor && inv.id !== filterInvestor) return false;
       if (filterBroker && (inv.brokerName?.trim() || "Tanpa Broker") !== filterBroker) return false;
       // Filter berdasarkan Pintu (channel kontribusi investor)
