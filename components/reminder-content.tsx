@@ -1033,7 +1033,12 @@ async function sendBulkNotifications(
     }
 
     const pksList = entity.filteredItems.map((i: any) => {
-      if (i.type === "Bagi Hasil" && i.trx) return i.trx.customId || i.trx.id;
+      if (i.type === "Bagi Hasil" && i.trx) {
+        // Dapatkan pksId dari investorEntries yang sesuai dengan investor ini
+        const entry = i.trx.investorEntries.find((e: { investorId: string }) => e.investorId === entity.investorId);
+        if (entry && entry.pksId) return entry.pksId;
+        return i.trx.customId || i.trx.id;
+      }
       if (i.type === "Pengembalian Modal" && i.pks) return i.pks.customId || i.pks.id;
       return i.sourceId;
     });

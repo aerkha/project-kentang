@@ -296,6 +296,7 @@ function buildHistoryTableHtml(rows: HistoryRow[]): string {
 function buildEmailHtml(opts: {
   investorName: string;
   transaksiId:  string;
+  noPks?:       string;
   keterangan:   string;
   jumlah:       number;
   buktiUrl:     string;
@@ -303,7 +304,7 @@ function buildEmailHtml(opts: {
   historyHtml:  string;
   detailTable?: string;
 }): string {
-  const { investorName, transaksiId, keterangan, jumlah, buktiUrl, tanggal, historyHtml, detailTable } = opts;
+  const { investorName, transaksiId, noPks, keterangan, jumlah, buktiUrl, tanggal, historyHtml, detailTable } = opts;
   return `
 <!DOCTYPE html>
 <html lang="id">
@@ -331,16 +332,20 @@ function buildEmailHtml(opts: {
           <td style="padding:10px 14px;font-weight:600;font-family:monospace;">${transaksiId}</td>
         </tr>
         <tr>
-          <td style="padding:10px 14px;color:#6b7280;border-top:1px solid #f3f4f6;">Jenis Bagi Hasil</td>
-          <td style="padding:10px 14px;font-weight:600;border-top:1px solid #f3f4f6;">${keterangan}</td>
+          <td style="padding:10px 14px;color:#6b7280;border-top:1px solid #f3f4f6;">No. PKS</td>
+          <td style="padding:10px 14px;font-weight:600;font-family:monospace;border-top:1px solid #f3f4f6;">${noPks || "—"}</td>
         </tr>
         <tr style="background:#f9fafb;">
-          <td style="padding:10px 14px;color:#6b7280;">Jumlah</td>
-          <td style="padding:10px 14px;font-weight:700;color:#16a34a;font-size:15px;">${fmtRp(jumlah)}</td>
+          <td style="padding:10px 14px;color:#6b7280;">Jenis Bagi Hasil</td>
+          <td style="padding:10px 14px;font-weight:600;">${keterangan}</td>
         </tr>
         <tr>
-          <td style="padding:10px 14px;color:#6b7280;border-top:1px solid #f3f4f6;">Tanggal Bayar</td>
-          <td style="padding:10px 14px;border-top:1px solid #f3f4f6;">${tanggal}</td>
+          <td style="padding:10px 14px;color:#6b7280;border-top:1px solid #f3f4f6;">Jumlah</td>
+          <td style="padding:10px 14px;font-weight:700;color:#16a34a;font-size:15px;border-top:1px solid #f3f4f6;">${fmtRp(jumlah)}</td>
+        </tr>
+        <tr style="background:#f9fafb;">
+          <td style="padding:10px 14px;color:#6b7280;">Tanggal Bayar</td>
+          <td style="padding:10px 14px;">${tanggal}</td>
         </tr>
       </table>
 
@@ -615,7 +620,7 @@ export async function POST(req: NextRequest) {
   const detailTable = await buildDetailTable(pb, investorId, transaksiId);
 
   // Opsi Khusus Email (Dipertahankan format lamanya)
-  const emailOpts = { investorName, transaksiId, keterangan, jumlah, buktiUrl, tanggal, historyHtml, detailTable };
+  const emailOpts = { investorName, transaksiId, noPks, keterangan, jumlah, buktiUrl, tanggal, historyHtml, detailTable };
 
   const errors: string[] = [];
 
