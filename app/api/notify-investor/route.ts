@@ -103,6 +103,27 @@ async function buildHistory(
   }
 }
 
+// ── PKS Lookup Helper ──────────────────────────────────────────────────────────
+
+/**
+ * Lookup PKS customId by investorId. Returns the latest PKS (by date) for
+ * the investor, regardless of termination status. Used as fallback when
+ * transaksi_investors.pksId is empty — misalnya untuk data lama yang belum
+ * memiliki pksId terisi.
+ */
+async function lookupPksCustomIdByInvestor(pb: PocketBase, investorId: string): Promise<string> {
+  if (!investorId) return "";
+  try {
+    const pksRecord = await pb.collection("mous").getFirstListItem(
+      `investorId = "${pbEsc(investorId)}"`,
+      { sort: "-date", fields: "customId" },
+    );
+    return (pksRecord.customId as string) || "";
+  } catch {
+    return "";
+  }
+}
+
 // ── Build Detail Table ─────────────────────────────────────────────────────────
 
 async function buildDetailTable(
@@ -133,6 +154,11 @@ async function buildDetailTable(
 
     const trxMap = new Map(trxRecords.map(r => [r.id as string, r]));
 
+    // Fallback PKS customId by investorId — di-resolve SEKALI sebelum loop
+    // agar tidak terjadi N+1 query. Dipakai ketika transaksi_investors.pksId
+    // kosong (mis. data lama yang belum punya pksId terisi).
+    const fallbackPksId = await lookupPksCustomIdByInvestor(pb, investorId);
+
     // Build rows for transactions that match the transaksiIds parameter
     const rows: Array<{
       trxId: string;
@@ -151,7 +177,7 @@ async function buildDetailTable(
       if (!idTokens.some(token => customId.includes(token))) continue;
 
       const modal = ti.nilaiInvestasi as number;
-      const pksId = (ti.pksId as string) || "—";
+      const pksId = (ti.pksId as string) || fallbackPksId || "—";
 
       // Calculate profit for this investor
       const kebutuhanModal = (trx.kebutuhanModal as number) || 0;
@@ -607,7 +633,10 @@ export async function POST(req: NextRequest) {
 
   // Persiapan Variabel Baru (Fallback / Aman)
   const brokerName = body.brokerName || "Pusat";
-  const noPks      = body.noPks || transaksiId;
+  // Lookup PKS customId by investorId jika body.noPks kosong — jangan fallback
+  // ke transaksiId (mis. "TRX-0352A") yang menyesatkan. Fallback ke transaksiId
+  // hanya sebagai jaring pengaman terakhir bila lookup juga gagal.
+  const noPks      = body.noPks || await lookupPksCustomIdByInvestor(pb, investorId) || transaksiId;
   const modal      = body.modal ?? modalFromHist;
   // Pakai todayWibStr() agar konsisten dengan zona waktu aplikasi (WIB),
   // bukan hardcode UTC+7 yang rapuh untuk deployment di zona lain.
