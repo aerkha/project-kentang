@@ -271,27 +271,65 @@ async function processAutorenewals(pb: PocketBase) {
 // tanpa log. Sekarang kita catat error ke console.warn dengan konteks (TRX
 // count) agar admin tahu ada masalah konfigurasi/permission, tapi tidak
 // menggagalkan alur reminder.
+// PATCH: batch filter agar tidak melebihi batas panjang URL PocketBase.
+// Sebelumnya seluruh TRX IDs digabung dalam satu filter `transaksiId = "..." || ...`
+// yang bisa sangat panjang dan menyebabkan getFullList gagal silently → entries
+// kosong → investor & nominal modal & nominal bagi hasil semua tampil "—".
+// Sekarang filter dipecah ke batch berukuran kecil.
 async function buildInvestorsMap(pb: PocketBase, trxPbIds: string): Promise<Map<string, any[]>> {
   const entriesMap = new Map<string, any[]>();
   if (!trxPbIds) return entriesMap;
 
-  try {
-    const entries = await pb.collection("transaksi_investors").getFullList<any>({
-      filter: trxPbIds,
-      // Hapus fields parameter agar semua field ter-fetch (investorName dan nilaiInvestasi pasti ada)
-    });
-    console.log(`[buildInvestorsMap] Berhasil load ${entries.length} entries untuk transaksi`);
-    for (const e of entries) {
-      const list = entriesMap.get(e.transaksiId) ?? [];
-      list.push(e);
-      entriesMap.set(e.transaksiId, list);
+  const allConditions = trxPbIds.split(" || ");
+  const BATCH_SIZE = 30;
+  let totalLoaded = 0;
+
+  for (let i = 0; i < allConditions.length; i += BATCH_SIZE) {
+    const batchFilter = allConditions.slice(i, i + BATCH_SIZE).join(" || ");
+    try {
+      const entries = await pb.collection("transaksi_investors").getFullList<any>({
+        filter: batchFilter,
+      });
+      totalLoaded += entries.length;
+      for (const e of entries) {
+        const list = entriesMap.get(e.transaksiId) ?? [];
+        list.push(e);
+        entriesMap.set(e.transaksiId, list);
+      }
+    } catch (err) {
+      console.warn(`[buildInvestorsMap] gagal load entries untuk batch ${Math.floor(i / BATCH_SIZE) + 1}:`, err);
     }
-  } catch (err) {
-    const count = (trxPbIds.match(/\|\|/g) ?? []).length + 1;
-    console.warn(`[buildInvestorsMap] gagal load entries untuk ${count} TRX:`, err);
   }
 
+  console.log(`[buildInvestorsMap] Berhasil load ${totalLoaded} entries untuk ${allConditions.length} transaksi`);
   return entriesMap;
+}
+
+// Helper: ambil bagiHasilPK per investor dari koleksi mous (PKS).
+// Mengikuti logika `getInvestorPkPct` di components/reminder-content.tsx:
+// ambil PKS terbaru (date terbesar) untuk investorId, fallback 35.
+// Sebelumnya reminder memakai `entry.pctMinBun` (persentase MinBun) — salah,
+// yang mengakibatkan nominal bagi hasil di email selalu 0 / salah.
+async function buildInvestorPkPctMap(pb: PocketBase): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const latestDateMap = new Map<string, string>();
+  try {
+    const pksList = await pb.collection("mous").getFullList<any>({});
+    for (const pks of pksList) {
+      const invId = pks.investorId as string | undefined;
+      if (!invId) continue;
+      const pksDate = (pks.date as string) || "";
+      const existingDate = latestDateMap.get(invId) ?? "";
+      // Simpan yang terbaru (date terbesar) — sama dengan getInvestorPkPct
+      if (pksDate > existingDate) {
+        latestDateMap.set(invId, pksDate);
+        map.set(invId, (pks.bagiHasilPK as number) ?? 35);
+      }
+    }
+  } catch (err) {
+    console.warn("[buildInvestorPkPctMap] gagal load mous, fallback ke 35%:", err);
+  }
+  return map;
 }
 
 // Helper: Process Bagi Hasil transaksi
@@ -308,6 +346,7 @@ async function processBagiHasilTasks(pb: PocketBase, tasks: PendingTask[]): Prom
 
   const trxPbIds = trxs.map((r) => `transaksiId = "${pbEsc(r.id)}"`).join(" || ");
   const entriesMap = await buildInvestorsMap(pb, trxPbIds);
+  const pkPctMap = await buildInvestorPkPctMap(pb);
 
   for (const trx of trxs) {
     const sisa = sisaHariTrx(trx);
@@ -319,16 +358,26 @@ async function processBagiHasilTasks(pb: PocketBase, tasks: PendingTask[]): Prom
     const investors = [...new Set(entries.map((e: any) => e.investorName))].join(", ") || "—";
     const amount = entries.reduce((s: number, e: any) => s + e.nilaiInvestasi, 0);
     
-    // Hitung nominal bagi hasil yang sebenarnya
+    // Hitung nominal bagi hasil yang sebenarnya.
+    // Mengikuti calcTransaksi (lib/transaksi-context.tsx) & buildTransaksiRows
+    // (components/reminder-content.tsx) sebagai referensi "Tugas Transfer Harian".
+    // Sebelumnya: profit = hargaJual - hpp (per unit, salah) dan pkPct = pctMinBun
+    // (persentase MinBun, salah). Sekarang: profit total dikurangi modal+ongkir,
+    // dan pkPct diambil dari bagiHasilPK PKS investor.
     const hpp = trx.hpp || 0;
+    const kebutuhanModal = trx.kebutuhanModal || 0;
+    const ongkirPerKg = trx.ongkirPerKg || 0;
     const hargaJual = trx.hargaJual || 0;
+    const qty = hpp > 0 ? kebutuhanModal / hpp : 0;
+    const totalOngkir = ongkirPerKg * qty;
+    const income = hargaJual * qty;
+    const profit = Math.max(0, income - (kebutuhanModal + totalOngkir));
     const totalInvestasi = amount;
-    const profit = Math.max(0, hargaJual - hpp);
     
     const bagiHasilAmount = entries.reduce((sum: number, e: any) => {
       if (!e.nilaiInvestasi || totalInvestasi === 0) return sum;
       const ratio = e.nilaiInvestasi / totalInvestasi;
-      const pkPct = (e.pctMinBun || 35) / 100;
+      const pkPct = (pkPctMap.get(e.investorId) ?? 35) / 100;
       return sum + (profit * ratio * pkPct);
     }, 0);
     
