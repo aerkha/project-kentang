@@ -322,8 +322,8 @@ export function UsersContent() {
         emailVisibility: true,
         name:            form.name,
         role:            form.role,
-        investorId:      form.role === "investor" ? form.investorId : "",
-        brokerId:        form.role === "broker" ? form.brokerId : "", // <-- DITAMBAHKAN
+        investorId:      (form.role === "investor" || form.role === "broker") ? form.investorId : "",
+        brokerId:        (form.role === "investor" || form.role === "broker") ? form.brokerId : "",
         password:        form.password,
         passwordConfirm: form.passwordConfirm,
       });
@@ -373,8 +373,8 @@ export function UsersContent() {
       const payload: Record<string, unknown> = {
         name:       form.name,
         role:       form.role,
-        investorId: form.role === "investor" ? form.investorId : "",
-        brokerId:   form.role === "broker" ? form.brokerId : "", // <-- DITAMBAHKAN
+        investorId: (form.role === "investor" || form.role === "broker") ? form.investorId : "",
+        brokerId:   (form.role === "investor" || form.role === "broker") ? form.brokerId : "",
       };
       if (form.changePassword && form.password) {
         payload.oldPassword     = form.oldPassword;
@@ -488,7 +488,7 @@ export function UsersContent() {
                 <Label className="text-xs">
                   Role <span className="text-destructive">*</span>
                 </Label>
-                <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v, investorId: "", brokerId: "" }))}>
+                <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="user">User — input data</SelectItem>
@@ -500,15 +500,15 @@ export function UsersContent() {
                 </Select>
               </div>
 
-              {form.role === "investor" && (
+              {(form.role === "investor" || form.role === "broker") && (
                 <div className="space-y-1.5">
                   <Label className="text-xs">
-                    Investor <span className="text-destructive">*</span>
+                    Investor {form.role === "investor" && <span className="text-destructive">*</span>}
                   </Label>
                   <Select
                     value={form.investorId}
                     onValueChange={(v) => setForm((f) => ({ ...f, investorId: v }))}
-                    required
+                    required={form.role === "investor"}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Pilih investor…" />
@@ -529,21 +529,22 @@ export function UsersContent() {
                     </SelectContent>
                   </Select>
                   <p className="text-[11px] text-muted-foreground">
-                    Pilih investor yang terhubung ke akun ini
+                    {form.role === "investor"
+                      ? "Pilih investor yang terhubung ke akun ini"
+                      : "Opsional: hubungkan juga sebagai investor (hybrid user)"}
                   </p>
                 </div>
               )}
 
-              {/* DITAMBAHKAN: Pilihan khusus untuk role Broker */}
-              {form.role === "broker" && (
+              {(form.role === "investor" || form.role === "broker") && (
                 <div className="space-y-1.5">
                   <Label className="text-xs">
-                    Broker <span className="text-destructive">*</span>
+                    Broker {form.role === "broker" && <span className="text-destructive">*</span>}
                   </Label>
                   <Select
                     value={form.brokerId}
                     onValueChange={(v) => setForm((f) => ({ ...f, brokerId: v }))}
-                    required
+                    required={form.role === "broker"}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Pilih broker…" />
@@ -564,7 +565,9 @@ export function UsersContent() {
                     </SelectContent>
                   </Select>
                   <p className="text-[11px] text-muted-foreground">
-                    Pilih broker yang terhubung ke akun ini
+                    {form.role === "broker"
+                      ? "Pilih broker yang terhubung ke akun ini"
+                      : "Opsional: hubungkan juga sebagai broker (hybrid user)"}
                   </p>
                 </div>
               )}
@@ -709,6 +712,11 @@ export function UsersContent() {
                         }>
                           {ROLE_LABELS[u.role] ?? u.role}
                         </Badge>
+                        {u.investorId && u.brokerId && (
+                          <Badge variant="outline" className="ml-1 text-[10px] bg-blue-50 text-blue-700 border-blue-200">
+                            Hybrid
+                          </Badge>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">
                         {formatDate(u.created)}
@@ -783,7 +791,7 @@ export function UsersContent() {
 
             <div className="space-y-1.5">
               <Label className="text-xs">Role</Label>
-              <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v, investorId: "", brokerId: "" }))}>
+              <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="user">User — input data</SelectItem>
@@ -795,12 +803,15 @@ export function UsersContent() {
               </Select>
             </div>
 
-            {form.role === "investor" && (
+            {(form.role === "investor" || form.role === "broker") && (
               <div className="space-y-1.5">
-                <Label className="text-xs">Investor</Label>
+                <Label className="text-xs">
+                  Investor {form.role === "investor" && <span className="text-destructive">*</span>}
+                </Label>
                 <Select
                   value={form.investorId}
                   onValueChange={(v) => setForm((f) => ({ ...f, investorId: v }))}
+                  required={form.role === "investor"}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Pilih investor…" />
@@ -820,15 +831,23 @@ export function UsersContent() {
                     )}
                   </SelectContent>
                 </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  {form.role === "investor"
+                    ? "Pilih investor yang terhubung ke akun ini"
+                    : "Opsional: hubungkan juga sebagai investor (hybrid user)"}
+                </p>
               </div>
             )}
 
-            {form.role === "broker" && (
+            {(form.role === "investor" || form.role === "broker") && (
               <div className="space-y-1.5">
-                <Label className="text-xs">Broker</Label>
+                <Label className="text-xs">
+                  Broker {form.role === "broker" && <span className="text-destructive">*</span>}
+                </Label>
                 <Select
                   value={form.brokerId}
                   onValueChange={(v) => setForm((f) => ({ ...f, brokerId: v }))}
+                  required={form.role === "broker"}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Pilih broker…" />
@@ -848,6 +867,11 @@ export function UsersContent() {
                     )}
                   </SelectContent>
                 </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  {form.role === "broker"
+                    ? "Pilih broker yang terhubung ke akun ini"
+                    : "Opsional: hubungkan juga sebagai broker (hybrid user)"}
+                </p>
               </div>
             )}
 

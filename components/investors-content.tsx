@@ -1107,7 +1107,7 @@ export function InvestorsContent() {
   const canCreate = isAdmin || perm.create;
   const canDelete = isAdmin || perm.delete;
 
-  const isBroker = user?.role === "broker";
+  const isBroker = user?.activeRole === "broker";
   const currentBroker = brokers.find(b => b.id === user?.brokerId);
   const visibleInvestors = isInvestor && user?.investorId
     ? investors.filter((inv) => inv.id === user.investorId)
@@ -1452,39 +1452,56 @@ export function InvestorsContent() {
       const accountEmail = investorForm.email || `${investorForm.phone.replace(/[^0-9]/g, "")}@investor.local`;
 
       try {
-        await pb.collection("users").create({
-          email: accountEmail,
-          emailVisibility: true,
-          password: randomPass,
-          passwordConfirm: randomPass,
-          name: investorForm.name,
-          role: "investor",
-          investorId: newId,
-          brokerId: "",
-        });
+        // Cek apakah email sudah terdaftar (mis. user broker dengan email yang sama).
+        // Jika ya, UPDATE record tersebut untuk menambahkan investorId (hybrid user)
+        // alih-alih membuat akun baru (yang akan ditolak karena email duplikat).
+        let existingUser: Record<string, unknown> | null = null;
+        try {
+          existingUser = await pb.collection("users").getFirstListItem(
+            `email = "${accountEmail.replace(/"/g, "\\\"")}"`,
+          );
+        } catch {
+          // User belum ada — ini normal untuk investor baru
+        }
 
-        // 4. Kirim notifikasi kredensial ke WA/Email investor
-        fetch("/api/send-credentials", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${pb.authStore.token}`,
-          },
-          body: JSON.stringify({
-            type: "new_account",
-            name: investorForm.name,
+        if (existingUser && (existingUser.role === "broker" || existingUser.role === "investor")) {
+          // Link investorId ke akun yang sudah ada → hybrid user
+          await pb.collection("users").update(existingUser.id as string, {
+            investorId: newId,
+          });
+          toast.success(`Akun investor terhubung ke akun ${(existingUser.role as string)} yang sudah ada. User dapat switch role setelah login.`);
+        } else {
+          // Buat akun user baru
+          await pb.collection("users").create({
             email: accountEmail,
-            phone: investorForm.phone,
+            emailVisibility: true,
             password: randomPass,
+            passwordConfirm: randomPass,
+            name: investorForm.name,
             role: "investor",
-          }),
-        }).catch((err) => console.error("Gagal panggil API send-credentials:", err));
+            investorId: newId,
+            brokerId: "",
+          });
 
-// PATCH (sementara): password WA dinonaktifkan + password tidak di-expose ke
-// toast UI (security). Saat ini WA tidak aktif, jadi password tampil hanya
-// di email notifikasi saja. Saat WA diaktifkan kembali, restore toast
-// ini dengan menghapus komentar.
-toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email investor/broker.`);
+          // 4. Kirim notifikasi kredensial ke WA/Email investor
+          fetch("/api/send-credentials", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${pb.authStore.token}`,
+            },
+            body: JSON.stringify({
+              type: "new_account",
+              name: investorForm.name,
+              email: accountEmail,
+              phone: investorForm.phone,
+              password: randomPass,
+              role: "investor",
+            }),
+          }).catch((err) => console.error("Gagal panggil API send-credentials:", err));
+
+          toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email investor/broker.`);
+        }
 
     } catch (err) {
         console.error("Gagal membuat akun otomatis:", err);
@@ -1786,49 +1803,72 @@ toast.success(`Akun login otomatis dibuat! Kredensial telah dikirim ke email inv
       const accountEmail = brokerForm.email.trim();
 
       try {
-        await pb.collection("users").create({
-          email: accountEmail,
-          emailVisibility: true,
-          password: randomPass,
-          passwordConfirm: randomPass,
-          name: brokerForm.name.trim(),
-          role: "broker",
-          investorId: "",
-          brokerId: actualBrokerId,
-        });
-
-        // Wajib ditunggu dan diperiksa. Sebelumnya request bersifat fire-and-forget,
-        // sehingga UI selalu menyatakan sukses walaupun API/Gmail gagal.
-        const credentialResponse = await fetch("/api/send-credentials", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${pb.authStore.token}`,
-          },
-          body: JSON.stringify({
-            type: "new_account",
-            name: brokerForm.name.trim(),
-            email: accountEmail,
-            phone: brokerForm.phone,
-            password: randomPass,
-            role: "broker",
-          }),
-        });
-        const credentialResult = await credentialResponse.json().catch(() => null) as {
-          success?: boolean;
-          emailStatus?: string;
-          message?: string;
-          error?: string;
-        } | null;
-
-        if (!credentialResponse.ok || credentialResult?.emailStatus !== "sent") {
-          throw new Error(
-            credentialResult?.error || credentialResult?.message ||
-            `Email kredensial gagal dikirim (HTTP ${credentialResponse.status})`,
+        // Cek apakah email sudah terdaftar (mis. user investor dengan email yang sama).
+        // Jika ya, UPDATE record tersebut untuk menambahkan brokerId (hybrid user)
+        // alih-alih membuat akun baru (yang akan ditolak karena email duplikat).
+        let existingUser: Record<string, unknown> | null = null;
+        try {
+          existingUser = await pb.collection("users").getFirstListItem(
+            `email = "${accountEmail.replace(/"/g, "\\\"")}"`,
           );
+        } catch {
+          // User belum ada — ini normal untuk broker baru
         }
 
-        toast.success("Akun broker dibuat dan kredensial telah dikirim ke email broker.");
+        if (existingUser && (existingUser.role === "investor" || existingUser.role === "broker")) {
+          // Link brokerId ke akun yang sudah ada → hybrid user.
+          // Role diubah ke "broker" sebagai primary role.
+          await pb.collection("users").update(existingUser.id as string, {
+            brokerId: actualBrokerId,
+            role: "broker",
+          });
+          toast.success(`Akun broker terhubung ke akun ${(existingUser.role as string)} yang sudah ada. User dapat switch role setelah login.`);
+        } else {
+          // Buat akun user baru
+          await pb.collection("users").create({
+            email: accountEmail,
+            emailVisibility: true,
+            password: randomPass,
+            passwordConfirm: randomPass,
+            name: brokerForm.name.trim(),
+            role: "broker",
+            investorId: "",
+            brokerId: actualBrokerId,
+          });
+
+          // Wajib ditunggu dan diperiksa. Sebelumnya request bersifat fire-and-forget,
+          // sehingga UI selalu menyatakan sukses walaupun API/Gmail gagal.
+          const credentialResponse = await fetch("/api/send-credentials", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${pb.authStore.token}`,
+            },
+            body: JSON.stringify({
+              type: "new_account",
+              name: brokerForm.name.trim(),
+              email: accountEmail,
+              phone: brokerForm.phone,
+              password: randomPass,
+              role: "broker",
+            }),
+          });
+          const credentialResult = await credentialResponse.json().catch(() => null) as {
+            success?: boolean;
+            emailStatus?: string;
+            message?: string;
+            error?: string;
+          } | null;
+
+          if (!credentialResponse.ok || credentialResult?.emailStatus !== "sent") {
+            throw new Error(
+              credentialResult?.error || credentialResult?.message ||
+              `Email kredensial gagal dikirim (HTTP ${credentialResponse.status})`,
+            );
+          }
+
+          toast.success("Akun broker dibuat dan kredensial telah dikirim ke email broker.");
+        }
       } catch (err) {
         console.error("Gagal membuat akun/notifikasi otomatis broker:", err);
         const message = err instanceof Error ? err.message : "Kesalahan tidak diketahui";

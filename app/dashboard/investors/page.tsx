@@ -12,12 +12,13 @@ export default function InvestorsPage() {
   // Akses diberikan ke admin, user, owner, dan investor/broker yang terikat ke
   // master (lihat auth-context.tsx needsLinking). Owner boleh melihat semua
   // data investor sebagai pemegang saham mayoritas / pengawasan.
+  // Untuk hybrid user, cek activeRole (bukan role) agar bisa akses saat switch.
   useEffect(() => {
-    if (user && user.role !== "admin" && user.role !== "user" && user.role !== "owner" && user.role !== "investor") {
+    if (user && user.role !== "admin" && user.role !== "user" && user.role !== "owner" && user.activeRole !== "investor" && user.activeRole !== "broker") {
       router.replace("/dashboard");
     }
   }, [user, router]);
 
-  if (!user || (user.role !== "admin" && user.role !== "user" && user.role !== "owner" && user.role !== "investor")) return null;
+  if (!user || (user.role !== "admin" && user.role !== "user" && user.role !== "owner" && user.activeRole !== "investor" && user.activeRole !== "broker")) return null;
   return <InvestorsContent />;
 }

@@ -16,11 +16,13 @@ import { TreeLoader } from "@/components/ui/tree-loader";
 const AUTH_TIMEOUT_MS = 8_000;
 
 interface User {
-  username:   string;
-  name:       string;
-  role:       string;
-  investorId: string;
-  brokerId?:  string;
+  username:    string;
+  name:        string;
+  role:        string;         // primary role dari DB (e.g. "broker")
+  activeRole:  string;        // role aktif untuk view switching (hybrid user)
+  investorId:  string;
+  brokerId:    string;
+  hasDualRole: boolean;       // true kalau punya BOTH investorId & brokerId
 }
 
 interface AuthContextType {
@@ -29,6 +31,8 @@ interface AuthContextType {
   needsLinking: boolean;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
+  /** Switch active role untuk hybrid user (punya investorId & brokerId) */
+  switchRole: (role: "investor" | "broker") => void;
   isAuthenticated: boolean;
   isAdmin:    boolean;
   isOwner:    boolean;
@@ -36,6 +40,8 @@ interface AuthContextType {
   isBroker:   boolean;
   canEdit:    boolean; // admin atau owner
 }
+
+const ACTIVE_ROLE_STORAGE_KEY = "minbun_activeRole";
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -52,12 +58,26 @@ function modelToUser(model: Record<string, string>): User | null {
   if (role === "investor" && !investor) return null;
   if (role === "broker"   && !broker)   return null;
 
+  // Hybrid user: punya BOTH investorId & brokerId → bisa switch role
+  const hasDualRole = !!investor && !!broker;
+
+  // Untuk hybrid user, restore activeRole dari localStorage (default = primary role)
+  let activeRole = role;
+  if (hasDualRole && typeof window !== "undefined") {
+    const stored = window.localStorage.getItem(ACTIVE_ROLE_STORAGE_KEY);
+    if (stored === "investor" || stored === "broker") {
+      activeRole = stored;
+    }
+  }
+
   return {
-    username:   model.username || model.email || "",
-    name:       model.name     || model.username || model.email || "",
+    username:    model.username || model.email || "",
+    name:        model.name     || model.username || model.email || "",
     role,
-    investorId: investor,
-    brokerId:   broker,
+    activeRole,
+    investorId:  investor,
+    brokerId:    broker,
+    hasDualRole,
   };
 }
 
@@ -137,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // karena semua data lain memfilter investorId mereka.
       if (!loggedInUser) {
         router.push("/hubungi-admin");
-      } else if (loggedInUser.role === "investor" || loggedInUser.role === "broker") {
+      } else if (loggedInUser.activeRole === "investor" || loggedInUser.activeRole === "broker") {
         router.push("/dashboard");
       } else {
         router.push("/portal");
@@ -155,9 +175,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // M-2 Sinyal ke seluruh konteks untuk membersihkan pbIdMap lokal
     // (mencegah leakage record id antar sesi user pada browser yang sama).
     if (typeof window !== "undefined") {
+      localStorage.removeItem(ACTIVE_ROLE_STORAGE_KEY);
       window.dispatchEvent(new CustomEvent("app:logout"));
     }
     router.push("/");
+  };
+
+  /** Switch active role untuk hybrid user (punya investorId & brokerId).
+   *  Persist ke localStorage agar bertahan setelah refresh. */
+  const switchRole = (newRole: "investor" | "broker") => {
+    setUser((prev) => {
+      if (!prev || !prev.hasDualRole) return prev;
+      if (typeof window !== "undefined") {
+        localStorage.setItem(ACTIVE_ROLE_STORAGE_KEY, newRole);
+      }
+      return { ...prev, activeRole: newRole };
+    });
   };
 
   if (isLoading) {
@@ -170,15 +203,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAdmin    = user?.role === "admin";
   const isOwner    = user?.role === "owner";
-  const isInvestor = user?.role === "investor";
-  const isBroker   = user?.role === "broker";
+  const isInvestor = user?.activeRole === "investor";
+  const isBroker   = user?.activeRole === "broker";
   const canEdit    = isAdmin || isOwner;
 
   // m-13: cek apakah user ada tapi field PK-nya kosong untuk role eksternal.
+  // Untuk hybrid user, cek field PK berdasarkan activeRole.
   const needsLinking =
     !!user &&
-    ((user.role === "investor" && !user.investorId) ||
-     (user.role === "broker"   && !user.brokerId));
+    ((user.activeRole === "investor" && !user.investorId) ||
+     (user.activeRole === "broker"   && !user.brokerId));
 
   return (
     <AuthContext.Provider value={{
@@ -186,6 +220,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       needsLinking,
       login,
       logout,
+      switchRole,
       isAuthenticated: !!user,
       isAdmin, isOwner, isInvestor, isBroker, canEdit,
     }}>

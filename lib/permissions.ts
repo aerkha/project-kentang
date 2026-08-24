@@ -14,12 +14,15 @@ export function usePermissions(): RolePermission {
 
   // m-12: runtime guard — kalau role di auth tak dikenal di settings, log warning
   // sekali dan kembalikan NO_ACCESS (bukan undefined yang akan crash komponen).
+  // Gunakan activeRole (bukan role) supaya hybrid user dapat permission sesuai
+  // role yang sedang aktif saat ini.
   const knownRoles = ["user", "owner", "investor", "broker", "admin"] as const;
-  if (!knownRoles.includes(user.role as typeof knownRoles[number])) {
-    console.warn(`[permissions] role tidak dikenal: "${user.role}"`);
+  const effectiveRole = user.activeRole || user.role;
+  if (!knownRoles.includes(effectiveRole as typeof knownRoles[number])) {
+    console.warn(`[permissions] role tidak dikenal: "${effectiveRole}"`);
     return NO_ACCESS;
   }
 
-  const role = user.role as keyof typeof rolePermissions;
+  const role = effectiveRole as keyof typeof rolePermissions;
   return rolePermissions[role] ?? NO_ACCESS;
 }

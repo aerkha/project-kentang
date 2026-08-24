@@ -802,7 +802,7 @@ export function PksContent() {
 
   const ITEMS_PER_PAGE = 20;
 
-  const isBroker = user?.role === "broker";
+  const isBroker = user?.activeRole === "broker";
   const currentBroker = brokers.find((b) => b.id === user?.brokerId);
 
   const visiblePkss = isInvestor && user?.investorId

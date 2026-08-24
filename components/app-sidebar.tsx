@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   Sprout, Users, BarChart3, LogOut, User, FileText, Receipt,
-  UserCog, Menu, X, Wallet, Bell, PackageSearch, ArrowLeft
+  UserCog, Menu, X, Wallet, Bell, PackageSearch, ArrowLeft,
+  Briefcase, TrendingUp, Repeat
 } from "lucide-react";
 import {
   Database, ArrowDownToLine, CheckSquare, ArrowUpRight
@@ -16,7 +17,7 @@ import {
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { user, logout, switchRole } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
 
   const close = () => setIsOpen(false);
@@ -160,13 +161,50 @@ export function AppSidebar() {
         </nav>
 
         <div className="px-3 py-4 border-t border-sidebar-border">
+          {/* Role Switcher untuk hybrid user (punya investorId & brokerId) */}
+          {user?.hasDualRole && (
+            <div className="mb-3">
+              <div className="flex items-center gap-1.5 px-1 mb-1.5">
+                <Repeat className="w-3.5 h-3.5 text-sidebar-foreground/50" />
+                <span className="text-[11px] font-medium text-sidebar-foreground/50 uppercase tracking-wide">
+                  Switch Role
+                </span>
+              </div>
+              <div className="flex items-center gap-1 p-1 bg-sidebar-accent/30 rounded-lg">
+                <button
+                  onClick={() => switchRole("broker")}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1.5 text-xs py-2 px-2 rounded-md font-medium transition-colors",
+                    user.activeRole === "broker"
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
+                      : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                  )}
+                >
+                  <Briefcase className="w-3.5 h-3.5" />
+                  Broker
+                </button>
+                <button
+                  onClick={() => switchRole("investor")}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1.5 text-xs py-2 px-2 rounded-md font-medium transition-colors",
+                    user.activeRole === "investor"
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
+                      : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                  )}
+                >
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  Investor
+                </button>
+              </div>
+            </div>
+          )}
           <div className="flex items-center gap-3 px-3 py-2 mb-2">
             <div className="flex items-center justify-center w-9 h-9 rounded-full bg-sidebar-accent shrink-0">
               <User className="w-4 h-4 text-sidebar-accent-foreground" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-sidebar-foreground truncate">{user?.name}</p>
-              <p className="text-xs text-sidebar-foreground/60 truncate capitalize">{user?.role}</p>
+              <p className="text-xs text-sidebar-foreground/60 truncate capitalize">{user?.activeRole}</p>
             </div>
           </div>
           <Button

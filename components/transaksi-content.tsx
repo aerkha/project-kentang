@@ -1016,7 +1016,7 @@ export default function TransaksiContent() {
   const [searchQuery, setSearchQuery]   = useState("");
   const [riwayatPage, setRiwayatPage]   = useState(1);
 
-  const isBroker = user?.role === "broker";
+  const isBroker = user?.activeRole === "broker";
   const currentBroker = brokers.find(b => b.id === user?.brokerId);
 
   const visibleTransaksis = isInvestor && user?.investorId
