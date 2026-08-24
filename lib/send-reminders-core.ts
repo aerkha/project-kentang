@@ -266,42 +266,30 @@ async function processAutorenewals(pb: PocketBase) {
 
 // ─── Core Logic Pencarian Tagihan ─────────────────────────────────────────────
 
-// Helper: Build map of investors from entries
-// PATCH (ringan #26): sebelumnya `catch { /* ignore */ }` menelan SEMUA error
-// tanpa log. Sekarang kita catat error ke console.warn dengan konteks (TRX
-// count) agar admin tahu ada masalah konfigurasi/permission, tapi tidak
-// menggagalkan alur reminder.
-// PATCH: batch filter agar tidak melebihi batas panjang URL PocketBase.
-// Sebelumnya seluruh TRX IDs digabung dalam satu filter `transaksiId = "..." || ...`
-// yang bisa sangat panjang dan menyebabkan getFullList gagal silently → entries
-// kosong → investor & nominal modal & nominal bagi hasil semua tampil "—".
-// Sekarang filter dipecah ke batch berukuran kecil.
-async function buildInvestorsMap(pb: PocketBase, trxPbIds: string): Promise<Map<string, any[]>> {
+// Helper: Build map of investors from entries.
+// Mengikuti pendekatan client-side (lib/transaksi-context.tsx baris 285):
+// load SEMUA record `transaksi_investors` TANPA filter, lalu kelompokkan di
+// memory berdasarkan `transaksiId`. Pendekatan filter PocketBase sebelumnya
+// (baik single maupun batched) gagal silently — error tertangkap catch dan
+// entriesMap tetap kosong, sehingga kolom Investor & Nominal Bagi Hasil di
+// email selalu menampilkan "—". Load tanpa filter terbukti bekerja di client.
+async function buildInvestorsMap(pb: PocketBase): Promise<Map<string, any[]>> {
   const entriesMap = new Map<string, any[]>();
-  if (!trxPbIds) return entriesMap;
 
-  const allConditions = trxPbIds.split(" || ");
-  const BATCH_SIZE = 30;
-  let totalLoaded = 0;
-
-  for (let i = 0; i < allConditions.length; i += BATCH_SIZE) {
-    const batchFilter = allConditions.slice(i, i + BATCH_SIZE).join(" || ");
-    try {
-      const entries = await pb.collection("transaksi_investors").getFullList<any>({
-        filter: batchFilter,
-      });
-      totalLoaded += entries.length;
-      for (const e of entries) {
-        const list = entriesMap.get(e.transaksiId) ?? [];
-        list.push(e);
-        entriesMap.set(e.transaksiId, list);
-      }
-    } catch (err) {
-      console.warn(`[buildInvestorsMap] gagal load entries untuk batch ${Math.floor(i / BATCH_SIZE) + 1}:`, err);
+  try {
+    const entries = await pb.collection("transaksi_investors").getFullList<any>({
+      sort: "created",
+    });
+    console.log(`[buildInvestorsMap] Berhasil load ${entries.length} entries`);
+    for (const e of entries) {
+      const list = entriesMap.get(e.transaksiId) ?? [];
+      list.push(e);
+      entriesMap.set(e.transaksiId, list);
     }
+  } catch (err) {
+    console.warn(`[buildInvestorsMap] gagal load entries:`, err);
   }
 
-  console.log(`[buildInvestorsMap] Berhasil load ${totalLoaded} entries untuk ${allConditions.length} transaksi`);
   return entriesMap;
 }
 
@@ -344,8 +332,7 @@ async function processBagiHasilTasks(pb: PocketBase, tasks: PendingTask[]): Prom
 
   if (trxs.length === 0) return;
 
-  const trxPbIds = trxs.map((r) => `transaksiId = "${pbEsc(r.id)}"`).join(" || ");
-  const entriesMap = await buildInvestorsMap(pb, trxPbIds);
+  const entriesMap = await buildInvestorsMap(pb);
   const pkPctMap = await buildInvestorPkPctMap(pb);
 
   for (const trx of trxs) {
