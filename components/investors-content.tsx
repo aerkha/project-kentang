@@ -1453,23 +1453,41 @@ export function InvestorsContent() {
 
       try {
         // Cek apakah email sudah terdaftar (mis. user broker dengan email yang sama).
-        // Jika ya, UPDATE record tersebut untuk menambahkan investorId (hybrid user)
-        // alih-alih membuat akun baru (yang akan ditolak karena email duplikat).
-        let existingUser: Record<string, unknown> | null = null;
+        // Pencarian dilakukan server-side via service account (superuser) karena
+        // client-side getFirstListItem dengan filter email dapat gagal akibat
+        // PocketBase API rules pada collection `users`.
+        let linked = false;
+        let existingRole = "";
         try {
-          existingUser = await pb.collection("users").getFirstListItem(
-            `email = "${accountEmail.replace(/"/g, "\\\"")}"`,
-          );
-        } catch {
-          // User belum ada — ini normal untuk investor baru
+          const linkRes = await fetch("/api/link-hybrid-user", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${pb.authStore.token}`,
+            },
+            body: JSON.stringify({
+              email: accountEmail,
+              role: "investor",
+              recordId: newId,
+            }),
+          });
+          if (linkRes.ok) {
+            const linkData = await linkRes.json() as { linked?: boolean; existingRole?: string; reason?: string; error?: string };
+            if (linkData.linked) {
+              linked = true;
+              existingRole = linkData.existingRole || "";
+            } else if (linkData.error) {
+              console.error("[link-hybrid-user] API error:", linkData.error);
+            }
+          } else {
+            console.error("[link-hybrid-user] HTTP", linkRes.status);
+          }
+        } catch (linkErr) {
+          console.error("[link-hybrid-user] fetch gagal:", linkErr);
         }
 
-        if (existingUser && (existingUser.role === "broker" || existingUser.role === "investor")) {
-          // Link investorId ke akun yang sudah ada → hybrid user
-          await pb.collection("users").update(existingUser.id as string, {
-            investorId: newId,
-          });
-          toast.success(`Akun investor terhubung ke akun ${(existingUser.role as string)} yang sudah ada. User dapat switch role setelah login.`);
+        if (linked) {
+          toast.success(`Akun investor terhubung ke akun ${existingRole} yang sudah ada. User dapat switch role setelah login.`);
         } else {
           // Buat akun user baru
           await pb.collection("users").create({
@@ -1804,25 +1822,41 @@ export function InvestorsContent() {
 
       try {
         // Cek apakah email sudah terdaftar (mis. user investor dengan email yang sama).
-        // Jika ya, UPDATE record tersebut untuk menambahkan brokerId (hybrid user)
-        // alih-alih membuat akun baru (yang akan ditolak karena email duplikat).
-        let existingUser: Record<string, unknown> | null = null;
+        // Pencarian dilakukan server-side via service account (superuser) karena
+        // client-side getFirstListItem dengan filter email dapat gagal akibat
+        // PocketBase API rules pada collection `users`.
+        let linked = false;
+        let existingRole = "";
         try {
-          existingUser = await pb.collection("users").getFirstListItem(
-            `email = "${accountEmail.replace(/"/g, "\\\"")}"`,
-          );
-        } catch {
-          // User belum ada — ini normal untuk broker baru
+          const linkRes = await fetch("/api/link-hybrid-user", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${pb.authStore.token}`,
+            },
+            body: JSON.stringify({
+              email: accountEmail,
+              role: "broker",
+              recordId: actualBrokerId,
+            }),
+          });
+          if (linkRes.ok) {
+            const linkData = await linkRes.json() as { linked?: boolean; existingRole?: string; reason?: string; error?: string };
+            if (linkData.linked) {
+              linked = true;
+              existingRole = linkData.existingRole || "";
+            } else if (linkData.error) {
+              console.error("[link-hybrid-user] API error:", linkData.error);
+            }
+          } else {
+            console.error("[link-hybrid-user] HTTP", linkRes.status);
+          }
+        } catch (linkErr) {
+          console.error("[link-hybrid-user] fetch gagal:", linkErr);
         }
 
-        if (existingUser && (existingUser.role === "investor" || existingUser.role === "broker")) {
-          // Link brokerId ke akun yang sudah ada → hybrid user.
-          // Role diubah ke "broker" sebagai primary role.
-          await pb.collection("users").update(existingUser.id as string, {
-            brokerId: actualBrokerId,
-            role: "broker",
-          });
-          toast.success(`Akun broker terhubung ke akun ${(existingUser.role as string)} yang sudah ada. User dapat switch role setelah login.`);
+        if (linked) {
+          toast.success(`Akun broker terhubung ke akun ${existingRole} yang sudah ada. User dapat switch role setelah login.`);
         } else {
           // Buat akun user baru
           await pb.collection("users").create({
