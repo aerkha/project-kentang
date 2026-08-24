@@ -9,10 +9,11 @@ import { isSameOriginRequest } from "@/lib/pb-error";
  * service account / superuser) lalu menghubungkan investorId atau brokerId
  * ke record tersebut → menciptakan hybrid user.
  *
- * Diperlukan karena client-side `getFirstListItem` dengan filter `email = "..."`
- * dapat gagal akibat PocketBase API rules pada collection `users` (pencarian
- * berbasis email dibatasi). Service account (superuser) tidak terkena batasan
- * tersebut.
+ * Diperlukan karena PocketBase membatasi filter berbasis `email` pada auth
+ * collections untuk non-superuser (email enumeration protection). Filter
+ * `email = "..."` pada `getFirstListItem` mengembalikan 404 meskipun record
+ * ada. Solusi: gunakan `getFullList()` (tanpa filter email — terbukti bekerja
+ * di halaman Users management) lalu cocokkan email di JavaScript.
  *
  * Body  : { email: string, role: "investor" | "broker", recordId: string }
  * Auth  : Authorization: Bearer <pb_token>  (harus admin)
@@ -97,29 +98,38 @@ export async function POST(req: NextRequest) {
   }
 
   // 4. Cari user berdasarkan email.
-  const escapedEmail = email.trim().replace(/"/g, '\\"');
-  let existingUser: Record<string, unknown> | null = null;
+  //    Gunakan getFullList() (tanpa filter email) karena PocketBase membatasi
+  //    filter berbasis `email` pada auth collections untuk non-superuser.
+  //    getFullList() bekerja karena API rule mengizinkan admin melihat semua
+  //    user — terbukti di halaman Users management (users-content.tsx).
+  //    Email matching dilakukan di JavaScript setelah data di-fetch.
+  const targetEmail = email.trim().toLowerCase();
+  let existingUser: { id: string; role?: string } | null = null;
   try {
-    existingUser = await pbService.collection("users").getFirstListItem(
-      `email = "${escapedEmail}"`,
-    ) as Record<string, unknown>;
+    const allUsers = await pbService.collection("users").getFullList({
+      fields: "id,role,email,emailVisibility",
+    });
+    // Cocokkan email di JS. Beberapa record mungkin punya emailVisibility=false
+    // sehingga field email tidak dikembalikan — skip record tersebut.
+    existingUser = allUsers.find((u) => {
+      const uEmail = (u as Record<string, unknown>).email;
+      return typeof uEmail === "string" && uEmail.trim().toLowerCase() === targetEmail;
+    }) as { id: string; role?: string } | null;
   } catch (err) {
-    // 404 = user belum ada → ini normal, berarti tidak ada akun untuk di-link.
-    const status = (err as { status?: number }).status;
-    if (status === 404) {
-      return NextResponse.json({ linked: false, reason: "not_found" });
-    }
-    // Error lain (500, 403, dll) — log dan laporkan.
-    console.error("[link-hybrid-user] gagal mencari user by email:", err);
+    console.error("[link-hybrid-user] gagal fetch all users:", err);
     return NextResponse.json(
-      { error: "Gagal mencari user berdasarkan email", detail: err instanceof Error ? err.message : String(err) },
+      { error: "Gagal mengambil daftar user", detail: err instanceof Error ? err.message : String(err) },
       { status: 500 },
     );
   }
 
+  if (!existingUser) {
+    return NextResponse.json({ linked: false, reason: "not_found" });
+  }
+
   // 5. Hubungkan investorId atau brokerId ke user yang sudah ada.
-  const userId = existingUser.id as string;
-  const existingRole = existingUser.role as string;
+  const userId = existingUser.id;
+  const existingRole = existingUser.role ?? "";
 
   const updateData: Record<string, unknown> = {};
   if (role === "investor") {
