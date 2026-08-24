@@ -47,11 +47,8 @@ jobs:
     needs: test # TAHAP INI HANYA JALAN JIKA TAHAP TEST LULUS 100%
     runs-on: ubuntu-latest
     steps:
-      - name: Setup pnpm (untuk konsistensi tooling)
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
+      # Deploy menjalankan perintah via SSH di VPS, bukan di runner.
+      # pnpm di-setup di dalam VPS via `corepack` pada script di bawah.
       - name: Execute SSH Commands on VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -60,18 +57,35 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           # Perintah ini akan dijalankan langsung di dalam terminal VPS Anda
+          # FIX: gunakan pnpm (bukan npm) — project pakai pnpm-lock.yaml.
+          #      Sebelumnya `npm install --frozen-lockfile` gagal karena npm
+          #      tidak mengenali flag --frozen-lockfile dan tidak ada
+          #      package-lock.json, sehingga deploy menggunakan cache lama.
           script: |
+            set -e
+
             # 1. Masuk ke folder proyek
             cd /var/www/minbun-erp
 
             # 2. Tarik kode terbaru dari GitHub
-            git pull origin main
+            #    Gunakan fetch + reset --hard agar selalu sync persis dengan
+            #    remote (menghindari merge conflict dari perubahan lokal VPS).
+            #    File untracked seperti .env tetap aman.
+            git fetch origin main
+            git reset --hard origin/main
 
-            # 3. Install dengan lockfile strict
-            npm install --frozen-lockfile
+            # 3. Pastikan pnpm tersedia via corepack (bundled dengan Node.js)
+            corepack enable
+            corepack prepare pnpm@10 --activate
 
-            # 4. Build dengan output standalone
-            npm run build
+            # 4. Install dependencies dengan lockfile strict (pnpm)
+            pnpm install --frozen-lockfile
+
+            # 5. Bersihkan cache build lama agar route baru terdeteksi
+            rm -rf .next
+
+            # 6. Build dengan output standalone
+            pnpm run build
 
             # ==========================================
             # FIX STANDALONE: Salin aset statis & .env
@@ -81,16 +95,17 @@ jobs:
             cp .env .next/standalone/
             # ==========================================
 
-            # 5. Pindah ke folder standalone & nyalakan ulang server
+            # 7. Pindah ke folder standalone & nyalakan ulang server
             cd .next/standalone
             pm2 restart minbun-erp || pm2 start server.js --name "minbun-erp"
             pm2 save
 
-            # 6. Smoke test: tunggu 5 detik lalu cek /api/health
+            # 8. Smoke test: tunggu 5 detik lalu cek /api/health
             sleep 5
             if ! curl -fsS -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/health | grep -q "^200$"; then
               echo "⚠️  HEALTH CHECK FAILED — server mungkin tidak sehat, periksa log PM2"
               pm2 logs minbun-erp --lines 50 --nostream --raw
+              exit 1
             else
               echo "✅ Health check passed — deploy sukses"
             fi
