@@ -9,11 +9,18 @@ import { cn } from "@/lib/utils";
 import {
   Sprout, Users, BarChart3, LogOut, User, FileText, Receipt,
   UserCog, Menu, X, Wallet, Bell, PackageSearch, ArrowLeft,
-  Briefcase, TrendingUp, Repeat
+  Briefcase, TrendingUp, Repeat, KeyRound, Loader2, Eye, EyeOff
 } from "lucide-react";
 import {
   Database, ArrowDownToLine, CheckSquare, ArrowUpRight
 } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import pb from "@/lib/pocketbase";
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -21,6 +28,68 @@ export function AppSidebar() {
   const [isOpen, setIsOpen] = useState(false);
 
   const close = () => setIsOpen(false);
+
+  // Change Password dialog state
+  const [isPwOpen, setIsPwOpen] = useState(false);
+  const [pwForm, setPwForm] = useState({ oldPassword: "", password: "", passwordConfirm: "" });
+  const [pwError, setPwError] = useState("");
+  const [isPwSaving, setIsPwSaving] = useState(false);
+  const [showOldPw, setShowOldPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
+
+  const resetPwForm = () => {
+    setPwForm({ oldPassword: "", password: "", passwordConfirm: "" });
+    setPwError("");
+    setShowOldPw(false);
+    setShowNewPw(false);
+    setShowConfirmPw(false);
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwError("");
+    if (!pwForm.oldPassword) {
+      setPwError("Password lama wajib diisi");
+      return;
+    }
+    if (pwForm.password !== pwForm.passwordConfirm) {
+      setPwError("Password baru tidak cocok");
+      return;
+    }
+    if (pwForm.password.length < 8) {
+      setPwError("Password baru minimal 8 karakter");
+      return;
+    }
+    if (pwForm.oldPassword === pwForm.password) {
+      setPwError("Password baru harus berbeda dari password lama");
+      return;
+    }
+
+    setIsPwSaving(true);
+    try {
+      const res = await fetch("/api/change-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${pb.authStore.token}`,
+        },
+        body: JSON.stringify(pwForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPwError(data?.error || "Gagal mengganti password");
+        return;
+      }
+      toast.success("Password berhasil diubah");
+      setIsPwOpen(false);
+      resetPwForm();
+    } catch {
+      setPwError("Terjadi kesalahan jaringan");
+    } finally {
+      setIsPwSaving(false);
+    }
+  };
 
   const isAdmin = user?.role === "admin";
   const isUser = user?.role === "user";
@@ -210,6 +279,14 @@ export function AppSidebar() {
           <Button
             variant="ghost"
             className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+            onClick={() => { resetPwForm(); setIsPwOpen(true); }}
+          >
+            <KeyRound className="w-4 h-4" />
+            Change Password
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
             onClick={logout}
           >
             <LogOut className="w-4 h-4" />
@@ -217,6 +294,126 @@ export function AppSidebar() {
           </Button>
         </div>
       </aside>
+
+      {/* Dialog Change Password */}
+      <Dialog
+        open={isPwOpen}
+        onOpenChange={(o) => {
+          setIsPwOpen(o);
+          if (!o) resetPwForm();
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="w-5 h-5" />
+              Change Password
+            </DialogTitle>
+            <DialogDescription>
+              Ubah password akun Anda. Password lama diperlukan untuk verifikasi.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleChangePassword} className="space-y-4 mt-2">
+            {/* Password Lama */}
+            <div className="space-y-1.5">
+              <Label htmlFor="oldPassword">Password Lama</Label>
+              <div className="relative">
+                <Input
+                  id="oldPassword"
+                  type={showOldPw ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={pwForm.oldPassword}
+                  onChange={(e) => setPwForm((f) => ({ ...f, oldPassword: e.target.value }))}
+                  className="pr-10"
+                  disabled={isPwSaving}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowOldPw((s) => !s)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  tabIndex={-1}
+                >
+                  {showOldPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Password Baru */}
+            <div className="space-y-1.5">
+              <Label htmlFor="newPassword">Password Baru</Label>
+              <div className="relative">
+                <Input
+                  id="newPassword"
+                  type={showNewPw ? "text" : "password"}
+                  autoComplete="new-password"
+                  value={pwForm.password}
+                  onChange={(e) => setPwForm((f) => ({ ...f, password: e.target.value }))}
+                  className="pr-10"
+                  disabled={isPwSaving}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPw((s) => !s)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  tabIndex={-1}
+                >
+                  {showNewPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">Minimal 8 karakter.</p>
+            </div>
+
+            {/* Konfirmasi Password */}
+            <div className="space-y-1.5">
+              <Label htmlFor="passwordConfirm">Konfirmasi Password Baru</Label>
+              <div className="relative">
+                <Input
+                  id="passwordConfirm"
+                  type={showConfirmPw ? "text" : "password"}
+                  autoComplete="new-password"
+                  value={pwForm.passwordConfirm}
+                  onChange={(e) => setPwForm((f) => ({ ...f, passwordConfirm: e.target.value }))}
+                  className="pr-10"
+                  disabled={isPwSaving}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPw((s) => !s)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  tabIndex={-1}
+                >
+                  {showConfirmPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {pwError && (
+              <p className="text-sm text-destructive">{pwError}</p>
+            )}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsPwOpen(false)}
+                disabled={isPwSaving}
+              >
+                Batal
+              </Button>
+              <Button type="submit" disabled={isPwSaving}>
+                {isPwSaving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Menyimpan...
+                  </>
+                ) : (
+                  "Simpan"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
