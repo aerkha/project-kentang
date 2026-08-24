@@ -47,8 +47,6 @@ jobs:
     needs: test # TAHAP INI HANYA JALAN JIKA TAHAP TEST LULUS 100%
     runs-on: ubuntu-latest
     steps:
-      # Deploy menjalankan perintah via SSH di VPS, bukan di runner.
-      # pnpm di-setup di dalam VPS via `corepack` pada script di bawah.
       - name: Execute SSH Commands on VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -56,11 +54,12 @@ jobs:
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          # Perintah ini akan dijalankan langsung di dalam terminal VPS Anda
-          # FIX: gunakan pnpm (bukan npm) — project pakai pnpm-lock.yaml.
-          #      Sebelumnya `npm install --frozen-lockfile` gagal karena npm
-          #      tidak mengenali flag --frozen-lockfile dan tidak ada
-          #      package-lock.json, sehingga deploy menggunakan cache lama.
+          # VPS tidak punya pnpm → tetap pakai npm.
+          # FIX utama: sebelumnya `git pull` gagal (merge conflict lokal VPS)
+          # dan `npm install --frozen-lockfile` gagal (flag --frozen-lockfile
+          # adalah pnpm-only, npm tidak mengenalinya). Tanpa `set -e`, error
+          # ini diabaikan diam-diam → build pakai cache .next lama → route
+          # baru seperti /api/link-hybrid-user tidak pernah terdeploy.
           script: |
             set -e
 
@@ -69,23 +68,21 @@ jobs:
 
             # 2. Tarik kode terbaru dari GitHub
             #    Gunakan fetch + reset --hard agar selalu sync persis dengan
-            #    remote (menghindari merge conflict dari perubahan lokal VPS).
-            #    File untracked seperti .env tetap aman.
+            #    remote. `git pull` bisa gagal jika ada perubahan lokal di VPS
+            #    (merge conflict), sehingga kode baru tidak pernah terambil.
+            #    File untracked seperti .env tetap aman (tidak di-reset).
             git fetch origin main
             git reset --hard origin/main
 
-            # 3. Pastikan pnpm tersedia via corepack (bundled dengan Node.js)
-            corepack enable
-            corepack prepare pnpm@10 --activate
+            # 3. Install dependencies (npm — tanpa --frozen-lockfile karena
+            #    itu flag pnpm; npm akan menggunakan package-lock.json jika ada)
+            npm install
 
-            # 4. Install dependencies dengan lockfile strict (pnpm)
-            pnpm install --frozen-lockfile
-
-            # 5. Bersihkan cache build lama agar route baru terdeteksi
+            # 4. Bersihkan cache build lama agar route baru terdeteksi
             rm -rf .next
 
-            # 6. Build dengan output standalone
-            pnpm run build
+            # 5. Build dengan output standalone
+            npm run build
 
             # ==========================================
             # FIX STANDALONE: Salin aset statis & .env
@@ -95,12 +92,12 @@ jobs:
             cp .env .next/standalone/
             # ==========================================
 
-            # 7. Pindah ke folder standalone & nyalakan ulang server
+            # 6. Pindah ke folder standalone & nyalakan ulang server
             cd .next/standalone
             pm2 restart minbun-erp || pm2 start server.js --name "minbun-erp"
             pm2 save
 
-            # 8. Smoke test: tunggu 5 detik lalu cek /api/health
+            # 7. Smoke test: tunggu 5 detik lalu cek /api/health
             sleep 5
             if ! curl -fsS -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/health | grep -q "^200$"; then
               echo "⚠️  HEALTH CHECK FAILED — server mungkin tidak sehat, periksa log PM2"
