@@ -115,72 +115,58 @@ function calcPksDistribution(
 
   let totalProfit = 0;
   let owner = 0, hasanah = 0, investor = 0, trader = 0, minbun = 0, brokerI = 0, brokerII = 0;
-
-  // Pct efektif dari entry pertama yang ditemukan — untuk ditampilkan di tabel
   let effectivePct = { pctTrader: pp2Pct * 100, pctMinBun: 0, pctBrokerI: 0, pctBrokerII: 0 };
-  let pctSet = false;
 
-  transaksis.forEach((t) => {
+  // Total Profit & distribusi dihitung dari SATU transaksi TERBARU yang masih
+  // berstatus "berjalan" dalam siklus berjalan — BUKAN menjumlahkan semua TRX
+  // (sebelumnya menjumlahkan income semua TRX berjalan → membengkak ke miliaran).
+  // Total Profit = hargaJual × qty × rasio investor = calc.income × ratio,
+  // sama dengan kolom "Income" di halaman Transaksi untuk TRX terakhir itu.
+  let latest: Transaksi | null = null;
+  let latestMs = 0;
+  for (const t of transaksis) {
     const [ty, tm, td] = (t.date as string).slice(0, 10).split("-").map(Number);
     const tDate = Date.UTC(ty, tm - 1, td);
-    // Hanya hitung transaksi dalam siklus yang sedang berjalan
-    if (tDate < cycleStartMs || tDate >= cycleEndMs) return;
-    // Hanya transaksi yang masih berstatus "berjalan" (bukan selesai/bermasalah).
-    // Transaksi final sudah tidak ikut dihitung di rekap siklus berjalan.
-    if (effectiveStatus(t) !== "berjalan") return;
+    if (tDate < cycleStartMs || tDate >= cycleEndMs) continue;
+    if (effectiveStatus(t) !== "berjalan") continue;
+    if (!t.investorEntries.some((e) => e.investorId === pks.investorId && e.nilaiInvestasi > 0)) continue;
+    if (tDate > latestMs) { latestMs = tDate; latest = t; }
+  }
 
+  if (latest) {
+    const t = latest;
     const calc = calcTransaksi(t);
-    if (calc.totalInvestasi === 0) return;
-
-    // Bagian investor ini dari TRX: rasio entry
-    const entry = t.investorEntries.find((e) => e.investorId === pks.investorId);
-    if (!entry || entry.nilaiInvestasi <= 0) return;
+    const entry = t.investorEntries.find((e) => e.investorId === pks.investorId)!;
     const ratio = entry.nilaiInvestasi / calc.totalInvestasi;
 
-    // Total Profit = GROSS INCOME (omzet) per-investor — sama dengan kolom
-    // "Income" di halaman Transaksi (calc.income × ratio). Dihitung selalu,
-    // tidak bergantung tanda profit.
-    totalProfit += calc.income * ratio;
+    // Total Profit = gross income (omzet) dari 1 transaksi berjalan terakhir
+    totalProfit = calc.income * ratio;
 
-    // Distribusi bagi hasil berbasis NET profit — hanya jika profit > 0,
+    // Distribusi bagi hasil berbasis NET profit (hanya jika profit > 0),
     // konsisten dengan model reminder/pks-html.
-    if (calc.profit <= 0) return;
-    const profit = calc.profit * ratio;
+    if (calc.profit > 0) {
+      const profit = calc.profit * ratio;
+      const minBunPct = Math.min(entry.pctMinBun, pp3Pct);
+      const brokerPct = Math.max(0, pp3Pct - minBunPct);
+      const brokerTotal = entry.pctBrokerI + entry.pctBrokerII;
+      const brokerIShare  = brokerTotal > 0 ? brokerPct * (entry.pctBrokerI  / brokerTotal) : 0;
+      const brokerIIShare = brokerTotal > 0 ? brokerPct * (entry.pctBrokerII / brokerTotal) : 0;
 
-    // MinBun dari entry (pctMinBun), di-clamp ke PP3 agar total tetap 100%.
-    // Broker mendapat sisa PP3 setelah MinBun.
-    const minBunPct = Math.min(entry.pctMinBun, pp3Pct);
-    const brokerPct = Math.max(0, pp3Pct - minBunPct);
-
-    // Split Broker antara Broker I & II berdasarkan rasio entry
-    const brokerTotal = entry.pctBrokerI + entry.pctBrokerII;
-    const brokerIShare  = brokerTotal > 0 ? brokerPct * (entry.pctBrokerI  / brokerTotal) : 0;
-    const brokerIIShare = brokerTotal > 0 ? brokerPct * (entry.pctBrokerII / brokerTotal) : 0;
-
-    if (!pctSet) {
       effectivePct = {
         pctTrader:   pp2Pct * 100,
         pctMinBun:   minBunPct,
         pctBrokerI:  brokerIShare,
         pctBrokerII: brokerIIShare,
       };
-      pctSet = true;
+
+      owner    = profit * pp1Pct;
+      trader   = profit * pp2Pct;
+      investor = profit * pkPct;
+      minbun   = profit * minBunPct    / 100;
+      brokerI  = profit * brokerIShare  / 100;
+      brokerII = profit * brokerIIShare / 100;
     }
-
-    const trxOwner    = profit * pp1Pct;
-    const trxTrader   = profit * pp2Pct;
-    const trxInvestor = profit * pkPct;
-    const trxMinbun   = profit * minBunPct    / 100;
-    const trxBrokerI  = profit * brokerIShare  / 100;
-    const trxBrokerII = profit * brokerIIShare / 100;
-
-    owner    += trxOwner;
-    investor += trxInvestor;
-    trader   += trxTrader;
-    minbun   += trxMinbun;
-    brokerI  += trxBrokerI;
-    brokerII += trxBrokerII;
-  });
+  }
 
   hasanah = investor + trader + minbun + brokerI + brokerII;
 
