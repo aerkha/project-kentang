@@ -72,41 +72,49 @@ function formatDate(s: string) {
 
 import type { Pks } from "@/lib/pks-context";
 
-// Hitung distribusi per-TRX untuk satu PKS, konsisten dengan halaman Reminder.
-// Aturan:
-//   - Hanya TRX dengan profit > 0 dan investasi > 0 yang dihitung
-//   - Per TRX, hitung rasio (entry.nilaiInvestasi / totalInvestasi), lalu
-//     kalikan profit TRX dengan rasio → bagian investor di TRX ini
-//   - Investor (PK)  = bagian_investor × PK% PKS (fallback 35)
-//   - Trader / MinBun / Broker = bagian_investor × % entry (fallback konsisten)
-//   - Owner          = bagian_investor − (Investor + Trader + MinBun + Broker)
-//     jadi total per-baris (Owner+Investor+Trader+MinBun+Broker) = bagian_investor.
-//   - Akumulasi totalProfit per-TRX untuk sanity check.
+// Hitung distribusi profit per-TRX untuk satu PKS, hanya untuk siklus yang
+// sedang berjalan (currentCycle). Persentase bersumber dari PKS:
+//   - Owner (PP I)    = profit × bagiHasilPP1%   (dari PKS)
+//   - Trader (PP II)  = profit × bagiHasilPP2%   (dari PKS)
+//   - Investor (PK)    = profit × bagiHasilPK%    (dari PKS)
+//   - MinBun          = profit × entry.pctMinBun% (dari entry TRX, di-clamp ke PP3)
+//   - Broker I/II     = profit × sisa PP3 setelah MinBun, dibagi rasio entry
+//   - Hasanah         = Investor + Trader + MinBun + Broker I + Broker II
+//                       (semua pihak selain Owner = PP2 + PP3 + PK)
 function calcPksDistribution(
   pks: Pks,
   transaksis: Transaksi[],
+  currentCycle: number,
 ) {
   const [sy, sm, sd] = pks.date.slice(0, 10).split("-").map(Number);
   const pksStart = Date.UTC(sy, sm - 1, sd);
   const pksEndDate = pks.endDate || (() => { const d = new Date(pksStart); d.setUTCDate(d.getUTCDate() + pks.contractPeriod * (pks.siklus ?? 1)); return d.toISOString().slice(0, 10); })();
   const [ey, em, ed] = pksEndDate.slice(0, 10).split("-").map(Number);
-  const pksEnd   = Date.UTC(ey, em - 1, ed);
+  const pksEnd = Date.UTC(ey, em - 1, ed);
 
-  const pkPct = (pks.bagiHasilPK ?? 35) / 100;
+  // Window siklus saat ini: [cycleStart, cycleEnd), di-clamp ke pksEnd
+  const DAY_MS = 86_400_000;
+  const cycleStartMs = pksStart + (currentCycle - 1) * pks.contractPeriod * DAY_MS;
+  const cycleEndMs   = Math.min(pksStart + currentCycle * pks.contractPeriod * DAY_MS, pksEnd);
+
+  // Persentase dari PKS
+  const pp1Pct = (pks.bagiHasilPP1 ?? 50) / 100;   // Owner (PP I)
+  const pp2Pct = (pks.bagiHasilPP2 ?? 15) / 100;   // Trader (PP II)
+  const pkPct  = (pks.bagiHasilPK  ?? 35) / 100;    // Investor (PK)
+  const pp3Pct = pks.bagiHasilPP3 ?? 0;             // PP III — MinBun + Broker (dalam %)
 
   let totalProfit = 0;
   let owner = 0, hasanah = 0, investor = 0, trader = 0, minbun = 0, brokerI = 0, brokerII = 0;
 
   // Pct efektif dari entry pertama yang ditemukan — untuk ditampilkan di tabel
-  let effectivePct = { pctTrader: 10, pctMinBun: 5, pctBrokerI: 0, pctBrokerII: 0 };
+  let effectivePct = { pctTrader: pp2Pct * 100, pctMinBun: 0, pctBrokerI: 0, pctBrokerII: 0 };
   let pctSet = false;
 
   transaksis.forEach((t) => {
     const [ty, tm, td] = (t.date as string).slice(0, 10).split("-").map(Number);
     const tDate = Date.UTC(ty, tm - 1, td);
-    // Batas akhir eksklusif [start, end) — konsisten dengan halaman lain agar
-    // transaksi di tanggal akhir tidak terhitung dobel saat PKS diperpanjang
-    if (tDate < pksStart || tDate >= pksEnd) return;
+    // Hanya hitung transaksi dalam siklus yang sedang berjalan
+    if (tDate < cycleStartMs || tDate >= cycleEndMs) return;
 
     const calc = calcTransaksi(t);
     if (calc.totalInvestasi === 0 || calc.profit <= 0) return;
@@ -118,31 +126,39 @@ function calcPksDistribution(
     const profit = calc.profit * ratio;
     totalProfit += profit;
 
-    // Fallback % trader/minbun/broker jika semua 0, konsisten dengan reminder.
-    const allZero  = entry.pctTrader === 0 && entry.pctMinBun === 0 && entry.pctBrokerI === 0 && entry.pctBrokerII === 0;
-    const hasBroker = !!entry.investorBrokerName;
-    const ePctTrader  = allZero ? 10                    : entry.pctTrader;
-    const ePctMinBun  = allZero ? (hasBroker ? 0 : 5)  : entry.pctMinBun;
-    const ePctBrokerI = allZero ? (hasBroker ? 5 : 0)  : entry.pctBrokerI;
-    const ePctBrokerII= allZero ? 0                     : entry.pctBrokerII;
+    // MinBun dari entry (pctMinBun), di-clamp ke PP3 agar total tetap 100%.
+    // Broker mendapat sisa PP3 setelah MinBun.
+    const minBunPct = Math.min(entry.pctMinBun, pp3Pct);
+    const brokerPct = Math.max(0, pp3Pct - minBunPct);
+
+    // Split Broker antara Broker I & II berdasarkan rasio entry
+    const brokerTotal = entry.pctBrokerI + entry.pctBrokerII;
+    const brokerIShare  = brokerTotal > 0 ? brokerPct * (entry.pctBrokerI  / brokerTotal) : 0;
+    const brokerIIShare = brokerTotal > 0 ? brokerPct * (entry.pctBrokerII / brokerTotal) : 0;
 
     if (!pctSet) {
-      effectivePct = { pctTrader: ePctTrader, pctMinBun: ePctMinBun, pctBrokerI: ePctBrokerI, pctBrokerII: ePctBrokerII };
+      effectivePct = {
+        pctTrader:   pp2Pct * 100,
+        pctMinBun:   minBunPct,
+        pctBrokerI:  brokerIShare,
+        pctBrokerII: brokerIIShare,
+      };
       pctSet = true;
     }
 
+    const trxOwner    = profit * pp1Pct;
+    const trxTrader   = profit * pp2Pct;
     const trxInvestor = profit * pkPct;
-    const trxTrader   = profit * ePctTrader   / 100;
-    const trxMinbun   = profit * ePctMinBun   / 100;
-    const trxBroker   = profit * (ePctBrokerI + ePctBrokerII) / 100;
-    const trxOwner    = profit - (trxInvestor + trxTrader + trxMinbun + trxBroker);
+    const trxMinbun   = profit * minBunPct    / 100;
+    const trxBrokerI  = profit * brokerIShare  / 100;
+    const trxBrokerII = profit * brokerIIShare / 100;
 
+    owner    += trxOwner;
     investor += trxInvestor;
     trader   += trxTrader;
     minbun   += trxMinbun;
-    brokerI  += trxBroker * (ePctBrokerI / Math.max(1, ePctBrokerI + ePctBrokerII));
-    brokerII += trxBroker * (ePctBrokerII / Math.max(1, ePctBrokerI + ePctBrokerII));
-    owner    += trxOwner;
+    brokerI  += trxBrokerI;
+    brokerII += trxBrokerII;
   });
 
   hasanah = investor + trader + minbun + brokerI + brokerII;
@@ -435,7 +451,6 @@ export function DashboardContent() {
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((pks, idx) => {
-        const dist       = calcPksDistribution(pks, filteredTransaksis);
         const modal      = pks.investmentAmount;
         const [uy, um, ud] = pks.date.slice(0, 10).split("-").map(Number);
         const [ty, tm, td] = todayWibStr().split("-").map(Number);
@@ -445,7 +460,6 @@ export function DashboardContent() {
         const endDateStr = pks.endDate || addDays(pks.date, pks.contractPeriod * (pks.siklus ?? 1));
         
         // Hitung siklus aktual berdasarkan transaksi yang ada dalam periode PKS ini
-        // Jika ada transaksi dengan autorenewal, berarti PKS sudah melewati siklus pertama
         const [sy, sm, sd] = pks.date.slice(0, 10).split("-").map(Number);
         const pksStart = Date.UTC(sy, sm - 1, sd);
         const [ey, em, ed] = endDateStr.slice(0, 10).split("-").map(Number);
@@ -461,10 +475,12 @@ export function DashboardContent() {
         });
         
         // Siklus dihitung dari jumlah periode contractPeriod yang telah berlalu
-        // Jika ada transaksi, hitung dari transaksi terakhir untuk menentukan siklus
         const currentCycle = trxInPeriod.length > 0
           ? Math.floor(usiaHari / pks.contractPeriod) + 1
           : 1;
+        
+        // Hitung distribusi profit hanya untuk siklus yang sedang berjalan
+        const dist = calcPksDistribution(pks, filteredTransaksis, currentCycle);
         
         const roi = (v: number) => (modal > 0 ? (v / modal) * 100 : 0);
         return {
@@ -1469,8 +1485,8 @@ export function DashboardContent() {
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Owner (PP I)</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">HASANAH</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">Investor (PK)</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Trader</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-green-700 dark:text-green-400 whitespace-nowrap">MinBun (PP II)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Trader (PP II)</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-green-700 dark:text-green-400 whitespace-nowrap">MinBun</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Broker I</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Broker II</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">ROI Total</th>
@@ -1497,11 +1513,11 @@ export function DashboardContent() {
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap" title={`PP I: ${row.pks.bagiHasilPP1 ?? 50}%`}>{formatShortFloat(row.owner)}</td>
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShortFloat(row.hasanah)}</td>
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap text-blue-600 font-medium" title={`PK: ${row.pks.bagiHasilPK ?? 35}%`}>{formatShortFloat(row.investor)}</td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap">
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap" title={`PP II: ${row.pks.bagiHasilPP2 ?? 15}%`}>
                         <div>{formatShortFloat(row.trader)}</div>
                         <div className="text-[9px] text-muted-foreground">{row.effectivePct.pctTrader}%</div>
                       </td>
-                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap text-green-700 dark:text-green-400 font-medium">
+                      <td className="py-2.5 px-2.5 text-right whitespace-nowrap text-green-700 dark:text-green-400 font-medium" title={`dari PP III: ${row.pks.bagiHasilPP3 ?? 0}%`}>
                         <div>{formatShortFloat(row.minbun)}</div>
                         <div className="text-[9px] text-muted-foreground">{row.effectivePct.pctMinBun}%</div>
                       </td>
