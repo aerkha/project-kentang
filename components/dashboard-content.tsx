@@ -72,8 +72,13 @@ function formatDate(s: string) {
 
 import type { Pks } from "@/lib/pks-context";
 
-// Hitung distribusi profit per-TRX untuk satu PKS, hanya untuk siklus yang
-// sedang berjalan (currentCycle). Persentase bersumber dari PKS:
+// Hitung distribusi per-TRX untuk satu PKS, hanya untuk siklus yang sedang
+// berjalan (currentCycle).
+//   - Total Profit    = GROSS INCOME (omzet) = calc.income × ratio
+//                       ── mengikuti kolom "Income" di halaman Transaksi.
+//   - Distribusi bagi hasil (Owner/Investor/Trader/dll) tetap berbasis
+//     NET profit = calc.profit × ratio × %, sesuai model reminder/pks-html.
+//   Persentase bersumber dari PKS:
 //   - Owner (PP I)    = profit × bagiHasilPP1%   (dari PKS)
 //   - Trader (PP II)  = profit × bagiHasilPP2%   (dari PKS)
 //   - Investor (PK)    = profit × bagiHasilPK%    (dari PKS)
@@ -81,6 +86,9 @@ import type { Pks } from "@/lib/pks-context";
 //   - Broker I/II     = profit × sisa PP3 setelah MinBun, dibagi rasio entry
 //   - Hasanah         = Investor + Trader + MinBun + Broker I + Broker II
 //                       (semua pihak selain Owner = PP2 + PP3 + PK)
+//   Catatan: Total Profit (gross) ≠ jumlah kolom distribusi (net) karena
+//   keduanya memakai basis berbeda — sesuai permintaan agar Total Profit
+//   sama persis dengan kolom Income di halaman Transaksi.
 function calcPksDistribution(
   pks: Pks,
   transaksis: Transaksi[],
@@ -117,14 +125,22 @@ function calcPksDistribution(
     if (tDate < cycleStartMs || tDate >= cycleEndMs) return;
 
     const calc = calcTransaksi(t);
-    if (calc.totalInvestasi === 0 || calc.profit <= 0) return;
+    if (calc.totalInvestasi === 0) return;
 
-    // Bagian investor ini dari TRX: rasio entry × profit TRX
+    // Bagian investor ini dari TRX: rasio entry
     const entry = t.investorEntries.find((e) => e.investorId === pks.investorId);
     if (!entry || entry.nilaiInvestasi <= 0) return;
-    const ratio  = entry.nilaiInvestasi / calc.totalInvestasi;
+    const ratio = entry.nilaiInvestasi / calc.totalInvestasi;
+
+    // Total Profit = GROSS INCOME (omzet) per-investor — sama dengan kolom
+    // "Income" di halaman Transaksi (calc.income × ratio). Dihitung selalu,
+    // tidak bergantung tanda profit.
+    totalProfit += calc.income * ratio;
+
+    // Distribusi bagi hasil berbasis NET profit — hanya jika profit > 0,
+    // konsisten dengan model reminder/pks-html.
+    if (calc.profit <= 0) return;
     const profit = calc.profit * ratio;
-    totalProfit += profit;
 
     // MinBun dari entry (pctMinBun), di-clamp ke PP3 agar total tetap 100%.
     // Broker mendapat sisa PP3 setelah MinBun.
@@ -474,9 +490,19 @@ export function DashboardContent() {
           return tDate >= pksStart && tDate < pksEnd;
         });
         
-        // Siklus dihitung dari jumlah periode contractPeriod yang telah berlalu
-        const currentCycle = trxInPeriod.length > 0
-          ? Math.floor(usiaHari / pks.contractPeriod) + 1
+        // Siklus "sedang berjalan" ditentukan dari transaksi TERBARU (bukan
+        // tanggal hari ini) agar window siklus selalu memuat transaksi terakhir.
+        // Ini mencegah Total Profit menjumlahkan transaksi dari beberapa siklus
+        // sekaligus (mis. 2× income → 282 jt padahal seharusnya 161.97 jt).
+        let latestTrxMs = 0;
+        trxInPeriod.forEach((t) => {
+          const [ty2, tm2, td2] = (t.date as string).slice(0, 10).split("-").map(Number);
+          const tDate = Date.UTC(ty2, tm2 - 1, td2);
+          if (tDate > latestTrxMs) latestTrxMs = tDate;
+        });
+        const cycleLenMs = (pks.contractPeriod || 30) * 86_400_000;
+        const currentCycle = latestTrxMs > 0 && cycleLenMs > 0
+          ? Math.max(1, Math.floor((latestTrxMs - pksStart) / cycleLenMs) + 1)
           : 1;
         
         // Hitung distribusi profit hanya untuk siklus yang sedang berjalan
@@ -553,7 +579,7 @@ export function DashboardContent() {
       profitOwner      += trxOwner;
     });
 
-    // Total semua pihak = total profit yang dibagikan
+    // Total semua pihak = Gross Profit yang dibagikan
     const totalBagiHasil = profitOwner + bagHasilInvestor + bagHasilTrader + bagHasilMinbun + bagHasilBroker;
     let periodLabel = "Semua Periode";
     if (dateRange?.from && dateRange?.to) {
@@ -900,7 +926,7 @@ export function DashboardContent() {
 
           <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Transaksi</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -911,7 +937,7 @@ export function DashboardContent() {
 
           <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Profit</CardTitle>
+              <CardTitle className="text-sm font-medium">Gross Profit</CardTitle>
               {periodMetrics.profit >= 0
                 ? <TrendingUp className="h-4 w-4 text-green-500" />
                 : <TrendingDown className="h-4 w-4 text-red-500" />}
@@ -925,7 +951,7 @@ export function DashboardContent() {
           </Card>
 
           {/* Ringkasan Bagi Hasil per pihak (Owner / Investor / Trader / MinBun / Broker) +
-              Total sebagai sanity check (harus ≈ Total Profit). */}
+              Total sebagai sanity check (harus ≈ Gross Profit). */}
           <Card className={`md:col-span-4 ${periodMetrics.isFiltered ? "border-primary/30" : ""}`}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Semua Bagi Hasil</CardTitle>
@@ -1035,7 +1061,7 @@ export function DashboardContent() {
               <CardHeader>
                 <CardTitle>PnL per Bulan</CardTitle>
                 <CardDescription>
-                  Profit (hijau) adalah bagian dari Total Transaksi (tinggi bar)
+                  Profit (hijau) adalah bagian dari Total Revenue (tinggi bar)
                   {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
                 </CardDescription>
               </CardHeader>
@@ -1056,7 +1082,7 @@ export function DashboardContent() {
                       <Tooltip
                         formatter={(value, name, props) => {
                           if (name === "cost") {
-                            return [formatCurrency(props.payload.income as number), "Total Transaksi"];
+                            return [formatCurrency(props.payload.income as number), "Total Revenue"];
                           }
                           if (name === "profit") {
                             return [formatCurrency(props.payload.actualProfit as number), "Profit"];
@@ -1069,7 +1095,7 @@ export function DashboardContent() {
                       />
                       <Legend
                         formatter={(value) =>
-                          value === "cost" ? "Total Transaksi" : value === "profit" ? "Profit" : value
+                          value === "cost" ? "Total Revenue" : value === "profit" ? "Profit" : value
                         }
                         wrapperStyle={{ fontSize: "11px" }}
                       />
@@ -1481,7 +1507,7 @@ export function DashboardContent() {
                     <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">End</th>
                     <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">No PKS</th>
                     <th className="text-center py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Keterangan</th>
-                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Total Profit</th>
+                    <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Gross Profit</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Owner (PP I)</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">HASANAH</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">Investor (PK)</th>
