@@ -102,11 +102,6 @@ function calcPksDistribution(
   const [ey, em, ed] = pksEndDate.slice(0, 10).split("-").map(Number);
   const pksEnd = Date.UTC(ey, em - 1, ed);
 
-  // Window siklus saat ini: [cycleStart, cycleEnd), di-clamp ke pksEnd
-  const DAY_MS = 86_400_000;
-  const cycleStartMs = pksStart + (currentCycle - 1) * pks.contractPeriod * DAY_MS;
-  const cycleEndMs   = Math.min(pksStart + currentCycle * pks.contractPeriod * DAY_MS, pksEnd);
-
   // Persentase dari PKS
   const pp1Pct = (pks.bagiHasilPP1 ?? 50) / 100;   // Owner (PP I)
   const pp2Pct = (pks.bagiHasilPP2 ?? 15) / 100;   // Trader (PP II)
@@ -118,22 +113,22 @@ function calcPksDistribution(
   let effectivePct = { pctTrader: pp2Pct * 100, pctMinBun: 0, pctBrokerI: 0, pctBrokerII: 0 };
 
   // Gross Profit & distribusi dihitung dari SATU transaksi TERBARU yang masih
-  // berstatus "berjalan" DAN terkait dengan PKS INI (entry.pksId === pks.id) —
-  // bukan sembarang transaksi investor itu (bisa dari PKS lain → salah angka).
-  // Diambil satu transaksi terbaru (bukan dijumlahkan) agar tidak membengkak.
-  // Gross Profit = (hargaJual × qty) − (modal + ongkir), dikali rasio investor
-  // = calc.profit × ratio, sama dengan kolom "Profit" di halaman Transaksi
-  // untuk TRX terakhir itu (mis. modal 140 jt → gross profit ≈ 19.44 jt).
+  // berstatus "berjalan" untuk investor ini dalam periode kontrak PKS — bukan
+  // dijumlahkan (agar tidak membengkak) dan bukan sembarang transaksi investor
+  // (harus dalam rentang kontrak PKS ini: [pksStart, pksEnd)).
+  // Trace: No PKS → investorId + periode kontrak → transaksi terkait → ambil
+  // transaksi berjalan terbaru. Gross Profit = calc.profit × ratio, sama dengan
+  // kolom "Profit" di halaman Transaksi (mis. modal 140 jt → ≈ 19.44 jt).
   let latest: Transaksi | null = null;
   let latestMs = 0;
   for (const t of transaksis) {
     const [ty, tm, td] = (t.date as string).slice(0, 10).split("-").map(Number);
     const tDate = Date.UTC(ty, tm - 1, td);
-    if (tDate < cycleStartMs || tDate >= cycleEndMs) continue;
+    // Transaksi harus dalam periode kontrak PKS ini
+    if (tDate < pksStart || tDate >= pksEnd) continue;
     if (effectiveStatus(t) !== "berjalan") continue;
-    // Harus ada entry investor ini yang terikat ke PKS ini (pksId === pks.id)
     const entry = t.investorEntries.find(
-      (e) => e.pksId === pks.id && e.investorId === pks.investorId && e.nilaiInvestasi > 0,
+      (e) => e.investorId === pks.investorId && e.nilaiInvestasi > 0,
     );
     if (!entry) continue;
     if (tDate > latestMs) { latestMs = tDate; latest = t; }
@@ -143,7 +138,7 @@ function calcPksDistribution(
     const t = latest;
     const calc = calcTransaksi(t);
     const entry = t.investorEntries.find(
-      (e) => e.pksId === pks.id && e.investorId === pks.investorId && e.nilaiInvestasi > 0,
+      (e) => e.investorId === pks.investorId && e.nilaiInvestasi > 0,
     )!;
     const ratio = entry.nilaiInvestasi / calc.totalInvestasi;
 
@@ -491,15 +486,14 @@ export function DashboardContent() {
         });
         
         // Siklus "sedang berjalan" ditentukan dari transaksi TERBARU yang masih
-        // berstatus "berjalan" DAN terkait PKS ini (pksId === pks.id) — bukan
-        // tanggal hari ini, agar window siklus selalu memuat transaksi aktif
-        // terakhir yang benar untuk PKS ini.
+        // berstatus "berjalan" untuk investor ini dalam periode kontrak PKS —
+        // bukan tanggal hari ini, agar window siklus selalu memuat transaksi
+        // aktif terakhir yang benar untuk PKS ini (trace: No PKS → investorId +
+        // periode kontrak → transaksi terkait).
         let latestTrxMs = 0;
         trxInPeriod.forEach((t) => {
           if (effectiveStatus(t) !== "berjalan") return;
-          if (!t.investorEntries.some(
-            (e) => e.pksId === pks.id && e.investorId === pks.investorId && e.nilaiInvestasi > 0,
-          )) return;
+          if (!t.investorEntries.some((e) => e.investorId === pks.investorId && e.nilaiInvestasi > 0)) return;
           const [ty2, tm2, td2] = (t.date as string).slice(0, 10).split("-").map(Number);
           const tDate = Date.UTC(ty2, tm2 - 1, td2);
           if (tDate > latestTrxMs) latestTrxMs = tDate;
