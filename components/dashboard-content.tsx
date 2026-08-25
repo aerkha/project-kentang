@@ -118,8 +118,9 @@ function calcPksDistribution(
   let effectivePct = { pctTrader: pp2Pct * 100, pctMinBun: 0, pctBrokerI: 0, pctBrokerII: 0 };
 
   // Gross Profit & distribusi dihitung dari SATU transaksi TERBARU yang masih
-  // berstatus "berjalan" dalam siklus berjalan — BUKAN menjumlahkan semua TRX
-  // (sebelumnya menjumlahkan income/profit semua TRX berjalan → membengkak).
+  // berstatus "berjalan" DAN terkait dengan PKS INI (entry.pksId === pks.id) —
+  // bukan sembarang transaksi investor itu (bisa dari PKS lain → salah angka).
+  // Diambil satu transaksi terbaru (bukan dijumlahkan) agar tidak membengkak.
   // Gross Profit = (hargaJual × qty) − (modal + ongkir), dikali rasio investor
   // = calc.profit × ratio, sama dengan kolom "Profit" di halaman Transaksi
   // untuk TRX terakhir itu (mis. modal 140 jt → gross profit ≈ 19.44 jt).
@@ -130,14 +131,20 @@ function calcPksDistribution(
     const tDate = Date.UTC(ty, tm - 1, td);
     if (tDate < cycleStartMs || tDate >= cycleEndMs) continue;
     if (effectiveStatus(t) !== "berjalan") continue;
-    if (!t.investorEntries.some((e) => e.investorId === pks.investorId && e.nilaiInvestasi > 0)) continue;
+    // Harus ada entry investor ini yang terikat ke PKS ini (pksId === pks.id)
+    const entry = t.investorEntries.find(
+      (e) => e.pksId === pks.id && e.investorId === pks.investorId && e.nilaiInvestasi > 0,
+    );
+    if (!entry) continue;
     if (tDate > latestMs) { latestMs = tDate; latest = t; }
   }
 
   if (latest) {
     const t = latest;
     const calc = calcTransaksi(t);
-    const entry = t.investorEntries.find((e) => e.investorId === pks.investorId)!;
+    const entry = t.investorEntries.find(
+      (e) => e.pksId === pks.id && e.investorId === pks.investorId && e.nilaiInvestasi > 0,
+    )!;
     const ratio = entry.nilaiInvestasi / calc.totalInvestasi;
 
     // Gross Profit = NET profit per-investor dari 1 transaksi berjalan terakhir.
@@ -484,12 +491,15 @@ export function DashboardContent() {
         });
         
         // Siklus "sedang berjalan" ditentukan dari transaksi TERBARU yang masih
-        // berstatus "berjalan" (bukan tanggal hari ini) agar window siklus selalu
-        // memuat transaksi aktif terakhir. Ini mencegah Total Profit menjumlahkan
-        // transaksi dari beberapa siklus atau transaksi yang sudah selesai.
+        // berstatus "berjalan" DAN terkait PKS ini (pksId === pks.id) — bukan
+        // tanggal hari ini, agar window siklus selalu memuat transaksi aktif
+        // terakhir yang benar untuk PKS ini.
         let latestTrxMs = 0;
         trxInPeriod.forEach((t) => {
           if (effectiveStatus(t) !== "berjalan") return;
+          if (!t.investorEntries.some(
+            (e) => e.pksId === pks.id && e.investorId === pks.investorId && e.nilaiInvestasi > 0,
+          )) return;
           const [ty2, tm2, td2] = (t.date as string).slice(0, 10).split("-").map(Number);
           const tDate = Date.UTC(ty2, tm2 - 1, td2);
           if (tDate > latestTrxMs) latestTrxMs = tDate;
