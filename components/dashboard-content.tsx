@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useInvestors } from "@/lib/investors-context";
 import { useBrokers } from "@/lib/brokers-context";
 import { usePks, investorPkPct } from "@/lib/pks-context";
-import { useTransaksi, calcTransaksi, activeInvestorIds, type Transaksi } from "@/lib/transaksi-context";
+import { useTransaksi, calcTransaksi, effectiveStatus, activeInvestorIds, type Transaksi } from "@/lib/transaksi-context";
 import { todayWibStr } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -73,7 +73,9 @@ function formatDate(s: string) {
 import type { Pks } from "@/lib/pks-context";
 
 // Hitung distribusi per-TRX untuk satu PKS, hanya untuk siklus yang sedang
-// berjalan (currentCycle).
+// berjalan (currentCycle) dan HANYA transaksi yang masih berstatus "berjalan"
+// (effectiveStatus === "berjalan"). Transaksi "selesai"/"bermasalah" sudah
+// final sehingga bagi hasil-nya tidak ikut dihitung di rekap siklus berjalan.
 //   - Total Profit    = GROSS INCOME (omzet) = calc.income × ratio
 //                       ── mengikuti kolom "Income" di halaman Transaksi.
 //   - Distribusi bagi hasil (Owner/Investor/Trader/dll) tetap berbasis
@@ -123,6 +125,9 @@ function calcPksDistribution(
     const tDate = Date.UTC(ty, tm - 1, td);
     // Hanya hitung transaksi dalam siklus yang sedang berjalan
     if (tDate < cycleStartMs || tDate >= cycleEndMs) return;
+    // Hanya transaksi yang masih berstatus "berjalan" (bukan selesai/bermasalah).
+    // Transaksi final sudah tidak ikut dihitung di rekap siklus berjalan.
+    if (effectiveStatus(t) !== "berjalan") return;
 
     const calc = calcTransaksi(t);
     if (calc.totalInvestasi === 0) return;
@@ -490,12 +495,13 @@ export function DashboardContent() {
           return tDate >= pksStart && tDate < pksEnd;
         });
         
-        // Siklus "sedang berjalan" ditentukan dari transaksi TERBARU (bukan
-        // tanggal hari ini) agar window siklus selalu memuat transaksi terakhir.
-        // Ini mencegah Total Profit menjumlahkan transaksi dari beberapa siklus
-        // sekaligus (mis. 2× income → 282 jt padahal seharusnya 161.97 jt).
+        // Siklus "sedang berjalan" ditentukan dari transaksi TERBARU yang masih
+        // berstatus "berjalan" (bukan tanggal hari ini) agar window siklus selalu
+        // memuat transaksi aktif terakhir. Ini mencegah Total Profit menjumlahkan
+        // transaksi dari beberapa siklus atau transaksi yang sudah selesai.
         let latestTrxMs = 0;
         trxInPeriod.forEach((t) => {
+          if (effectiveStatus(t) !== "berjalan") return;
           const [ty2, tm2, td2] = (t.date as string).slice(0, 10).split("-").map(Number);
           const tDate = Date.UTC(ty2, tm2 - 1, td2);
           if (tDate > latestTrxMs) latestTrxMs = tDate;
