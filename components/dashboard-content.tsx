@@ -884,7 +884,7 @@ export function DashboardContent() {
 
           <Card className={periodMetrics.isFiltered ? "border-primary/30" : ""}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Income</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Transaksi</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -1019,7 +1019,7 @@ export function DashboardContent() {
               <CardHeader>
                 <CardTitle>PnL per Bulan</CardTitle>
                 <CardDescription>
-                  Profit (hijau) adalah bagian dari Total Income (tinggi bar)
+                  Profit (hijau) adalah bagian dari Total Transaksi (tinggi bar)
                   {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
                 </CardDescription>
               </CardHeader>
@@ -1040,7 +1040,7 @@ export function DashboardContent() {
                       <Tooltip
                         formatter={(value, name, props) => {
                           if (name === "cost") {
-                            return [formatCurrency(props.payload.income as number), "Total Income"];
+                            return [formatCurrency(props.payload.income as number), "Total Transaksi"];
                           }
                           if (name === "profit") {
                             return [formatCurrency(props.payload.actualProfit as number), "Profit"];
@@ -1053,7 +1053,7 @@ export function DashboardContent() {
                       />
                       <Legend
                         formatter={(value) =>
-                          value === "cost" ? "Total Income" : value === "profit" ? "Profit" : value
+                          value === "cost" ? "Total Transaksi" : value === "profit" ? "Profit" : value
                         }
                         wrapperStyle={{ fontSize: "11px" }}
                       />

@@ -462,15 +462,17 @@ function buildAdminEmailHtml(tasks: PendingTask[], date: string): string {
       </td>
       <td style="padding:10px 12px;color:#6b7280;white-space:nowrap;">${fmtDate(t.date)}</td>
       <td style="padding:10px 12px;">${t.investors}</td>
-      <td style="padding:10px 12px;text-align:right;font-weight:600;">${t.amount > 0 ? fmtRp(t.amount) : "—"}</td>
+      <td style="padding:10px 12px;text-align:right;font-weight:600;">${t.type === "Bagi Hasil" ? "—" : (t.amount > 0 ? fmtRp(t.amount) : "—")}</td>
       <td style="padding:10px 12px;text-align:right;font-weight:600;color:#16a34a;">${t.bagiHasilAmount && t.bagiHasilAmount > 0 ? fmtRp(t.bagiHasilAmount) : "—"}</td>
       <td style="padding:10px 12px;text-align:center;color:#dc2626;font-weight:600;white-space:nowrap;">${t.statusLabel}</td>
     </tr>
       `);
     }
     
-    // Subtotal untuk tanggal ini
-    const subtotal = dateTasks.reduce((sum, t) => sum + t.amount, 0);
+    // Subtotal untuk tanggal ini.
+    // Total pembayaran = bagiHasilAmount (untuk "Bagi Hasil") + amount (untuk
+    // "Pengembalian Modal"), agar total jelas: bagi hasil + pengembalian modal.
+    const subtotal = dateTasks.reduce((sum, t) => sum + (t.type === "Bagi Hasil" ? (t.bagiHasilAmount ?? 0) : t.amount), 0);
     const countBagiHasil = dateTasks.filter(t => t.type === "Bagi Hasil").length;
     const countPengembalian = dateTasks.filter(t => t.type === "Pengembalian Modal").length;
     
@@ -486,8 +488,10 @@ function buildAdminEmailHtml(tasks: PendingTask[], date: string): string {
     `);
   }
 
-  // Grand total di akhir
-  const grandTotal = tasks.reduce((sum, t) => sum + t.amount, 0);
+  // Grand total di akhir.
+  // Total pembayaran = bagiHasilAmount (untuk "Bagi Hasil") + amount (untuk
+  // "Pengembalian Modal"), sama dengan logika subtotal per tanggal.
+  const grandTotal = tasks.reduce((sum, t) => sum + (t.type === "Bagi Hasil" ? (t.bagiHasilAmount ?? 0) : t.amount), 0);
   const totalBagiHasil = tasks.filter(t => t.type === "Bagi Hasil").length;
   const totalPengembalian = tasks.filter(t => t.type === "Pengembalian Modal").length;
   
@@ -656,6 +660,7 @@ export async function runRemindersTest(): Promise<ReminderResult> {
     date: "2026-05-15",
     investors: "Investor Test",
     amount: 50_000_000,
+    bagiHasilAmount: 8_750_000,
     statusLabel: "Selesai"
   };
   const adminEmail = await sendAdminEmail([dummy], `${todayStr} (TEST)`).catch(() => "failed");
