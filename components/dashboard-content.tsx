@@ -74,12 +74,13 @@ import type { Pks } from "@/lib/pks-context";
 
 // Hitung distribusi per-TRX untuk satu PKS, hanya untuk siklus yang sedang
 // berjalan (currentCycle) dan HANYA transaksi yang masih berstatus "berjalan"
-// (effectiveStatus === "berjalan"). Transaksi "selesai"/"bermasalah" sudah
-// final sehingga bagi hasil-nya tidak ikut dihitung di rekap siklus berjalan.
-//   - Total Profit    = GROSS INCOME (omzet) = calc.income × ratio
-//                       ── mengikuti kolom "Income" di halaman Transaksi.
-//   - Distribusi bagi hasil (Owner/Investor/Trader/dll) tetap berbasis
-//     NET profit = calc.profit × ratio × %, sesuai model reminder/pks-html.
+// (effectiveStatus === "berjalan"). Diambil SATU transaksi TERBARU (bukan
+// dijumlahkan) agar tidak membengkak lintas siklus/TRX.
+//   - Gross Profit     = calc.profit × ratio = (hargaJual × qty) − (modal + ongkir)
+//                        per-investor — sama dengan kolom "Profit" di halaman
+//                        Transaksi (mis. modal 140 jt → ≈ 19.44 jt).
+//   - Distribusi bagi hasil (Owner/Investor/Trader/dll) berbasis NET profit yang
+//     sama = calc.profit × ratio × %, sesuai model reminder/pks-html.
 //   Persentase bersumber dari PKS:
 //   - Owner (PP I)    = profit × bagiHasilPP1%   (dari PKS)
 //   - Trader (PP II)  = profit × bagiHasilPP2%   (dari PKS)
@@ -88,9 +89,8 @@ import type { Pks } from "@/lib/pks-context";
 //   - Broker I/II     = profit × sisa PP3 setelah MinBun, dibagi rasio entry
 //   - Hasanah         = Investor + Trader + MinBun + Broker I + Broker II
 //                       (semua pihak selain Owner = PP2 + PP3 + PK)
-//   Catatan: Total Profit (gross) ≠ jumlah kolom distribusi (net) karena
-//   keduanya memakai basis berbeda — sesuai permintaan agar Total Profit
-//   sama persis dengan kolom Income di halaman Transaksi.
+//   Catatan: Gross Profit = Owner + Hasanah (sanity check) karena keduanya
+//   memakai basis yang sama (calc.profit × ratio) untuk 1 transaksi berjalan.
 function calcPksDistribution(
   pks: Pks,
   transaksis: Transaksi[],
@@ -117,11 +117,12 @@ function calcPksDistribution(
   let owner = 0, hasanah = 0, investor = 0, trader = 0, minbun = 0, brokerI = 0, brokerII = 0;
   let effectivePct = { pctTrader: pp2Pct * 100, pctMinBun: 0, pctBrokerI: 0, pctBrokerII: 0 };
 
-  // Total Profit & distribusi dihitung dari SATU transaksi TERBARU yang masih
+  // Gross Profit & distribusi dihitung dari SATU transaksi TERBARU yang masih
   // berstatus "berjalan" dalam siklus berjalan — BUKAN menjumlahkan semua TRX
-  // (sebelumnya menjumlahkan income semua TRX berjalan → membengkak ke miliaran).
-  // Total Profit = hargaJual × qty × rasio investor = calc.income × ratio,
-  // sama dengan kolom "Income" di halaman Transaksi untuk TRX terakhir itu.
+  // (sebelumnya menjumlahkan income/profit semua TRX berjalan → membengkak).
+  // Gross Profit = (hargaJual × qty) − (modal + ongkir), dikali rasio investor
+  // = calc.profit × ratio, sama dengan kolom "Profit" di halaman Transaksi
+  // untuk TRX terakhir itu (mis. modal 140 jt → gross profit ≈ 19.44 jt).
   let latest: Transaksi | null = null;
   let latestMs = 0;
   for (const t of transaksis) {
@@ -139,11 +140,12 @@ function calcPksDistribution(
     const entry = t.investorEntries.find((e) => e.investorId === pks.investorId)!;
     const ratio = entry.nilaiInvestasi / calc.totalInvestasi;
 
-    // Total Profit = gross income (omzet) dari 1 transaksi berjalan terakhir
-    totalProfit = calc.income * ratio;
+    // Gross Profit = NET profit per-investor dari 1 transaksi berjalan terakhir.
+    totalProfit = calc.profit * ratio;
 
-    // Distribusi bagi hasil berbasis NET profit (hanya jika profit > 0),
-    // konsisten dengan model reminder/pks-html.
+    // Distribusi bagi hasil berbasis NET profit yang sama (hanya jika profit > 0),
+    // konsisten dengan model reminder/pks-html. Sanity check:
+    // Owner + Hasanah = totalProfit.
     if (calc.profit > 0) {
       const profit = calc.profit * ratio;
       const minBunPct = Math.min(entry.pctMinBun, pp3Pct);
