@@ -140,16 +140,21 @@ function calcPksDistribution(
     const entry = t.investorEntries.find(
       (e) => e.investorId === pks.investorId && e.nilaiInvestasi > 0,
     )!;
-    const ratio = entry.nilaiInvestasi / calc.totalInvestasi;
 
-    // Gross Profit = NET profit per-investor dari 1 transaksi berjalan terakhir.
-    totalProfit = calc.profit * ratio;
+    // Gross Profit = profit TOTAL transaksi berjalan terakhir (bukan dibagi
+    // rasio investor). calc.profit = income − (kebutuhanModal + ongkir) adalah
+    // profit transaksi penuh, sama dengan kolom "Profit" di halaman Transaksi
+    // (mis. modal 140 jt → ≈ 19.44 jt). Di tabel Rekap per PKS, satu baris =
+    // satu PKS yang merepresentasikan transaksi terkaitnya secara penuh, jadi
+    // rasio investor tidak dipakai untuk Gross Profit.
+    totalProfit = calc.profit;
 
-    // Distribusi bagi hasil berbasis NET profit yang sama (hanya jika profit > 0),
-    // konsisten dengan model reminder/pks-html. Sanity check:
-    // Owner + Hasanah = totalProfit.
+    // Distribusi bagi hasil berbasis profit transaksi yang sama (hanya jika
+    // profit > 0). Persentase trader/minbun/broker diambil dari entry investor
+    // (per-investor), tapi nominal memakai profit transaksi penuh. Sanity
+    // check: Owner + Hasanah = totalProfit.
     if (calc.profit > 0) {
-      const profit = calc.profit * ratio;
+      const profit = calc.profit;
       const minBunPct = Math.min(entry.pctMinBun, pp3Pct);
       const brokerPct = Math.max(0, pp3Pct - minBunPct);
       const brokerTotal = entry.pctBrokerI + entry.pctBrokerII;
