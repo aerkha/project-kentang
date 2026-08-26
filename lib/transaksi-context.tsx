@@ -233,6 +233,55 @@ async function createInvestorEntries(
   );
 }
 
+/**
+ * Resolve pksId untuk entry yang pksId-nya kosong (mis. data lama atau hasil
+ * autorenewal dari entry yang pksId-nya belum terisi). Ambil PKS (mous) investor
+ * yang belum terminated dan investmentAmount-nya sama dengan nilaiInvestasi
+ * entry — sesuai cara user memilih PKS saat membuat mapping (modal PKS ==
+ * modal investor di transaksi). Ini memastikan autorenewal selalu memakai
+ * ulang PKS yang sama, bukan "PKS pertama yang tersedia" yang bisa berbeda
+ * nominal modal.
+ */
+async function resolveEntriesPksId(
+  entries: TransaksiInvestorEntry[],
+): Promise<TransaksiInvestorEntry[]> {
+  const needResolve = entries.filter((e) => !e.pksId && e.investorId && e.nilaiInvestasi > 0);
+  if (needResolve.length === 0) return entries;
+
+  const investorIds = [...new Set(needResolve.map((e) => e.investorId))];
+  const pksByInvestor = new Map<string, { pksId: string; investmentAmount: number }[]>();
+  await Promise.all(
+    investorIds.map(async (invId) => {
+      try {
+        const list = await pb.collection("mous").getFullList({
+          filter: `investorId = "${invId}" && isTerminated = false`,
+          fields: "customId,investmentAmount",
+        });
+        pksByInvestor.set(
+          invId,
+          list.map((r) => ({
+            // Simpan sebagai customId (PKS-YYYYMM-NNN) — itulah yang disimpan
+            // app di field pksId transaksi_investors (lihat notify-investor
+            // route: lookup mous via `customId = "${pksId}"`, dan openEdit
+            // mencocokkan e.pksId terhadap Pks.id yang = customId).
+            pksId: (r.customId as string) || "",
+            investmentAmount: (r.investmentAmount as number) ?? 0,
+          })),
+        );
+      } catch {
+        pksByInvestor.set(invId, []);
+      }
+    }),
+  );
+
+  return entries.map((e) => {
+    if (e.pksId) return e;
+    const pool = pksByInvestor.get(e.investorId) ?? [];
+    const match = pool.find((m) => Math.abs(m.investmentAmount - e.nilaiInvestasi) < 1);
+    return match ? { ...e, pksId: match.pksId } : e;
+  });
+}
+
 async function listInvestorEntryIds(transaksiPbId: string): Promise<string[]> {
   const existing = await pb.collection("transaksi_investors").getFullList({
     filter: `transaksiId = "${transaksiPbId}"`,
@@ -581,8 +630,11 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
       }
       if (!record) throw new Error("triggerAutorenewal: gagal membuat transaksi baru");
 
-      // 5. Salin data investor
-      await createInvestorEntries(record.id, oldTrx.investorEntries);
+      // 5. Salin data investor — pksId di-resolve agar autorenewal konsisten
+      // memakai ulang PKS yang sama dengan transaksi sumber (bukan "PKS pertama
+      // yang tersedia" yang bisa berbeda nominal modal).
+      const resolvedEntries = await resolveEntriesPksId(oldTrx.investorEntries);
+      await createInvestorEntries(record.id, resolvedEntries);
 
       // PATCH (serius #14): bukti transfer (buktiInvestor/dst) dan field
       // tambahan dari old TIDAK ter-clone. Sebelumnya autorenewal hanya
@@ -599,7 +651,7 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
       }
 
       // 6. Tampilkan di layar
-      const newTrx = recordToTransaksi(record, map, oldTrx.investorEntries);
+      const newTrx = recordToTransaksi(record, map, resolvedEntries);
       transaksisRef.current = [
         ...transaksisRef.current.filter((item) => item.id !== newTrx.id),
         newTrx,

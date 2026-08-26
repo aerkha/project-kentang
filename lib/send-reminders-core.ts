@@ -202,6 +202,31 @@ async function processAutorenewals(pb: PocketBase) {
       }
 
       try {
+        // Resolve pksId untuk entry sumber yang kosong agar autorenewal selalu
+        // memakai ulang PKS yang sama dengan transaksi sumber. Ambil PKS (mous)
+        // investor yang belum terminated dan investmentAmount-nya sama dengan
+        // nilaiInvestasi entry — bukan "PKS pertama yang tersedia".
+        const emptyPksInvestorIds = [...new Set(
+          oldInvestors.filter((inv: any) => !inv.pksId).map((inv: any) => inv.investorId as string),
+        )];
+        const pksByInvestor = new Map<string, { pksId: string; investmentAmount: number }[]>();
+        await Promise.all(emptyPksInvestorIds.map(async (invId: string) => {
+          try {
+            const list = await pb.collection("mous").getFullList<any>({
+              filter: `investorId = "${pbEsc(invId)}" && isTerminated = false`,
+              fields: "customId,investmentAmount",
+            });
+            pksByInvestor.set(invId, list.map((r: any) => ({
+              // customId (PKS-YYYYMM-NNN) — itulah yang disimpan app di field
+              // pksId transaksi_investors.
+              pksId: (r.customId as string) || "",
+              investmentAmount: (r.investmentAmount as number) ?? 0,
+            })));
+          } catch {
+            pksByInvestor.set(invId, []);
+          }
+        }));
+
         for (const inv of oldInvestors) {
            // PATCH (serius #15): fallback ke 0 jika nilaiInvestasi bukan number.
            // Sebelumnya `inv.nilaiInvestasi` bisa `undefined`/null atau string
@@ -215,10 +240,19 @@ async function processAutorenewals(pb: PocketBase) {
              }
              return 0;
            };
+           // Resolve pksId kosong → PKS investor (belum terminated) yang
+           // investmentAmount-nya sama dengan nilaiInvestasi entry, agar
+           // autorenewal konsisten memakai ulang PKS yang sama dengan sumber.
+           let pksId = (inv.pksId as string) || "";
+           if (!pksId) {
+             const pool = pksByInvestor.get(inv.investorId as string) ?? [];
+             const match = pool.find((m) => Math.abs(m.investmentAmount - safeNum(inv.nilaiInvestasi)) < 1);
+             if (match) pksId = match.pksId;
+           }
            await pb.collection("transaksi_investors").create({
               transaksiId: newTrx.id,
               investorId: inv.investorId,
-              pksId: inv.pksId,
+              pksId,
               investorName: inv.investorName,
               investorBrokerName: inv.investorBrokerName,
               nilaiInvestasi: safeNum(inv.nilaiInvestasi),

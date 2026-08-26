@@ -1212,9 +1212,20 @@ export default function TransaksiContent() {
       kebutuhanModal: t.kebutuhanModal.toString(),
       investorEntries: t.investorEntries.length > 0
         ? t.investorEntries.map((e) => {
-            const available = pksList.find(
+            // Saat pksId entry kosong (mis. data lama atau hasil autorenewal
+            // dari entry yang pksId-nya belum terisi), jangan ambil PKS pertama
+            // yang tersedia — itu bisa berbeda modal dan menyebabkan transaksi
+            // autorenewal "pindah" ke PKS lain (modal lebih besar). Cocokkan PKS
+            // yang investmentAmount-nya sama dengan nilaiInvestasi entry (modal
+            // investor di transaksi ini — sesuai cara user memilih PKS saat
+            // membuat mapping). Fallback ke PKS pertama hanya bila tak ada yang
+            // modalnya cocok persis.
+            const candidates = pksList.filter(
               (m) => m.investorId === e.investorId && !m.isTerminated && !assignedPksIds.has(m.id),
             );
+            const available =
+              candidates.find((m) => Math.abs(m.investmentAmount - e.nilaiInvestasi) < 1) ??
+              candidates[0];
             const pksId = e.pksId || (available?.id ?? "");
             if (pksId) assignedPksIds.add(pksId);
             return {
