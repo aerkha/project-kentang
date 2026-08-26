@@ -650,10 +650,24 @@ export function TransaksiProvider({ children }: Readonly<{ children: ReactNode }
         await pb.collection("transaksis").update(record.id, proofs).catch(() => null);
       }
 
+      // PATCH (serius #18 client-side): set old.isAutorenewal=false SETELAH
+      // TRX baru + entries berhasil dibuat. Sebelumnya, cron jam 17:00 masih
+      // melihat old.isAutorenewal=true dan create duplikat dengan customId yang
+      // sama. Sekarang client langsung unflag sehingga cron skip.
+      await pb.collection("transaksis").update(oldTrxId, {
+        isAutorenewal: false,
+        catatanAkhir: (oldTrx.catatanAkhir || "") 
+          ? `${oldTrx.catatanAkhir}\n[Sistem] Autorenewal siklus berikutnya sukses dibuat di ${newCustomId}`
+          : `[Sistem] Autorenewal siklus berikutnya sukses dibuat di ${newCustomId}`
+      }).catch(() => null);
+
       // 6. Tampilkan di layar
       const newTrx = recordToTransaksi(record, map, resolvedEntries);
       transaksisRef.current = [
-        ...transaksisRef.current.filter((item) => item.id !== newTrx.id),
+        ...transaksisRef.current
+          .filter((item) => item.id !== newTrx.id)
+          // sinkronkan state old TRX (isAutorenewal=false) dengan update PB di atas
+          .map((item) => item.id === oldTrxId ? { ...item, isAutorenewal: false } : item),
         newTrx,
       ];
       setTransaksis(transaksisRef.current);
