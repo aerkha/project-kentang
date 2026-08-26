@@ -163,6 +163,25 @@ async function processAutorenewals(pb: PocketBase) {
       const oldCustomId = old.customId || old.id;
       const newCustomId = nextAutorenewalCustomId(oldCustomId);
 
+      // PATCH (serius #18): race condition. Cron/parallel run bisa create TRX
+      // dengan customId yang sama (mis. TRX-0042B muncul 2x dengan beda id).
+      // Sebelum create, cek apakah customId sudah ada. Kalau ada, artinya
+      // autorenewal sudah dijalankan oleh run lain → skip create & tandai old
+      // selesai, agar cron berikutnya tidak retry-create duplikat lagi.
+      const existing = await pb.collection("transaksis").getFirstListItem<any>(
+        `customId = "${pbEsc(newCustomId)}"`
+      ).catch(() => null);
+      if (existing) {
+        console.warn(`[Autorenewal] ${newCustomId} sudah ada (id=${existing.id}) — skip duplikasi, tandai ${oldCustomId} selesai.`);
+        await pb.collection("transaksis").update(old.id, {
+          isAutorenewal: false,
+          catatanAkhir: old.catatanAkhir
+            ? `${old.catatanAkhir}\n[Sistem] Autorenewal siklus berikutnya sudah ada di ${newCustomId} (skip duplikasi).`
+            : `[Sistem] Autorenewal siklus berikutnya sudah ada di ${newCustomId} (skip duplikasi).`
+        });
+        continue;
+      }
+
       // m-5 (cron path): hardcode 30 hari per siklus. Sama seperti di client
       // (lib/transaksi-context.tsx triggerAutorenewal). Jangan parse dari
       // deskripsi — user dapat menulis teks bebas (mis. "PT 2025") yang
@@ -195,7 +214,22 @@ async function processAutorenewals(pb: PocketBase) {
           bagiHasilChecks: {},
           catatanAkhir: `[Sistem] Transaksi autorenewal lanjutan dari ${oldCustomId}`
         });
-      } catch (createErr) {
+      } catch (createErr: any) {
+        // PATCH (serius #18): jika 2 run lewati pre-check bersamaan, DB unique
+        // constraint (validation_not_unique) jaga terakhir. Anggap sudah ada →
+        // tandai old selesai, jangan retry (retry akan duplikat lagi).
+        if (String(createErr?.status ?? createErr?.code ?? "") === "409" ||
+            String(createErr?.response?.code ?? "") === UNIQUE_CONFLICT_CODE ||
+            /validation_not_unique|not unique/i.test(String(createErr))) {
+          console.warn(`[Autorenewal] ${newCustomId} konflik unique — sudah ada, tandai ${oldCustomId} selesai.`);
+          await pb.collection("transaksis").update(old.id, {
+            isAutorenewal: false,
+            catatanAkhir: old.catatanAkhir
+              ? `${old.catatanAkhir}\n[Sistem] Autorenewal siklus berikutnya sudah ada di ${newCustomId} (skip duplikasi).`
+              : `[Sistem] Autorenewal siklus berikutnya sudah ada di ${newCustomId} (skip duplikasi).`
+          }).catch(() => null);
+          continue;
+        }
         console.error(`[Autorenewal] gagal membuat ${newCustomId} dari ${old.id}:`, createErr);
         // Jangan update old menjadi isAutorenewal=false — biarkan agar cron berikutnya retry
         continue;
