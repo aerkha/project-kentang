@@ -131,15 +131,20 @@ function calcPksDistribution(
   let effectivePct = { pctTrader: pp2Pct * 100, pctMinBun: 0, pctBrokerI: 0, pctBrokerII: 0 };
 
   // Gross Profit & distribusi dihitung dari SATU transaksi TERBARU yang masih
-  // berstatus "berjalan" untuk investor ini dalam window siklus berjalan PKS
-  // ([cycleStartMs, effectiveEndMs)) — bukan dijumlahkan (agar tidak membengkak)
-  // dan bukan sembarang transaksi investor. Untuk PKS autorenewal, hanya transaksi
-  // yang jatuh di siklus currentCycle yang masuk — bukan siklus lama yang sudah
-  // selesai/berakhir.
-  // Trace: No PKS → investorId + currentCycle (periode siklus) → transaksi terkait
-  // → ambil transaksi berjalan terbaru. Gross Profit = calc.profit (profit total
-  // transaksi, sama dengan kolom "Profit" di halaman Transaksi, mis. modal 140 jt
-  // → ≈ 19.44 jt).
+  // berstatus "berjalan" untuk PKS ini dalam window siklus berjalan
+  // ([cycleStartMs, effectiveEndMs)) — bukan dijumlahkan (agar tidak membengkak).
+  //
+  // Lookup TRX dilakukan via entry.pksId === pks.id (bukan hanya investorId),
+  // sehingga TRX yang dipakai bersama oleh 2 PKS (mis. modal 200jt dipakai
+  // 2 PKS @ 100jt) ter-atribusi BENAR ke masing-masing PKS — bukan dobel-count
+  // atau salah atribusi. Untuk PKS autorenewal, hanya transaksi yang jatuh di
+  // siklus currentCycle yang masuk — bukan siklus lama yang sudah selesai.
+  //
+  // Trace: No PKS → pksId lookup di transaksi.investorEntries → siklus
+  // currentCycle (window per-siklus) → ambil transaksi berjalan terbaru.
+  // Gross Profit = calc.profit × share investasi PKS ini (attributable share,
+  // konsisten dengan Reminder & Investor) — supaya total profit di tabel = profit
+  // TRX penuh, bukan dobel-count untuk TRX multi-PKS.
   let latest: Transaksi | null = null;
   let latestMs = 0;
   for (const t of transaksis) {
@@ -148,8 +153,10 @@ function calcPksDistribution(
     // Transaksi harus jatuh dalam window siklus berjalan PKS ini
     if (tDate < cycleStartMs || tDate >= effectiveEndMs) continue;
     if (effectiveStatus(t) !== "berjalan") continue;
+    // Lookup via pksId (bukan hanya investorId) — pastikan TRX benar-benar
+    // milik PKS ini, terutama saat TRX dipakai bersama beberapa PKS.
     const entry = t.investorEntries.find(
-      (e) => e.investorId === pks.investorId && e.nilaiInvestasi > 0,
+      (e) => e.investorId === pks.investorId && e.pksId === pks.id && e.nilaiInvestasi > 0,
     );
     if (!entry) continue;
     if (tDate > latestMs) { latestMs = tDate; latest = t; }
@@ -159,23 +166,24 @@ function calcPksDistribution(
     const t = latest;
     const calc = calcTransaksi(t);
     const entry = t.investorEntries.find(
-      (e) => e.investorId === pks.investorId && e.nilaiInvestasi > 0,
+      (e) => e.investorId === pks.investorId && e.pksId === pks.id && e.nilaiInvestasi > 0,
     )!;
 
-    // Gross Profit = profit TOTAL transaksi berjalan terakhir (bukan dibagi
-    // rasio investor). calc.profit = income − (kebutuhanModal + ongkir) adalah
-    // profit transaksi penuh, sama dengan kolom "Profit" di halaman Transaksi
-    // (mis. modal 140 jt → ≈ 19.44 jt). Di tabel Rekap per PKS, satu baris =
-    // satu PKS yang merepresentasikan transaksi terkaitnya secara penuh, jadi
-    // rasio investor tidak dipakai untuk Gross Profit.
-    totalProfit = calc.profit;
+    // Gross Profit per PKS = profit attributable ke entry PKS ini, bukan profit
+    // TRX penuh. Penting saat TRX dipakai bersama >1 PKS: total di tabel = profit
+    // TRX (tidak dobel-count). Konsisten dengan model di Reminder (buildTransaksiRows)
+    // dan Investor (calcProfitByEntry): profit × (entry.nilaiInvestasi / totalInvestasi).
+    // Untuk TRX 1-investor (entry.nilaiInvestasi == totalInvestasi), ratio = 1 dan
+    // hasilnya = calc.profit — identik dengan kolom "Profit" di halaman Transaksi.
+    const ratio = calc.totalInvestasi > 0 ? entry.nilaiInvestasi / calc.totalInvestasi : 0;
+    const attributableProfit = calc.profit * ratio;
+    totalProfit = attributableProfit;
 
-    // Distribusi bagi hasil berbasis profit transaksi yang sama (hanya jika
-    // profit > 0). Persentase trader/minbun/broker diambil dari entry investor
-    // (per-investor), tapi nominal memakai profit transaksi penuh. Sanity
-    // check: Owner + Hasanah = totalProfit.
-    if (calc.profit > 0) {
-      const profit = calc.profit;
+    // Distribusi bagi hasil berbasis profit attributable (hanya jika profit > 0).
+    // Persentase trader/minbun/broker diambil dari entry investor (per-investor).
+    // Sanity check: Owner + Hasanah = totalProfit (attributable).
+    if (attributableProfit > 0) {
+      const profit = attributableProfit;
       const minBunPct = Math.min(entry.pctMinBun, pp3Pct);
       const brokerPct = Math.max(0, pp3Pct - minBunPct);
       const brokerTotal = entry.pctBrokerI + entry.pctBrokerII;
@@ -484,7 +492,20 @@ export function DashboardContent() {
   // ── Rekap data (per Pks, difilter periode) — dideklarasikan lebih awal
   // karena periodMetrics bergantung padanya
   const rekapData = useMemo(() => {
-    return filteredPkssByPeriod
+    // Dedupe PKS berdasarkan id (customId PKS-YYYYMM-NNN) untuk mencegah baris
+    // duplikat di tabel jika ada PKS dengan id identik di data (mis. PocketBase
+    // race-condition atau hasil remap). Aman dilakukan sebelum mapping karena
+    // `pks.id` adalah identifier unik PKS.
+    const uniquePkss = (() => {
+      const seen = new Set<string>();
+      return filteredPkssByPeriod.filter((p) => {
+        if (seen.has(p.id)) return false;
+        seen.add(p.id);
+        return true;
+      });
+    })();
+
+    return uniquePkss
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((pks, idx) => {
@@ -495,31 +516,36 @@ export function DashboardContent() {
         const usiaHari   = Math.max(0, Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(uy, um - 1, ud)) / 86_400_000));
         const usiaBulan  = Math.floor(usiaHari / 30);
         const endDateStr = pks.endDate || addDays(pks.date, pks.contractPeriod * (pks.siklus ?? 1));
-        
+
         // Hitung siklus aktual berdasarkan transaksi yang ada dalam periode PKS ini
         const [sy, sm, sd] = pks.date.slice(0, 10).split("-").map(Number);
         const pksStart = Date.UTC(sy, sm - 1, sd);
         const [ey, em, ed] = endDateStr.slice(0, 10).split("-").map(Number);
         const pksEnd = Date.UTC(ey, em - 1, ed);
-        
-        // Hitung berapa banyak transaksi unik untuk investor ini dalam periode PKS
+
+        // Hitung berapa banyak transaksi unik untuk PKS ini dalam periode PKS.
+        // Lookup via entry.pksId === pks.id (bukan hanya investorId) — sehingga
+        // TRX yang dipakai bersama beberapa PKS (mis. 1 TRX modal 200jt dipakai
+        // 2 PKS @ 100jt) ter-atribusi benar: tiap PKS hanya melihat TRX yang
+        // entry-nya menunjuk PKS-nya sendiri. Ini menjamin `currentCycle` dan
+        // `displayPksId` konsisten dengan lookup profit di calcPksDistribution.
         const trxInPeriod = filteredTransaksis.filter((t) => {
-          const hasInvestor = t.investorEntries.some((e) => e.investorId === pks.investorId);
-          if (!hasInvestor) return false;
+          const hasMatch = t.investorEntries.some(
+            (e) => e.investorId === pks.investorId && e.pksId === pks.id,
+          );
+          if (!hasMatch) return false;
           const [ty2, tm2, td2] = (t.date as string).slice(0, 10).split("-").map(Number);
           const tDate = Date.UTC(ty2, tm2 - 1, td2);
           return tDate >= pksStart && tDate < pksEnd;
         });
-        
+
         // Siklus "sedang berjalan" ditentukan dari transaksi TERBARU yang masih
-        // berstatus "berjalan" untuk investor ini dalam periode kontrak PKS —
-        // bukan tanggal hari ini, agar window siklus selalu memuat transaksi
-        // aktif terakhir yang benar untuk PKS ini (trace: No PKS → investorId +
-        // periode kontrak → transaksi terkait).
+        // berstatus "berjalan" untuk PKS ini dalam periode kontrak PKS — lookup
+        // via pksId, bukan hanya investorId (konsisten dengan trxInPeriod).
         let latestTrxMs = 0;
         trxInPeriod.forEach((t) => {
           if (effectiveStatus(t) !== "berjalan") return;
-          if (!t.investorEntries.some((e) => e.investorId === pks.investorId && e.nilaiInvestasi > 0)) return;
+          if (!t.investorEntries.some((e) => e.investorId === pks.investorId && e.pksId === pks.id && e.nilaiInvestasi > 0)) return;
           const [ty2, tm2, td2] = (t.date as string).slice(0, 10).split("-").map(Number);
           const tDate = Date.UTC(ty2, tm2 - 1, td2);
           if (tDate > latestTrxMs) latestTrxMs = tDate;
@@ -538,12 +564,14 @@ export function DashboardContent() {
         // kembali via `e.pksId === pks.id` di transaksi-content). Ini menjamin
         // kolom "No PKS" di tabel Rekap Investasi selalu sama dengan pksId
         // yang tersimpan di transaksi — bukan hanya berasal dari Pks record.
+        // Lookup sudah dipersempit oleh trxInPeriod ke entry.pksId === pks.id,
+        // jadi entry.pksId di sini selalu = pks.id untuk TRX milik PKS ini.
         // Fallback ke pks.id (customId PKS-YYYYMM-NNN) bila PKS ini belum
         // memiliki transaksi terkait (mis. PKS baru / tanpa TRX).
         const displayPksId = (() => {
           for (const t of trxInPeriod) {
             const entry = t.investorEntries.find(
-              (e) => e.investorId === pks.investorId && e.pksId,
+              (e) => e.investorId === pks.investorId && e.pksId === pks.id,
             );
             if (entry) return entry.pksId;
           }
