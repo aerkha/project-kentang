@@ -510,10 +510,28 @@ export function DashboardContent() {
         
         // Hitung distribusi profit hanya untuk siklus yang sedang berjalan
         const dist = calcPksDistribution(pks, filteredTransaksis, currentCycle);
-        
+
+        // Ambil pksId langsung dari transaksi.investorEntries — sumber yang SAMA
+        // dengan yang dipakai di transaksi-content (lihat InvestorEntryForm.pksId
+        // yang disimpan ke koleksi transaksi_investors.pksId, dan dicocokkan
+        // kembali via `e.pksId === pks.id` di transaksi-content). Ini menjamin
+        // kolom "No PKS" di tabel Rekap Investasi selalu sama dengan pksId
+        // yang tersimpan di transaksi — bukan hanya berasal dari Pks record.
+        // Fallback ke pks.id (customId PKS-YYYYMM-NNN) bila PKS ini belum
+        // memiliki transaksi terkait (mis. PKS baru / tanpa TRX).
+        const displayPksId = (() => {
+          for (const t of trxInPeriod) {
+            const entry = t.investorEntries.find(
+              (e) => e.investorId === pks.investorId && e.pksId,
+            );
+            if (entry) return entry.pksId;
+          }
+          return pks.id;
+        })();
+
         const roi = (v: number) => (modal > 0 ? (v / modal) * 100 : 0);
         return {
-          no: idx + 1, pks, endDateStr, usiaBulan, currentCycle, ...dist,
+          no: idx + 1, pks, endDateStr, usiaBulan, currentCycle, displayPksId, ...dist,
           roiTotal:          roi(dist.totalProfit),
           roiTraderInvestor: roi(dist.trader + dist.investor),
           roiInvestor:       roi(dist.investor),
@@ -686,7 +704,7 @@ export function DashboardContent() {
   const filteredRekap = useMemo(() => {
     return rekapData.filter((row) => {
       if (filterNama && !row.pks.investorName.toLowerCase().includes(filterNama.toLowerCase())) return false;
-      if (filterPks  && !row.pks.id.toLowerCase().includes(filterPks.toLowerCase()))             return false;
+      if (filterPks  && !row.displayPksId.toLowerCase().includes(filterPks.toLowerCase()))       return false;
       return true;
     });
   }, [rekapData, filterNama, filterPks]);
@@ -1466,9 +1484,9 @@ export function DashboardContent() {
                 />
               </div>
               <div className="w-44 space-y-1">
-                <Label className="text-xs">No PKS (Pks)</Label>
+                <Label className="text-xs">pksId</Label>
                 <Input
-                  placeholder="PKS-0001"
+                  placeholder="PKS-YYYYMM-NNN"
                   value={filterPks}
                   onChange={(e) => setFilterPks(e.target.value)}
                   className="h-8 text-sm"
@@ -1508,7 +1526,7 @@ export function DashboardContent() {
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Modal</th>
                     <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Start</th>
                     <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">End</th>
-                    <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">No PKS</th>
+                    <th className="text-left   py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">pksId</th>
                     <th className="text-center py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Keterangan</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Gross Profit</th>
                     <th className="text-right  py-2.5 px-2.5 font-medium text-muted-foreground whitespace-nowrap">Owner (PP I)</th>
@@ -1534,7 +1552,7 @@ export function DashboardContent() {
                       <td className="py-2.5 px-2.5 text-right whitespace-nowrap">{formatShort(row.pks.investmentAmount)}</td>
                       <td className="py-2.5 px-2.5 whitespace-nowrap text-muted-foreground">{formatDate(row.pks.date)}</td>
                       <td className="py-2.5 px-2.5 whitespace-nowrap text-muted-foreground">{formatDate(row.endDateStr)}</td>
-                      <td className="py-2.5 px-2.5 font-mono text-muted-foreground whitespace-nowrap">{row.pks.id}</td>
+                      <td className="py-2.5 px-2.5 font-mono text-muted-foreground whitespace-nowrap" title="pksId dari transaksi.investorEntries — sama dengan pksId yang dipakai di halaman Transaksi">{row.displayPksId}</td>
                       <td className="py-2.5 px-2.5 text-center text-muted-foreground whitespace-nowrap">Siklus ke-{row.currentCycle}</td>
                       <td className={`py-2.5 px-2.5 text-right font-bold whitespace-nowrap ${row.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {formatShortFloat(row.totalProfit)}
