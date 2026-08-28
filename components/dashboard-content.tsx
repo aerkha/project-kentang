@@ -39,6 +39,8 @@ import {
 import {
   BarChart,
   Bar,
+  Line,
+  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -675,36 +677,6 @@ export function DashboardContent() {
     };
   }, [filteredTransaksis, filteredPkssByPeriod, pksList, dateRange, filterBroker, filterInvestor]);
 
-  // ── Chart: modal per bulan stacked by keterangan ──
-  const modalByKeteranganData = useMemo(() => {
-    const COLORS = [
-      "#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6",
-      "#06b6d4","#f97316","#84cc16","#ec4899","#6366f1",
-      "#14b8a6","#eab308","#a855f7","#22c55e","#0ea5e9",
-    ];
-
-    const monthMap = new Map<string, Record<string, number>>();
-    const labelSet = new Set<string>();
-
-    filteredPkssByPeriod.forEach((m) => {
-      const ym    = m.date.slice(0, 7);
-      const label = m.keterangan?.trim() || "Tanpa Keterangan";
-      labelSet.add(label);
-      if (!monthMap.has(ym)) monthMap.set(ym, {});
-      const row = monthMap.get(ym)!;
-      row[label] = (row[label] ?? 0) + m.investmentAmount;
-    });
-
-    const data = Array.from(monthMap.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([ym, row]) => ({ month: monthLabel(ym), ...row }));
-
-    const labels   = Array.from(labelSet);
-    const colorMap = new Map(labels.map((l, i) => [l, COLORS[i % COLORS.length]]));
-
-    return { data, labels, colorMap };
-  }, [filteredPkssByPeriod]);
-
   // ── Chart: investasi masuk per bulan (dari Pks, terfilter) ──
   const monthlyPksData = useMemo(() => {
     const map = new Map<string, { month: string; investment: number; count: number }>();
@@ -1071,54 +1043,87 @@ export function DashboardContent() {
       {(monthlyPksData.length > 0 || monthlyPnlData.length > 0) && (
         <div className="grid gap-6 md:grid-cols-2">
 
-          {/* Investasi masuk per bulan */}
+          {/* Investasi masuk per bulan — barline (nilai + jumlah PKS) */}
           {monthlyPksData.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle>Investasi Masuk per Bulan</CardTitle>
                 <CardDescription>
-                  Total nilai dan jumlah PKS
+                  Nilai investasi (bar) dan jumlah PKS (line)
                   {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
+                    <ComposedChart
                       data={monthlyPksData}
-                      margin={{ top: 20, right: 20, left: 8, bottom: 4 }}
+                      margin={{ top: 20, right: 16, left: 8, bottom: 4 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                       <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                      {/* Sumbu kiri: nilai investasi (formatJt) */}
                       <YAxis
+                        yAxisId="left"
                         tickFormatter={formatShort}
                         tick={{ fontSize: 11 }}
                         width={52}
                       />
+                      {/* Sumbu kanan: jumlah PKS (integer) */}
+                      <YAxis
+                        yAxisId="right"
+                        orientation="right"
+                        tick={{ fontSize: 11 }}
+                        allowDecimals={false}
+                        width={36}
+                      />
                       <Tooltip
                         formatter={(value, name) =>
-                          name === "investment"
+                          name === "Investasi"
                             ? [formatCurrency(value as number), "Total Investasi"]
-                            : [value, "Jumlah Pks"]
+                            : [value, "Jumlah PKS"]
                         }
                         contentStyle={tooltipStyle}
                         labelStyle={{ color: "hsl(var(--card-foreground))" }}
                         itemStyle={{ color: "#BD0000" }}
                       />
+                      <Legend
+                        wrapperStyle={{ fontSize: "11px" }}
+                        verticalAlign="top"
+                        height={24}
+                      />
                       <Bar
+                        yAxisId="left"
                         dataKey="investment"
                         fill="#9ca3af"
                         radius={[4, 4, 0, 0]}
-                        name="investment"
+                        name="Investasi"
+                      >
+                        <LabelList
+                          dataKey="investment"
+                          position="top"
+                          formatter={(v: number) => formatShort(v)}
+                          style={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                        />
+                      </Bar>
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="count"
+                        stroke="#BD0000"
+                        strokeWidth={2}
+                        dot={{ r: 3, fill: "#BD0000" }}
+                        activeDot={{ r: 5 }}
+                        name="Pks"
                       >
                         <LabelList
                           dataKey="count"
                           position="top"
-                          formatter={(v: number) => `${v} Pks`}
-                          style={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                          formatter={(v: number) => `${v}`}
+                          style={{ fontSize: 10, fill: "#BD0000", fontWeight: 600 }}
                         />
-                      </Bar>
-                    </BarChart>
+                      </Line>
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               </CardContent>
@@ -1187,67 +1192,6 @@ export function DashboardContent() {
             </Card>
           )}
         </div>
-      )}
-
-      {/* ── Chart: Modal per bulan by Keterangan ── */}
-      {modalByKeteranganData.data.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Total Investasi per Bulan</CardTitle>
-            <CardDescription>
-              Total nilai investasi per bulan dan penggunaannya
-              {periodMetrics.isFiltered && ` · ${periodMetrics.periodLabel}`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={modalByKeteranganData.data}
-                  margin={{ top: 20, right: 20, left: 8, bottom: 4 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis
-                    tickFormatter={formatShort}
-                    tick={{ fontSize: 11 }}
-                    width={52}
-                  />
-                  <Tooltip
-                    formatter={(value, name) => [formatCurrency(value as number), name as string]}
-                    contentStyle={tooltipStyle}
-                    labelStyle={{ color: "hsl(var(--card-foreground))", fontWeight: 600 }}
-                    itemStyle={{ color: "#BD0000" }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: "11px" }} />
-                  {modalByKeteranganData.labels.map((label, i) => (
-                    <Bar
-                      key={label}
-                      dataKey={label}
-                      stackId="modal"
-                      fill={modalByKeteranganData.colorMap.get(label)}
-                      radius={i === modalByKeteranganData.labels.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                      name={label}
-                    >
-                      {i === modalByKeteranganData.labels.length - 1 && (
-                        <LabelList
-                          valueAccessor={(entry: Record<string, number>) => {
-                            const total = modalByKeteranganData.labels.reduce(
-                              (s, l) => s + (entry[l] ?? 0), 0
-                            );
-                            return formatShort(total);
-                          }}
-                          position="top"
-                          style={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                        />
-                      )}
-                    </Bar>
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
       )}
 
       {/* ── Chart: Per broker & kontribusi per investor ── */}
