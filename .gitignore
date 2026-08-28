@@ -19,6 +19,11 @@ pocketbase.exe
 pb_data/
 pb_migrations/
 
+# Diagnostic & maintenance scripts — tidak perlu di repo
+# (README.md dan *.sh tetap dilacak karena berguna untuk deployment)
+scripts/*.mjs
+scripts/*.csv
+
 # Next.js build output
 .next/
 out/
