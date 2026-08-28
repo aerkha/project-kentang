@@ -98,9 +98,27 @@ function calcPksDistribution(
 ) {
   const [sy, sm, sd] = pks.date.slice(0, 10).split("-").map(Number);
   const pksStart = Date.UTC(sy, sm - 1, sd);
-  const pksEndDate = pks.endDate || (() => { const d = new Date(pksStart); d.setUTCDate(d.getUTCDate() + pks.contractPeriod * (pks.siklus ?? 1)); return d.toISOString().slice(0, 10); })();
-  const [ey, em, ed] = pksEndDate.slice(0, 10).split("-").map(Number);
-  const pksEnd = Date.UTC(ey, em - 1, ed);
+  const contractDays = pks.contractPeriod || 30;
+
+  // Window PER-SIKLUS, bukan [pksStart, pksEnd) yang mencakup SELURUH durasi
+  // PKS. Untuk PKS autorenewal (siklus > 1), window siklus-berjalan mencegah
+  // transaksi dari siklus sebelumnya ikut terhitung di Gross Profit & distribusi
+  // siklus berjalan — konsisten dengan halaman Transaksi yang memfilter
+  // displayStatus === "berjalan" (bukan window-based). Sebelumnya parameter
+  // currentCycle diterima tapi TIDAK dipakai (bug), sehingga window terlalu lebar
+  // untuk PKS multi-siklus.
+  //   cycleStart = pksStart + (currentCycle - 1) × contractDays
+  //   cycleEnd   = pksStart + currentCycle     × contractDays
+  const cycleStartMs = pksStart + (currentCycle - 1) * contractDays * 86_400_000;
+  const cycleEndMs   = pksStart + currentCycle     * contractDays * 86_400_000;
+  // Cap akhir ke pks.endDate bila siklus melebihi akhir kontrak (data tidak konsisten)
+  const pksEndCap = (() => {
+    const e = pks.endDate;
+    if (!e) return Number.POSITIVE_INFINITY;
+    const [ey, em, ed] = e.slice(0, 10).split("-").map(Number);
+    return Date.UTC(ey, em - 1, ed);
+  })();
+  const effectiveEndMs = Math.min(cycleEndMs, pksEndCap);
 
   // Persentase dari PKS
   const pp1Pct = (pks.bagiHasilPP1 ?? 50) / 100;   // Owner (PP I)
@@ -113,19 +131,22 @@ function calcPksDistribution(
   let effectivePct = { pctTrader: pp2Pct * 100, pctMinBun: 0, pctBrokerI: 0, pctBrokerII: 0 };
 
   // Gross Profit & distribusi dihitung dari SATU transaksi TERBARU yang masih
-  // berstatus "berjalan" untuk investor ini dalam periode kontrak PKS — bukan
-  // dijumlahkan (agar tidak membengkak) dan bukan sembarang transaksi investor
-  // (harus dalam rentang kontrak PKS ini: [pksStart, pksEnd)).
-  // Trace: No PKS → investorId + periode kontrak → transaksi terkait → ambil
-  // transaksi berjalan terbaru. Gross Profit = calc.profit × ratio, sama dengan
-  // kolom "Profit" di halaman Transaksi (mis. modal 140 jt → ≈ 19.44 jt).
+  // berstatus "berjalan" untuk investor ini dalam window siklus berjalan PKS
+  // ([cycleStartMs, effectiveEndMs)) — bukan dijumlahkan (agar tidak membengkak)
+  // dan bukan sembarang transaksi investor. Untuk PKS autorenewal, hanya transaksi
+  // yang jatuh di siklus currentCycle yang masuk — bukan siklus lama yang sudah
+  // selesai/berakhir.
+  // Trace: No PKS → investorId + currentCycle (periode siklus) → transaksi terkait
+  // → ambil transaksi berjalan terbaru. Gross Profit = calc.profit (profit total
+  // transaksi, sama dengan kolom "Profit" di halaman Transaksi, mis. modal 140 jt
+  // → ≈ 19.44 jt).
   let latest: Transaksi | null = null;
   let latestMs = 0;
   for (const t of transaksis) {
     const [ty, tm, td] = (t.date as string).slice(0, 10).split("-").map(Number);
     const tDate = Date.UTC(ty, tm - 1, td);
-    // Transaksi harus dalam periode kontrak PKS ini
-    if (tDate < pksStart || tDate >= pksEnd) continue;
+    // Transaksi harus jatuh dalam window siklus berjalan PKS ini
+    if (tDate < cycleStartMs || tDate >= effectiveEndMs) continue;
     if (effectiveStatus(t) !== "berjalan") continue;
     const entry = t.investorEntries.find(
       (e) => e.investorId === pks.investorId && e.nilaiInvestasi > 0,
