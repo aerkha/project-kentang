@@ -21,8 +21,12 @@ pb_migrations/
 
 # Diagnostic & maintenance scripts — tidak perlu di repo
 # (README.md dan *.sh tetap dilacak karena berguna untuk deployment)
+# Pakai **/ untuk recursive — scripts/*.csv tidak match scripts/output/*.csv.
 scripts/*.mjs
+scripts/**/*.mjs
 scripts/*.csv
+scripts/**/*.csv
+scripts/output/
 
 # Next.js build output
 .next/
