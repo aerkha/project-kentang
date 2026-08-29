@@ -4,6 +4,7 @@
 import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
 import { todayWibStr, parsePeriodeDays, endDatePks } from "@/lib/utils";
+import { getPbBaseUrl } from "@/lib/pb-base-url";
 
 // PATCH (serius #8): konstanta string untuk deteksi konflik unique agar tidak
 // rapuh terhadap perubahan struktur error PocketBase di versi SDK mendatang.
@@ -747,7 +748,7 @@ export async function runReminders(triggeredBy: TriggeredBy): Promise<ReminderRe
     return { status: 500, body: { error: "Service account tidak dikonfigurasi" } };
   }
 
-  const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL?.trim());
+  const pb = new PocketBase(getPbBaseUrl());
 
   try {
     await pb.collection("users").authWithPassword(serviceEmail, servicePassword);

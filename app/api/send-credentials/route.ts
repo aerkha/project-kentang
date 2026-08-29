@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import nodemailer from "nodemailer";
 import { isSameOriginRequest } from "@/lib/pb-error";
+import { getPbBaseUrl } from "@/lib/pb-base-url";
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
     try {
-      const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+      const pb = new PocketBase(getPbBaseUrl());
       pb.authStore.save(pbToken, null);
       const caller = await pb.collection("users").authRefresh();
       if ((caller.record as Record<string, unknown>)?.role !== "admin") {

@@ -1,6 +1,10 @@
 import { withSentryConfig } from "@sentry/nextjs";
 
 /** @type {import('next').NextConfig} */
+// CATATAN: Logika normalisasi URL PocketBase (strip `/_/`, `/api`,
+// trailing slash) ada di `lib/pocketbase.ts → getPbBaseUrl()`. next.config
+// tidak bisa import dari TypeScript langsung, jadi kita duplikasi
+// logika minimal di sini: url.origin selalu host:port tanpa path.
 const PB_ORIGIN = (() => {
   const raw = process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
   try {

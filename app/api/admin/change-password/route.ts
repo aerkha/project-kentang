@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import { isSameOriginRequest } from "@/lib/pb-error";
+import { getPbBaseUrl } from "@/lib/pb-base-url";
 
 /**
  * POST /api/admin/change-password
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
 
   // Cek token valid dan role = admin
   try {
-    const pbCaller = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+    const pbCaller = new PocketBase(getPbBaseUrl());
     pbCaller.authStore.save(pbToken, null);
     const refreshed = await pbCaller.collection("users").authRefresh();
     const role = (refreshed.record as Record<string, unknown>).role as string | undefined;
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const pbService = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+    const pbService = new PocketBase(getPbBaseUrl());
     await pbService.collection("users").authWithPassword(serviceEmail, servicePassword);
     await pbService.collection("users").update(userId, { password, passwordConfirm });
     return NextResponse.json({ ok: true });

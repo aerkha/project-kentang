@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import { isSameOriginRequest } from "@/lib/pb-error";
+import { getPbBaseUrl } from "@/lib/pb-base-url";
 
 /**
  * POST /api/change-password
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
 
   let callerId: string;
   try {
-    const pbCaller = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+    const pbCaller = new PocketBase(getPbBaseUrl());
     pbCaller.authStore.save(pbToken, null);
     const refreshed = await pbCaller.collection("users").authRefresh();
     callerId = (refreshed.record as Record<string, unknown>).id as string;
@@ -87,7 +88,7 @@ export async function POST(req: NextRequest) {
   // 3. Update record milik caller sendiri memakai token caller.
   //    PocketBase akan memverifikasi oldPassword di sisi server.
   try {
-    const pbCaller = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+    const pbCaller = new PocketBase(getPbBaseUrl());
     pbCaller.authStore.save(pbToken, null);
     await pbCaller.collection("users").update(callerId, {
       oldPassword,

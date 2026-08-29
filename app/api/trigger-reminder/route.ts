@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import { runReminders } from "@/lib/send-reminders-core";
 import { createLogger } from "@/lib/api-logger";
+import { getPbBaseUrl } from "@/lib/pb-base-url";
 
 
 const log = createLogger("trigger-reminder");
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
 
   // 2. Verifikasi token ke PocketBase — hanya admin yang boleh trigger
   try {
-    const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+    const pb = new PocketBase(getPbBaseUrl());
     pb.authStore.save(pbToken, null);
     const user = await pb.collection("users").authRefresh();
 

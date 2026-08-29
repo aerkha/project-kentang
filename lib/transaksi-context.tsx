@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useMemo, useState, useEffect, useRef, type ReactNode } from "react";
 import pb from "./pocketbase";
+import { getPbBaseUrl } from "./pb-base-url";
 
 const currentUserId = () => pb.authStore.record?.id ?? "";
 
@@ -93,7 +94,7 @@ export const BUKTI_FIELD_TRX: Record<string, string> = {
   MinBun:   "buktiMinBun",
 };
 
-const PB_BASE = process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
+const PB_BASE = getPbBaseUrl();
 
 function pbFileUrlTrx(pbRecordId: string, fieldValue: unknown): string {
   const filename = Array.isArray(fieldValue)

@@ -4,6 +4,7 @@ import nodemailer from "nodemailer";
 import { isSameOriginRequest } from "@/lib/pb-error";
 import { todayWibStr } from "@/lib/utils";
 import { createLogger } from "@/lib/api-logger";
+import { getPbBaseUrl } from "@/lib/pb-base-url";
 
 
 const log = createLogger("notify-investor");
@@ -534,7 +535,7 @@ export async function POST(req: NextRequest) {
 
   let pb: PocketBase;
   try {
-    pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+    pb = new PocketBase(getPbBaseUrl());
     pb.authStore.save(pbToken, null);
     const caller = await pb.collection("users").authRefresh();
     const callerRecord = caller.record as Record<string, unknown>;

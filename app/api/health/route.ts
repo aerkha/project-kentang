@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import PocketBase from "pocketbase";
+import { getPbBaseUrl } from "@/lib/pb-base-url";
 
 /**
  * GET /api/health
@@ -79,8 +80,10 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
 
   // ── 3. PocketBase connectivity check ─────────────────────────────────────
   let pbLatency: number | null = null;
-  const pbUrl = process.env.NEXT_PUBLIC_PB_URL;
-  if (pbUrl && pbUrl.trim() !== "") {
+  // getPbBaseUrl() men-trim suffix path (`/_/`, `/api`, trailing slash) &
+  // mengembalikan fallback `http://127.0.0.1:8090` ketika env kosong.
+  const pbUrl = getPbBaseUrl();
+  if (pbUrl) {
     const pbStart = Date.now();
     try {
       const pb = new PocketBase(pbUrl);

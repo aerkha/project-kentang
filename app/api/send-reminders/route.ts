@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runReminders, runRemindersTest } from "@/lib/send-reminders-core";
+import { getPbBaseUrl } from "@/lib/pb-base-url";
 
 /**
  * 1. GET /api/send-reminders
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
     }
     const PocketBase = (await import("pocketbase")).default;
-    const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+    const pb = new PocketBase(getPbBaseUrl());
     pb.authStore.save(pbToken, null);
     const caller = await pb.collection("users").authRefresh();
     if ((caller.record as Record<string, unknown>)?.role !== "admin") {

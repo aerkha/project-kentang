@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import { isSameOriginRequest } from "@/lib/pb-error";
+import { getPbBaseUrl } from "@/lib/pb-base-url";
 
 /**
  * POST /api/link-hybrid-user
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const pbCaller = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+    const pbCaller = new PocketBase(getPbBaseUrl());
     pbCaller.authStore.save(pbToken, null);
     const refreshed = await pbCaller.collection("users").authRefresh();
     const callerRole = (refreshed.record as Record<string, unknown>).role as string | undefined;
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const pbService = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+  const pbService = new PocketBase(getPbBaseUrl());
   try {
     await pbService.collection("users").authWithPassword(serviceEmail, servicePassword);
   } catch (err) {

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
 import pb from "./pocketbase";
+import { getPbBaseUrl } from "./pb-base-url";
 import { todayWibStr } from "./utils";
 
 const currentUserId = () => pb.authStore.record?.id ?? "";
@@ -96,7 +97,7 @@ interface PksContextType {
 
 const PksContext = createContext<PksContextType | undefined>(undefined);
 
-const PB_BASE = () => process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
+const PB_BASE = () => getPbBaseUrl();
 
 /** Konversi base64 data URL ke File object untuk upload ke PocketBase */
 function base64ToFile(dataUrl: string, fieldName: string): File {

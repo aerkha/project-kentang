@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import PocketBase from "pocketbase";
 import { isSameOriginRequest } from "@/lib/pb-error";
+import { getPbBaseUrl } from "@/lib/pb-base-url";
 
 function fieldNumber(value: unknown): number {
   const n = typeof value === "number" ? value : Number(value ?? 0);
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const pb = new PocketBase(process.env.NEXT_PUBLIC_PB_URL);
+  const pb = new PocketBase(getPbBaseUrl());
   try {
     pb.authStore.save(token, null);
     const caller = await pb.collection("users").authRefresh();

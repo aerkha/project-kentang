@@ -1,7 +1,10 @@
 import PocketBase from "pocketbase";
+import { getPbBaseUrl } from "./pb-base-url";
 
-const PB_URL =
-  process.env.NEXT_PUBLIC_PB_URL || "http://127.0.0.1:8090";
+// `const PB_URL = getPbBaseUrl()` di-evaluasi saat module load.
+// Kalau env invalid, Surface error sedini mungkin (gagal import modul
+// lebih baik daripada gagal 100 request kemudian).
+const PB_URL = getPbBaseUrl();
 
 const pb = new PocketBase(PB_URL);
 
@@ -17,5 +20,10 @@ export function getPb(): PocketBase {
   }
   return pb;
 }
+
+// Re-export untuk backward compatibility. Sebaiknya import langsung dari
+// `./pb-base-url` di code baru — terutama route handler yang mock
+// `pocketbase` (supaya tidak trigger module-side-effects ini).
+export { getPbBaseUrl };
 
 export default pb;

@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 
 // Mock pocketbase agar PksContext tidak membuat instance PocketBase hidup
 // ketika modul di-load (PksProvider memicu getFullList di useEffect).
+// getPbBaseUrl() di-mock agar `pbFileUrl(...)` dengan filename non-kosong
+// bisa return URL lengkap di test.
 vi.mock("@/lib/pocketbase", () => ({
   default: {
     authStore: { record: { id: "user-1", role: "admin" } },
@@ -13,6 +15,7 @@ vi.mock("@/lib/pocketbase", () => ({
       authRefresh: vi.fn().mockResolvedValue({ record: { role: "admin" } }),
     }),
   },
+  getPbBaseUrl: () => "http://example.test",
 }));
 
 import { recordToPks, pbFileUrl } from "@/lib/pks-context";
